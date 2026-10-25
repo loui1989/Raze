@@ -49,7 +49,16 @@ void CalculateCPUSpeed()
 	long long frequency;
 	size_t size = sizeof frequency;
 
+#if defined(__aarch64__)
+	// Apple silicon has no TSC: rdtsc() reads the generic timer (cntvct_el0), whose rate is in cntfrq_el0
+	uint64_t counterFrequency = 0;
+	asm volatile("mrs %0, cntfrq_el0" : "=r"(counterFrequency));
+	frequency = (long long)counterFrequency;
+	(void)size;
+	if (0 != frequency)
+#else
 	if (0 == sysctlbyname("machdep.tsc.frequency", &frequency, &size, nullptr, 0) && 0 != frequency)
+#endif
 	{
 		PerfToSec = 1.0 / frequency;
 		PerfToMillisec = 1000.0 / frequency;
