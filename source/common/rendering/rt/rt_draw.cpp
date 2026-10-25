@@ -257,7 +257,7 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
     // RTGL1 reads the override files when the texture is given, so they come first
     if( materials && !( flags & CTF_Indexed ) )
     {
-        m_hasEmission = RT_PrepareMaterialOverrides( src, name, texbuffer );
+        m_hasEmission = RT_PrepareMaterialOverrides( src, name, texbuffer, m_emisAvg );
     }
 
     auto details = RgOriginalTextureDetailsEXT{
@@ -438,9 +438,9 @@ void RTRenderState::RT_SetMatrices( const VSMatrix& view, const VSMatrix& proj )
     }
 }
 
-auto RTRenderState::ResolveTexture( bool clamped, bool* outEmission ) -> const char*
+auto RTRenderState::ResolveTexture( bool clamped, const RTHardwareTexture** outTex ) -> const char*
 {
-    *outEmission = false;
+    *outTex = nullptr;
     if( !mTextureEnabled || !mMaterial.mMaterial )
     {
         return nullptr;
@@ -468,7 +468,7 @@ auto RTRenderState::ResolveTexture( bool clamped, bool* outEmission ) -> const c
         return hwtex->GetRTNameClamped();
     }
     hwtex->CreateIfWasnt( *gametex, mMaterial.mTranslation, scaleflags, mRenderStyle );
-    *outEmission = hwtex->HasEmission();
+    *outTex = hwtex;
     return hwtex->GetRTName();
 }
 
@@ -700,8 +700,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
 
     // HUD and menu pictures are clamped at the edges, unless they are meant to tile
     const bool clampUI  = isUI && mMaterial.mClampMode != CLAMP_NONE;
-    bool       emissionMap = false;
-    const char* texname = ( isSkyVis || isMirror ) ? nullptr : ResolveTexture( clampUI, &emissionMap );
+    const RTHardwareTexture* hwtex = nullptr;
+    const char* texname     = ( isSkyVis || isMirror ) ? nullptr : ResolveTexture( clampUI, &hwtex );
+    const bool  emissionMap = hwtex && hwtex->HasEmission() && !isUI && !isSky;
 
     if( isUI && !islines && m_scissor[ 2 ] >= 0 && m_scissor[ 3 ] >= 0 )
     {
@@ -923,6 +924,102 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         return;
     }
     m_drawsThisFrame++;
+
+    // a glowing surface lights the room with a real light, which the path tracer
+    // samples directly (its emission alone only shows up in the bounce light, grainy)
+    if( emissionMap && *rt_emis_lights && !rtstate.is< RtPrim::Sprite >() )
+    {
+        AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(),
+                          FRtState::MixId( uniqueId * 31 + prim.primitiveIndexInMesh, RtIdKind::Other ) );
+    }
+}
+
+void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts,
+                                      std::span< const uint32_t >          indices,
+                                      const RgTransform&                   transform,
+                                      const float                          avg[ 3 ],
+                                      uint64_t                             id )
+{
+    const float lum = 0.2126f * avg[ 0 ] + 0.7152f * avg[ 1 ] + 0.0722f * avg[ 2 ];
+    if( lum <= 1e-4f )
+    {
+        return;
+    }
+
+    auto xf = [ &transform ]( const float* p ) {
+        const auto& m = transform.matrix;
+        return FVector3{ m[ 0 ][ 0 ] * p[ 0 ] + m[ 0 ][ 1 ] * p[ 1 ] + m[ 0 ][ 2 ] * p[ 2 ] + m[ 0 ][ 3 ],
+                         m[ 1 ][ 0 ] * p[ 0 ] + m[ 1 ][ 1 ] * p[ 1 ] + m[ 1 ][ 2 ] * p[ 2 ] + m[ 1 ][ 3 ],
+                         m[ 2 ][ 0 ] * p[ 0 ] + m[ 2 ][ 1 ] * p[ 1 ] + m[ 2 ][ 2 ] * p[ 2 ] + m[ 2 ][ 3 ] };
+    };
+
+    // area and centre (area weighted) of the triangles
+    const size_t triCount = indices.empty() ? verts.size() / 3 : indices.size() / 3;
+    double       area     = 0;
+    FVector3     centre{ 0, 0, 0 };
+    for( size_t t = 0; t < triCount; t++ )
+    {
+        size_t i0 = t * 3, i1 = t * 3 + 1, i2 = t * 3 + 2;
+        if( !indices.empty() )
+        {
+            i0 = indices[ i0 ];
+            i1 = indices[ i1 ];
+            i2 = indices[ i2 ];
+        }
+        if( i0 >= verts.size() || i1 >= verts.size() || i2 >= verts.size() )
+        {
+            continue;
+        }
+        const FVector3 a = xf( verts[ i0 ].position ), b = xf( verts[ i1 ].position ), c = xf( verts[ i2 ].position );
+        const double   ta = 0.5 * ( ( b - a ) ^ ( c - a ) ).Length();
+        area += ta;
+        centre += ( a + b + c ) * float( ta / 3.0 );
+    }
+    if( area < 1e-4 )
+    {
+        return;
+    }
+    centre /= float( area );
+
+    // the side the surface is seen from: the renderer's normal (GL axes: x, up, y)
+    const FVector4& gn = mStreamData.uVertexNormal;
+    FVector3        n{ gn.X, gn.Z, gn.Y };
+    if( n.LengthSquared() < 0.25f )
+    {
+        return;
+    }
+    n.MakeUnit();
+
+    const float lumens = *rt_emis_light_scale * lum * float( area );
+    if( lumens < 0.5f )
+    {
+        return;
+    }
+
+    const float    offset = 0.12f;
+    const FVector3 pos    = centre + n * offset;
+
+    // the colour of the glow, at full brightness
+    const float mx = std::max( { avg[ 0 ], avg[ 1 ], avg[ 2 ] } );
+
+    auto spot = RgLightSpotEXT{
+        .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
+        .pNext      = nullptr,
+        .color      = rt.rgUtilPackColorFloat4D( avg[ 0 ] / mx, avg[ 1 ] / mx, avg[ 2 ] / mx, 1.f ),
+        .intensity  = lumens,
+        .position   = { pos.X, pos.Y, pos.Z },
+        .direction  = { n.X, n.Y, n.Z },
+        .radius     = std::clamp( float( std::sqrt( area ) ) * 0.3f, 0.03f, 0.5f ),
+        .angleOuter = 89.f * 3.14159265f / 180.f,
+        .angleInner = 60.f * 3.14159265f / 180.f,
+    };
+    auto info = RgLightInfo{
+        .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+        .pNext        = &spot,
+        .uniqueID     = id,
+        .isExportable = false,
+    };
+    RG_CHECK( rt.rgUploadLight( &info ) );
 }
 
 } // namespace rtx

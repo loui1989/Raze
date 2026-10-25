@@ -453,6 +453,17 @@ void ConstructTileset()
 		texExtInfo[i + firstarttile] = info.tile[i].extinfo;
 	}
 
+	// Build tiles are appended after TexMan.AddTextures() has already done its auto
+	// material pass (materials/glowmaps/auto/#01234.png and friends), so the tiles need
+	// their own. (From Duke-RT.)
+	for (int i = firstarttile; i <= lastid; i++)
+	{
+		if (auto tex = TexMan.GameByIndex(i))
+		{
+			tex->AddAutoMaterials();
+		}
+	}
+
 	LoadAliases(firstarttile, maxarttile);
 
 	for (auto& a : info.aliases)

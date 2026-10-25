@@ -109,5 +109,7 @@ EXTERN_CVAR( Float, rt_fullbright_emis )
 EXTERN_CVAR( Float, rt_additive_emis )
 EXTERN_CVAR( Int, rt_debug_uniqueid )
 EXTERN_CVAR( Float, rt_emis_mult )
+EXTERN_CVAR( Bool, rt_emis_lights )
+EXTERN_CVAR( Float, rt_emis_light_scale )
 
 void RT_UploadSceneLights( uint32_t time ); // rt_lights.cpp

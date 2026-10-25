@@ -42,7 +42,9 @@ CVARD( Float, rt_fullbright_emis, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: em
 CVARD( Float, rt_additive_emis, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: emission of additive sprites (explosions, fire)" )
 CVARD( Float, rt_sky, 25.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky brightness (its light on the scene)" )
 CVARD( Float, rt_emis_mult, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much glowing surfaces light their surroundings" )
-CVARD( Float, rt_emis_boost, 200.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: RTGL1's emission map boost (bounce light from glowing surfaces)" )
+CVARD( Bool, rt_emis_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing surfaces cast real light" )
+CVARD( Float, rt_emis_light_scale, 400.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the light glowing surfaces cast" )
+CVARD( Float, rt_emis_boost, 50.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: RTGL1's emission map boost (bounce light from glowing surfaces)" )
 CVARD( Float, rt_emis_screen, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: on-screen brightness of glowing surfaces" )
 CVARD( Int, rt_texture_filter, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0 nearest (pixelated), 1 linear" )
 CVARD( Float, rt_ev100_min, 2.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adaptation, darkest exposure (lower = dark scenes brighter)" )
@@ -61,6 +63,7 @@ CVARD( Float, rt_flashlight_radius, 0.02f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT
 CVARD( Color, rt_flashlight_color, 0xffbe82, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: flashlight colour" )
 CVARD( Bool, rt_precache, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: give RTGL1 the level's textures when it loads, not when first seen" )
 CVARD( Int, rt_precache_budget, 2000, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: at most this many textures precached per session (RTGL1 holds 4096)" )
+CVARD( Int, rt_config_version, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: settings version (old defaults are updated once)" )
 CVARD( Int, rt_debug_uniqueid, 0, 0, "RT: print draws the scene code did not give an id" )
 CVARD( Bool, rt_debug_stats, false, 0, "RT: print upload counts every few seconds" )
 
@@ -303,6 +306,16 @@ void RT_CreateRendererInstance( void* pMetalLayer )
 
     g_rtActive = true;
     Printf( "RT: RTGL1 started\n" );
+
+    // settings saved by earlier versions with defaults that have changed since
+    if( *rt_config_version < 2 )
+    {
+        rt_flashlight      = false;
+        rt_sky             = 25.f;
+        rt_fullbright_emis = 1.f;
+        rt_emis_boost      = 50.f;
+        rt_config_version  = 2;
+    }
 }
 
 void RT_DestroyRendererInstance()

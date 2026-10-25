@@ -85,8 +85,9 @@ std::unordered_set< std::string > g_made; // this session
 
 const std::string& RT_GetOverrideFolder();
 
-bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo )
+bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, float outAvg[ 3 ] )
 {
+    outAvg[ 0 ] = outAvg[ 1 ] = outAvg[ 2 ] = 0.f;
     if( !*rt_materials || name.empty() || !albedo.mBuffer )
     {
         return false;
@@ -95,12 +96,21 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     const std::filesystem::path dir = std::filesystem::path( RT_GetOverrideFolder() ) / "mat_dev";
     const auto pathE   = dir / ( name + "_e.png" );
     const auto pathORM = dir / ( name + "_orm.png" );
-    const auto pathNoE = dir / ( name + "_e.none" ); // looked, nothing glows
+    const auto pathNoE = dir / ( name + "_e.v2none" ); // looked, nothing glows
+    const auto pathAvg = dir / ( name + "_e.v2avg" );  // the emission map's average colour (linear)
 
     const bool regen = *rt_materials_regen && g_made.insert( name ).second;
 
     std::error_code ec;
-    bool hasE   = !regen && std::filesystem::exists( pathE, ec );
+    bool hasE = false;
+    if( !regen && std::filesystem::exists( pathE, ec ) )
+    {
+        if( FILE* f = fopen( pathAvg.string().c_str(), "rb" ) )
+        {
+            hasE = fscanf( f, "%f %f %f", &outAvg[ 0 ], &outAvg[ 1 ], &outAvg[ 2 ] ) == 3;
+            fclose( f );
+        }
+    }
     bool noE    = !regen && !hasE && std::filesystem::exists( pathNoE, ec );
     bool hasORM = !regen && std::filesystem::exists( pathORM, ec );
 
@@ -121,6 +131,11 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         {
             std::vector< uint8_t > rgb( size_t( w ) * h * 3 );
             int                    lit = 0;
+            double                 sum[ 3 ] = {};
+            auto toLinear = []( uint8_t c ) {
+                const double v = c / 255.0;
+                return v * v;
+            };
             for( int y = 0; y < h; y++ )
             {
                 for( int x = 0; x < w; x++ )
@@ -132,11 +147,23 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                     o[ 1 ] = uint8_t( a[ 1 ] * m / 255 );
                     o[ 2 ] = uint8_t( a[ 0 ] * m / 255 );
                     lit += ( o[ 0 ] | o[ 1 ] | o[ 2 ] ) > 8;
+                    sum[ 0 ] += toLinear( o[ 0 ] );
+                    sum[ 1 ] += toLinear( o[ 1 ] );
+                    sum[ 2 ] += toLinear( o[ 2 ] );
                 }
             }
             if( lit > 0 && WritePNG( pathE, rgb, w, h ) )
             {
                 hasE = true;
+                for( int k = 0; k < 3; k++ )
+                {
+                    outAvg[ k ] = float( sum[ k ] / ( double( w ) * h ) );
+                }
+                if( FILE* f = fopen( pathAvg.string().c_str(), "wb" ) )
+                {
+                    fprintf( f, "%f %f %f\n", outAvg[ 0 ], outAvg[ 1 ], outAvg[ 2 ] );
+                    fclose( f );
+                }
             }
         }
         if( !hasE )

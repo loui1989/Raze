@@ -28,9 +28,10 @@ CVARD( Float, rt_lightovr_scale, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: br
 CVARD( Float, rt_lightovr_sunscale, 20.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the LIGHTOVR directional light (lux per unit)" )
 CVARD( Bool, rt_lightovr_actors, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: LIGHTOVR actor lights (fire, explosions, projectiles)" )
 CVARD( Bool, rt_sector_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a soft light in every lit indoor sector" )
-CVARD( Float, rt_sector_light_scale, 20.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the sector lights" )
+CVARD( Float, rt_sector_light_scale, 30.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the sector lights" )
 CVARD( Float, rt_sector_light_min, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sectors darker than this (0..1 of full light) get no sector light" )
 CVARD( Float, rt_sector_light_height, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector light height, 0 = at the ceiling, 1 = on the floor" )
+CVARD( Float, rt_sector_light_smooth, 0.15f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how fast sector lights follow shade changes (1 = at once)" )
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
 
 namespace
@@ -127,6 +128,17 @@ void UploadSectorLights()
 
     const float ns = float( std::max( numshades, 2 ) );
 
+    // Build's flickering and strobing sectors change their shade every tic; following
+    // that exactly makes the denoiser's history useless (splotchy shadows), so the
+    // light follows it softly.
+    static std::vector< float > s_smoothed;
+    static const void*          s_level = nullptr;
+    if( s_smoothed.size() != sector.Size() || s_level != currentLevel )
+    {
+        s_smoothed.assign( sector.Size(), -1.f );
+        s_level = currentLevel;
+    }
+
     for( unsigned i = 0; i < sector.Size(); i++ )
     {
         const sectortype& sec = sector[ i ];
@@ -173,8 +185,11 @@ void UploadSectorLights()
         }
         const double z = sec.ceilingz + height * std::clamp( float( *rt_sector_light_height ), 0.02f, 0.98f );
 
-        const float lumens = *rt_sector_light_scale * level * level *
-                             float( std::clamp( std::sqrt( areaM2 ), 1.0, 25.0 ) );
+        float lumens = *rt_sector_light_scale * level * level *
+                       float( std::clamp( std::sqrt( areaM2 ), 1.0, 25.0 ) );
+        float& sm = s_smoothed[ i ];
+        sm        = sm < 0.f ? lumens : sm + ( lumens - sm ) * std::clamp( float( *rt_sector_light_smooth ), 0.01f, 1.f );
+        lumens    = sm;
 
         UploadSphere( SectorLightBase + i, WorldToRT( cx, cy, z ), RG_PACKED_COLOR_WHITE, lumens, 0.25f );
     }

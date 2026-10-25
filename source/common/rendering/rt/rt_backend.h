@@ -253,6 +253,7 @@ public:
         return m_createdClamped && !m_nameClamped.empty() ? m_nameClamped.c_str() : nullptr;
     }
     bool HasEmission() const { return m_hasEmission; }
+    const float* EmissionAverage() const { return m_emisAvg; }
 
 private:
     static auto TranslationSuffix( int translation ) -> std::string;
@@ -264,13 +265,14 @@ private:
     bool        m_createdClamped{ false };
     bool        m_dynamic{ false }; // no name of its own (movie frames...): unique name, freed with this
     bool        m_hasEmission{ false };
+    float       m_emisAvg[ 3 ]{};
     std::string m_name{};
     std::string m_nameClamped{};
 };
 
 // Duke-RT's material maps (the overlay's materials/glowmaps, roughness, metallic) as
 // RTGL1 overrides in <rt>/mat_dev. Returns true if an emission map exists for 'name'.
-bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo );
+bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, float outAvg[ 3 ] );
 
 //
 // The frame and its render state
@@ -399,7 +401,12 @@ private:
                        bool                                 islines = false );
 
     auto MakeTransform( bool isSky, bool isModel ) const -> RgTransform;
-    auto ResolveTexture( bool clamped, bool* outEmission ) -> const char*;
+    auto ResolveTexture( bool clamped, const RTHardwareTexture** outTex ) -> const char*;
+    void AddEmissionLight( std::span< const RgPrimitiveVertex > verts,
+                           std::span< const uint32_t >          indices,
+                           const RgTransform&                   transform,
+                           const float                          avg[ 3 ],
+                           uint64_t                             id );
     auto ClipToScissor( std::span< const RgPrimitiveVertex > verts, std::span< const uint32_t > indices )
         -> std::span< const RgPrimitiveVertex >;
     auto FallbackUniqueId( std::span< const RgPrimitiveVertex > verts, const char* texname ) const -> uint64_t;
