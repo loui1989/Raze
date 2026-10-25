@@ -43,7 +43,16 @@ CVARD( Float, rt_additive_emis, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: emis
 CVARD( Float, rt_sky, 25.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky brightness (its light on the scene)" )
 CVARD( Float, rt_emis_mult, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much glowing surfaces light their surroundings" )
 CVARD( Bool, rt_emis_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing surfaces cast real light" )
-CVARD( Float, rt_emis_light_scale, 400.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the light glowing surfaces cast" )
+CVARD( Float, rt_emis_light_scale, 300.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the light glowing surfaces cast" )
+CVARD( Float, rt_emis_gi, 0.25f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: with rt_emis_lights, how much bounce light a glowing texture still gives itself" )
+CVARD( Float, rt_ambient, 0.04f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: faint glow of every surface by its sector's light level, so unlit places are dark rather than black" )
+CVARD( Bool, rt_polish, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: textures with smooth texels (roughness maps) mirror the room" )
+CVARD( Float, rt_world_pbr, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much of the walls' and floors' roughness and metallic maps to use" )
+CVARD( Float, rt_sprite_pbr, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for sprites" )
+CVARD( Float, rt_metallic_max, 0.9f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ceiling on metalness (a metal has no diffuse light of its own)" )
+CVARD( Bool, rt_muzzleflash, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: shooting lights the room" )
+CVARD( Float, rt_muzzleflash_intensity, 250.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash brightness" )
+CVARD( Color, rt_muzzleflash_color, 0xffa860, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash colour" )
 CVARD( Float, rt_emis_boost, 50.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: RTGL1's emission map boost (bounce light from glowing surfaces)" )
 CVARD( Float, rt_emis_screen, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: on-screen brightness of glowing surfaces" )
 CVARD( Int, rt_texture_filter, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0 nearest (pixelated), 1 linear" )
@@ -315,6 +324,12 @@ void RT_CreateRendererInstance( void* pMetalLayer )
         rt_fullbright_emis = 1.f;
         rt_emis_boost      = 50.f;
         rt_config_version  = 2;
+    }
+    if( *rt_config_version < 3 )
+    {
+        rt_sector_light_scale->ResetToDefault();
+        rt_emis_light_scale->ResetToDefault();
+        rt_config_version = 3;
     }
 }
 
@@ -594,6 +609,35 @@ void RTFrameBuffer::RT_UploadLights()
 
         RG_CHECK( rt.rgUploadLight( &light ) );
     }
+
+    // the game says how bright its weapon flash is (Duke: the player's visibility dip)
+    if( *rt_muzzleflash && g_rtMuzzleFlash > 0.01f && *rt_muzzleflash_intensity > 0.f )
+    {
+        // ahead of the gun, a little low; near enough not to end up behind a wall
+        const float fwd = 0.45f, down = 0.15f;
+        RgFloat3D   p   = {
+            m_camPos.data[ 0 ] + m_camForward.data[ 0 ] * fwd - m_camUp.data[ 0 ] * down,
+            m_camPos.data[ 1 ] + m_camForward.data[ 1 ] * fwd - m_camUp.data[ 1 ] * down,
+            m_camPos.data[ 2 ] + m_camForward.data[ 2 ] * fwd - m_camUp.data[ 2 ] * down,
+        };
+        const uint32_t c = *rt_muzzleflash_color;
+
+        auto sphere = RgLightSphericalEXT{
+            .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
+            .pNext     = nullptr,
+            .color     = rt.rgUtilPackColorByte4D( RPART( c ), GPART( c ), BPART( c ), 255 ),
+            .intensity = *rt_muzzleflash_intensity * std::min( g_rtMuzzleFlash, 1.f ),
+            .position  = p,
+            .radius    = 0.05f,
+        };
+        auto light = RgLightInfo{
+            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+            .pNext        = &sphere,
+            .uniqueID     = MuzzleFlashLightId,
+            .isExportable = false,
+        };
+        RG_CHECK( rt.rgUploadLight( &light ) );
+    }
 }
 
 void RTFrameBuffer::RT_DrawFrame()
@@ -668,6 +712,18 @@ void RTFrameBuffer::RT_DrawFrame()
         .emissionMaxScreenColor = std::max( 0.f, float( *rt_emis_screen ) ),
         .minRoughness           = 0.0f,
         .heightMapDepth         = 0.02f,
+        // the material pass: RTGL1's own defaults for these leave every surface a
+        // plain matte dielectric (worldPbr 0), so they must be given
+        .forceNonMetallic       = false,
+        .metallicMax            = std::clamp( float( *rt_metallic_max ), 0.f, 1.f ),
+        .metallicRoughCut       = 0.7f,
+        .metallicRoughBand      = 0.3f,
+        .spritePbr              = std::clamp( float( *rt_sprite_pbr ), 0.f, 1.f ),
+        .spriteMetallicMax      = 0.9f,
+        .spriteRoughMin         = 0.0f,
+        .spriteNormalStrength   = 1.0f,
+        .worldPbr               = std::clamp( float( *rt_world_pbr ), 0.f, 1.f ),
+        .albedoFilterMode       = 0,
     };
 
     auto tonemap = RgDrawFrameTonemappingParams{

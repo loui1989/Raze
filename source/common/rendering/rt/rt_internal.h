@@ -43,7 +43,8 @@ constexpr auto RG_PACKED_COLOR_WHITE = RgColor4DPacked32{ 0xFFFFFFFF };
     }
 
 // Light ids, kept away from each other.
-constexpr uint64_t FlashlightLightId = 0xF0000000ull + 1;
+constexpr uint64_t FlashlightLightId   = 0xF0000000ull + 1;
+constexpr uint64_t MuzzleFlashLightId  = 0xF0000000ull + 2;
 
 void RT_Check( RgResult r, const char* what );
 #define RG_CHECK( r ) ::rtx::RT_Check( ( r ), #r )
@@ -111,5 +112,9 @@ EXTERN_CVAR( Int, rt_debug_uniqueid )
 EXTERN_CVAR( Float, rt_emis_mult )
 EXTERN_CVAR( Bool, rt_emis_lights )
 EXTERN_CVAR( Float, rt_emis_light_scale )
+EXTERN_CVAR( Float, rt_emis_gi )
+EXTERN_CVAR( Float, rt_ambient )
+EXTERN_CVAR( Bool, rt_polish )
+EXTERN_CVAR( Float, rt_sector_light_scale )
 
 void RT_UploadSceneLights( uint32_t time ); // rt_lights.cpp

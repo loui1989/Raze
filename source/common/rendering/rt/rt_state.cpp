@@ -5,4 +5,5 @@
 
 FRtState rtstate;
 bool     g_rtActive = false;
+float    g_rtMuzzleFlash = 0.f;
 int ( *RT_ActorRuleFlagsHook )( DCoreActor* actor ) = nullptr;

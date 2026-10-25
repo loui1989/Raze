@@ -254,6 +254,7 @@ public:
     }
     bool HasEmission() const { return m_hasEmission; }
     const float* EmissionAverage() const { return m_emisAvg; }
+    bool IsPolished() const { return m_polished; }
 
 private:
     static auto TranslationSuffix( int translation ) -> std::string;
@@ -266,13 +267,20 @@ private:
     bool        m_dynamic{ false }; // no name of its own (movie frames...): unique name, freed with this
     bool        m_hasEmission{ false };
     float       m_emisAvg[ 3 ]{};
+    bool        m_polished{ false };
     std::string m_name{};
     std::string m_nameClamped{};
 };
 
 // Duke-RT's material maps (the overlay's materials/glowmaps, roughness, metallic) as
 // RTGL1 overrides in <rt>/mat_dev. Returns true if an emission map exists for 'name'.
-bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, float outAvg[ 3 ] );
+struct RtMaterialInfo
+{
+    bool  hasEmission = false;
+    float emisAvg[ 3 ]{}; // the emission map's average colour, linear
+    bool  polished    = false;
+};
+bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, RtMaterialInfo& out );
 
 //
 // The frame and its render state
@@ -311,6 +319,7 @@ public:
     void RT_SetMainCamera( const DVector3& pos, const FRotator& hwangles, float fovDeg, float ratio, float fovratio );
 
     void RT_MarkWasSky() { m_wassky = true; }
+    const RgFloat3D& RT_CameraPosition() const { return m_camPos; }
     bool RT_IsFrameStarted() const { return m_frameStarted; }
 
 private:

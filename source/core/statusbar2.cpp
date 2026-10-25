@@ -64,6 +64,7 @@
 #include "razefont.h"
 #include "gamefuncs.h"
 #include "statistics.h"
+#include "rt_state.h"
 
 #include "../version.h"
 
@@ -126,7 +127,10 @@ void setViewport(int viewSize)
 	reserved.top = xs_CRoundToInt((reserved.top * hud_scalefactor * ydim) / 200);
 	reserved.statusbar = xs_CRoundToInt((reserved.statusbar * hud_scalefactor * ydim) / 200);
 
-	if (viewSize > Hud_Stbar)
+	// ray tracing renders the whole window and cannot be given a smaller view: the
+	// view must be the whole window (the status bar is drawn over it), or the
+	// crosshair and the aim would sit above the centre of the picture
+	if (viewSize > Hud_Stbar || RT_IsActive())
 	{
 		x0 = 0;
 		x1 = xdim;

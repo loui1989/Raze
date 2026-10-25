@@ -21,6 +21,10 @@
 // True while the ray tracing frame buffer is the active renderer. Scene hooks use
 // this so that the OpenGL path is untouched when RT is off.
 extern bool g_rtActive;
+
+// 0..1: how bright the player's weapon flash is this frame, set by the game before
+// it renders the view (the path tracer adds a light for it)
+extern float g_rtMuzzleFlash;
 inline bool RT_IsActive()
 {
     return g_rtActive;

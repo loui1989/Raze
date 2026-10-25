@@ -34,6 +34,7 @@ Modifications for JonoF's port by Jonathon Fowler (jf@jonof.id.au)
 #include "dukeactor.h"
 #include "interpolate.h"
 #include "render.h"
+#include "rt_state.h"
 
 // temporary hack to pass along RRRA's global fog. Needs to be done better later.
 extern PalEntry GlobalMapFog;
@@ -335,6 +336,9 @@ void displayrooms(int snum, double interpfrac, bool sceneonly)
 	auto cstat = viewer->spr.cstat;
 	if (camview) viewer->spr.cstat = CSTAT_SPRITE_INVISIBLE;
 	if (!sceneonly) drawweapon(interpfrac);
+	// ray tracing: the weapon flash (the visibility dip after a shot) as a light
+	g_rtMuzzleFlash = (!ud.fogactive && PlayClock < lastvisinc && ud.const_visibility > 0) ?
+		(float)clamp(1. - double(p->visibility) / ud.const_visibility, 0., 1.) : 0.f;
 	render_drawrooms(viewer, cpos, sect, cangles, interpfrac, fov);
 	viewer->spr.cstat = cstat;
 

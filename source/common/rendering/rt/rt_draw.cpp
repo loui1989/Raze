@@ -257,7 +257,10 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
     // RTGL1 reads the override files when the texture is given, so they come first
     if( materials && !( flags & CTF_Indexed ) )
     {
-        m_hasEmission = RT_PrepareMaterialOverrides( src, name, texbuffer, m_emisAvg );
+        RtMaterialInfo mi;
+        m_hasEmission = RT_PrepareMaterialOverrides( src, name, texbuffer, mi );
+        memcpy( m_emisAvg, mi.emisAvg, sizeof( m_emisAvg ) );
+        m_polished = mi.polished;
     }
 
     auto details = RgOriginalTextureDetailsEXT{
@@ -769,8 +772,16 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     const bool additive =
         mRenderStyle.BlendOp == STYLEOP_Add && mRenderStyle.DestAlpha == STYLEALPHA_One;
 
-    RgMeshPrimitiveFlags primFlags = 0;
-    float                emissive  = 0.f;
+    RgMeshPrimitiveFlags primFlags  = 0;
+    float                emissive   = 0.f;
+    float                emissiveGi = 0.f;
+
+    // classic (non path traced) brightness: the soft light level from the shade
+    float classic = 1.0f;
+    if( !isUI && mLightParms[ 3 ] >= 0.f )
+    {
+        classic = std::clamp( mLightParms[ 3 ], 0.f, 1.f );
+    }
 
     if( isUI )
     {
@@ -817,7 +828,8 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             primFlags |= RG_MESH_PRIMITIVE_ALPHA_TESTED;
         }
 
-        if( rtstate.is< RtPrim::Sprite >() )
+        const bool isSprite = rtstate.is< RtPrim::Sprite >();
+        if( isSprite )
         {
             primFlags |= RG_MESH_PRIMITIVE_SPRITE;
         }
@@ -827,14 +839,36 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         }
         if( emissionMap )
         {
-            // the emission map (from Duke-RT's glowmaps) is the glow; this is how much
-            // of it reaches the bounce light
-            primFlags |= RG_MESH_PRIMITIVE_EMISSIVE_OVERRIDE;
-            emissive = std::max( emissive, float( *rt_emis_mult ) );
+            // the emission map (from Duke-RT's glowmaps) is the glow, shown as it is;
+            // how much of it reaches the bounce light is separate. With a real light
+            // cast by the surface (rt_emis_lights), the bounce light from the texture
+            // itself is mostly redundant -- and it is the grainy, splotchy part
+            primFlags |= RG_MESH_PRIMITIVE_EMISSIVE_OVERRIDE | RG_MESH_PRIMITIVE_EMISSIVE_SCREEN_SCALED;
+            emissive   = 1.f;
+            emissiveGi = float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
         }
-        if( rtstate.is< RtPrim::Fullbright >() && *rt_fullbright_emis > 0.f )
+        else
         {
-            emissive = std::max( emissive, float( *rt_fullbright_emis ) );
+            if( rtstate.is< RtPrim::Fullbright >() && *rt_fullbright_emis > 0.f )
+            {
+                emissive = std::max( emissive, float( *rt_fullbright_emis ) );
+            }
+            // a floor under the path traced light, like Duke-RT's sector ambient: the
+            // surface glows faintly with its sector's classic light level, so a room
+            // the lights miss is dark rather than black (and it lights its
+            // surroundings a little, through the bounce light)
+            if( *rt_ambient > 0.f && !isMirror && !rtstate.is< RtPrim::Glass >() && !rtstate.is< RtPrim::Water >() )
+            {
+                emissive = std::max( emissive, float( *rt_ambient ) * classic );
+            }
+        }
+
+        // smooth texels (from the roughness map) mirror the room
+        if( hwtex && hwtex->IsPolished() && *rt_polish && !isSprite && !isModel && !additive &&
+            !( primFlags & ( RG_MESH_PRIMITIVE_GLASS | RG_MESH_PRIMITIVE_WATER | RG_MESH_PRIMITIVE_LAVA |
+                             RG_MESH_PRIMITIVE_ACID ) ) )
+        {
+            primFlags |= RG_MESH_PRIMITIVE_POLISHED;
         }
 
         primFlags |= RG_MESH_PRIMITIVE_FORCE_EXACT_NORMALS;
@@ -869,13 +903,6 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         .localLightsIntensity = 1.0f,
     };
 
-    // classic (non path traced) brightness, for rt_classic: the soft light level
-    float classic = 1.0f;
-    if( !isUI && mLightParms[ 3 ] >= 0.f )
-    {
-        classic = std::clamp( mLightParms[ 3 ], 0.f, 1.f );
-    }
-
     auto prim = RgMeshPrimitiveInfo{
         .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
         .pNext                = isUI ? &ui : nullptr,
@@ -890,7 +917,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         .color                = primColor,
         .emissive             = emissive,
         .classicLight         = classic,
-        .emissiveGi           = 0.f,
+        .emissiveGi           = emissiveGi,
     };
 
     if( *rt_debug_uniqueid && !isUI && !rtstate.has_uniqueid() )
@@ -927,7 +954,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
 
     // a glowing surface lights the room with a real light, which the path tracer
     // samples directly (its emission alone only shows up in the bounce light, grainy)
-    if( emissionMap && *rt_emis_lights && !rtstate.is< RtPrim::Sprite >() )
+    if( emissionMap && *rt_emis_lights && !rtstate.is< RtPrim::Sprite >() && !isUI && !isSky )
     {
         AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(),
                           FRtState::MixId( uniqueId * 31 + prim.primitiveIndexInMesh, RtIdKind::Other ) );
@@ -981,7 +1008,8 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
     }
     centre /= float( area );
 
-    // the side the surface is seen from: the renderer's normal (GL axes: x, up, y)
+    // the renderer's normal (GL axes: x, up, y), turned to the side the surface is
+    // seen from: a sign sprite's normal can point into the wall it hangs on
     const FVector4& gn = mStreamData.uVertexNormal;
     FVector3        n{ gn.X, gn.Z, gn.Y };
     if( n.LengthSquared() < 0.25f )
@@ -989,8 +1017,18 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
         return;
     }
     n.MakeUnit();
+    {
+        const RgFloat3D& cam = m_fb->RT_CameraPosition();
+        const FVector3   toCam{ cam.data[ 0 ] - centre.X, cam.data[ 1 ] - centre.Y, cam.data[ 2 ] - centre.Z };
+        if( ( n | toCam ) < 0.f )
+        {
+            n = -n;
+        }
+    }
 
-    const float lumens = *rt_emis_light_scale * lum * float( area );
+    // by the square root of the average brightness: a neon sign is mostly dark
+    // texels, and its few bright tubes must still light the wall it is on
+    const float lumens = *rt_emis_light_scale * std::sqrt( lum ) * float( area );
     if( lumens < 0.5f )
     {
         return;

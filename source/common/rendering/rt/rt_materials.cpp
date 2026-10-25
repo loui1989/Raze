@@ -6,10 +6,15 @@
 // and friends, mounted with -file) to the tile textures as material layers; here they
 // become those files:
 //
-//  - emission: the texture's colours where the glowmap (or, without one, the
-//    palette's fullbright brightmap) says it glows. Made from the translated pixels,
-//    so a palette swapped sign glows in its own colour.
+//  - emission: where the glowmap (or, without one, the palette's fullbright
+//    brightmap) says the texture glows. A coloured glowmap (Duke-RT paints most of
+//    them in the glow's own colour) is used as it is; a grey one is a mask over the
+//    translated pixels, so a palette swapped sign glows in its own colour. Either
+//    way the brightest texel is brought to full brightness: the glowmaps are drawn
+//    soft (a neon sign peaks at a quarter), and RTGL1 shows _e as it is.
 //  - roughness / metallic: packed into _orm (R unused, G roughness, B metallic).
+//    A texture with smooth texels is "polished": RTGL1 then mirrors the scene in
+//    them (low roughness alone gets denoised away), with the roughness as the mask.
 //
 // A file is made once and kept; rt_materials_regen 1 makes them again.
 
@@ -53,12 +58,18 @@ struct Mask
         return true;
     }
 
-    // luminance 0..255 at the texture coordinate of pixel (x, y) of a w2 x h2 picture
-    int At( int x, int y, int w2, int h2 ) const
+    // the BGRA texel at the texture coordinate of pixel (x, y) of a w2 x h2 picture
+    const uint8_t* Texel( int x, int y, int w2, int h2 ) const
     {
         const int sx = std::min( w - 1, x * w / std::max( 1, w2 ) );
         const int sy = std::min( h - 1, y * h / std::max( 1, h2 ) );
-        const uint8_t* p = &buf[ unsigned( ( sy * w + sx ) * 4 ) ];
+        return &buf[ unsigned( ( sy * w + sx ) * 4 ) ];
+    }
+
+    // luminance 0..255 at the texture coordinate of pixel (x, y) of a w2 x h2 picture
+    int At( int x, int y, int w2, int h2 ) const
+    {
+        const uint8_t* p = Texel( x, y, w2, h2 );
         // weighted like Rec.709, BGRA order; transparent counts as nothing
         const int l = ( 54 * p[ 2 ] + 183 * p[ 1 ] + 19 * p[ 0 ] ) >> 8;
         return p[ 3 ] < 128 ? 0 : l;
@@ -85,19 +96,22 @@ std::unordered_set< std::string > g_made; // this session
 
 const std::string& RT_GetOverrideFolder();
 
-bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, float outAvg[ 3 ] )
+bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, RtMaterialInfo& out )
 {
-    outAvg[ 0 ] = outAvg[ 1 ] = outAvg[ 2 ] = 0.f;
+    out = {};
+    float* outAvg = out.emisAvg;
     if( !*rt_materials || name.empty() || !albedo.mBuffer )
     {
         return false;
     }
 
+    // the sidecar files carry a version: a new version makes the maps again
     const std::filesystem::path dir = std::filesystem::path( RT_GetOverrideFolder() ) / "mat_dev";
     const auto pathE   = dir / ( name + "_e.png" );
     const auto pathORM = dir / ( name + "_orm.png" );
-    const auto pathNoE = dir / ( name + "_e.v2none" ); // looked, nothing glows
-    const auto pathAvg = dir / ( name + "_e.v2avg" );  // the emission map's average colour (linear)
+    const auto pathNoE = dir / ( name + "_e.v3none" ); // looked, nothing glows
+    const auto pathAvg = dir / ( name + "_e.v3avg" );  // the emission map's average colour (linear)
+    const auto pathPol = dir / ( name + "_orm.v3" );   // the share of smooth texels (0..1)
 
     const bool regen = *rt_materials_regen && g_made.insert( name ).second;
 
@@ -112,7 +126,17 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         }
     }
     bool noE    = !regen && !hasE && std::filesystem::exists( pathNoE, ec );
-    bool hasORM = !regen && std::filesystem::exists( pathORM, ec );
+    bool hasORM = false;
+    if( !regen && std::filesystem::exists( pathORM, ec ) )
+    {
+        if( FILE* f = fopen( pathPol.string().c_str(), "rb" ) )
+        {
+            float smooth = 0;
+            hasORM       = fscanf( f, "%f", &smooth ) == 1;
+            out.polished = smooth >= 0.02f;
+            fclose( f );
+        }
+    }
 
     const FMaterialLayers* layers = src.GetMaterialLayers();
     const int              w      = albedo.mWidth;
@@ -129,6 +153,60 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         }
         if( have )
         {
+            // is the glowmap the glow's colour, or a grey mask?
+            int maxM = 0;
+            double satSum = 0, satW = 0;
+            for( int y = 0; y < h; y++ )
+            {
+                for( int x = 0; x < w; x++ )
+                {
+                    const uint8_t* g = mask.Texel( x, y, w, h );
+                    const int      m = mask.At( x, y, w, h );
+                    maxM             = std::max( maxM, m );
+                    const int hi = std::max( { g[ 0 ], g[ 1 ], g[ 2 ] } );
+                    const int lo = std::min( { g[ 0 ], g[ 1 ], g[ 2 ] } );
+                    if( g[ 3 ] >= 128 && hi > 24 )
+                    {
+                        satSum += double( hi - lo ) / hi * hi;
+                        satW += hi;
+                    }
+                }
+            }
+            const bool coloured = satW > 0 && satSum / satW > 0.2;
+            // the soft speckle around a glow is not glow
+            const int floorM = std::max( 6, maxM / 12 );
+
+            std::vector< float > e( size_t( w ) * h * 3, 0.f );
+            float                peak = 0;
+            for( int y = 0; y < h; y++ )
+            {
+                for( int x = 0; x < w; x++ )
+                {
+                    const uint8_t* a = &albedo.mBuffer[ size_t( y * w + x ) * 4 ]; // BGRA
+                    const int      m = a[ 3 ] < 128 ? 0 : mask.At( x, y, w, h );
+                    if( m < floorM )
+                    {
+                        continue;
+                    }
+                    float* o = &e[ size_t( y * w + x ) * 3 ];
+                    if( coloured )
+                    {
+                        const uint8_t* g = mask.Texel( x, y, w, h );
+                        o[ 0 ]           = g[ 2 ];
+                        o[ 1 ]           = g[ 1 ];
+                        o[ 2 ]           = g[ 0 ];
+                    }
+                    else
+                    {
+                        o[ 0 ] = a[ 2 ] * m / 255.f;
+                        o[ 1 ] = a[ 1 ] * m / 255.f;
+                        o[ 2 ] = a[ 0 ] * m / 255.f;
+                    }
+                    peak = std::max( { peak, o[ 0 ], o[ 1 ], o[ 2 ] } );
+                }
+            }
+            const float gain = peak > 1.f ? std::min( 4.f, 245.f / peak ) : 1.f;
+
             std::vector< uint8_t > rgb( size_t( w ) * h * 3 );
             int                    lit = 0;
             double                 sum[ 3 ] = {};
@@ -136,21 +214,14 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 const double v = c / 255.0;
                 return v * v;
             };
-            for( int y = 0; y < h; y++ )
+            for( size_t i = 0; i < rgb.size(); i++ )
             {
-                for( int x = 0; x < w; x++ )
-                {
-                    const uint8_t* a = &albedo.mBuffer[ size_t( y * w + x ) * 4 ]; // BGRA
-                    const int      m = a[ 3 ] < 128 ? 0 : mask.At( x, y, w, h );
-                    uint8_t*       o = &rgb[ size_t( y * w + x ) * 3 ];
-                    o[ 0 ] = uint8_t( a[ 2 ] * m / 255 );
-                    o[ 1 ] = uint8_t( a[ 1 ] * m / 255 );
-                    o[ 2 ] = uint8_t( a[ 0 ] * m / 255 );
-                    lit += ( o[ 0 ] | o[ 1 ] | o[ 2 ] ) > 8;
-                    sum[ 0 ] += toLinear( o[ 0 ] );
-                    sum[ 1 ] += toLinear( o[ 1 ] );
-                    sum[ 2 ] += toLinear( o[ 2 ] );
-                }
+                rgb[ i ] = uint8_t( std::clamp( e[ i ] * gain + 0.5f, 0.f, 255.f ) );
+                sum[ i % 3 ] += toLinear( rgb[ i ] );
+            }
+            for( size_t i = 0; i < rgb.size(); i += 3 )
+            {
+                lit += ( rgb[ i ] | rgb[ i + 1 ] | rgb[ i + 2 ] ) > 8;
             }
             if( lit > 0 && WritePNG( pathE, rgb, w, h ) )
             {
@@ -168,6 +239,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         }
         if( !hasE )
         {
+            std::filesystem::remove( pathE, ec ); // an older version's
             std::filesystem::create_directories( dir, ec );
             if( FILE* f = fopen( pathNoE.string().c_str(), "wb" ) )
             {
@@ -191,6 +263,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         if( ( hr || hm ) && ow > 0 && oh > 0 )
         {
             std::vector< uint8_t > rgb( size_t( ow ) * oh * 3 );
+            size_t                 smooth = 0;
             for( int y = 0; y < oh; y++ )
             {
                 for( int x = 0; x < ow; x++ )
@@ -199,11 +272,23 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                     o[ 0 ] = 255;
                     o[ 1 ] = uint8_t( hr ? rough.At( x, y, ow, oh ) : 255 );
                     o[ 2 ] = uint8_t( hm ? metal.At( x, y, ow, oh ) : 0 );
+                    // RTGL1 starts mirroring below 0.7, noticeably below ~0.55
+                    smooth += o[ 1 ] < 140;
                 }
             }
-            WritePNG( pathORM, rgb, ow, oh );
+            if( WritePNG( pathORM, rgb, ow, oh ) )
+            {
+                const float share = float( double( smooth ) / ( double( ow ) * oh ) );
+                out.polished      = share >= 0.02f;
+                if( FILE* f = fopen( pathPol.string().c_str(), "wb" ) )
+                {
+                    fprintf( f, "%f\n", share );
+                    fclose( f );
+                }
+            }
         }
     }
 
+    out.hasEmission = hasE;
     return hasE;
 }
