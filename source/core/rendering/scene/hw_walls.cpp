@@ -40,6 +40,7 @@
 
 #include "v_video.h"
 #include "flatvertices.h"
+#include "rt_state.h"
 
 DCoreActor* wall_to_sprite_actors[8]; // gets updated each frame. Todo: Encapsulate this better without having to permanently store actors in the wall object.
 
@@ -193,7 +194,7 @@ void HWWall::RenderTexturedWall(HWDrawInfo *di, FRenderState &state, int rflags)
 
 	if (Sprite == nullptr)
 	{
-		if (shade > numshades && (GlobalMapFog || (fade & 0xffffff)))
+		if (shade > numshades && (GlobalMapFog || (fade & 0xffffff)) && !RT_IsActive())
 		{
 			state.SetObjectColor(fade | 0xff000000);
 			state.EnableTexture(false);
@@ -266,6 +267,13 @@ void HWWall::RenderTranslucentWall(HWDrawInfo *di, FRenderState &state)
 //==========================================================================
 void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 {
+	if (RT_IsActive() && translucent && (type == RENDERWALL_MIRRORSURFACE || type == RENDERWALL_FOGBOUNDARY))
+	{
+		return;	// the mirror is the portal's opening, fog is not a surface
+	}
+	auto rtid = rtstate.push_uniqueid(Sprite ? (const void*)Sprite->ownerActor : (const void*)seg, Sprite ? RtIdKind::WallSprite : RtIdKind::Wall);
+	RT_PUSH_TYPE(rtfb, Sprite && Sprite->shade <= -numshades ? RtPrim::Fullbright : RtPrim::Identity);
+
 	rendered_lines++;
 	if (screen->BuffersArePersistent())
 	{
@@ -1141,7 +1149,7 @@ void HWWall::ProcessWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sec
 	glseg.x2 = pos[1].X;
 	glseg.y2 = -pos[1].Y;
 
-	if (spr->cstat & CSTAT_SPRITE_ONE_SIDE)
+	if ((spr->cstat & CSTAT_SPRITE_ONE_SIDE) && !RT_IsActive())
 	{
 		if (PointOnLineSide(di->Viewpoint.Pos.X, di->Viewpoint.Pos.Y, glseg.x1, glseg.y1, glseg.x2 - glseg.x1, glseg.y2 - glseg.y1) <= 0)
 		{

@@ -42,6 +42,7 @@
 #include "hw_renderstate.h"
 #include "r_videoscale.h"
 #include "v_draw.h"
+#include "rt_state.h"
 
 //===========================================================================
 // 
@@ -60,6 +61,7 @@ void Draw2D(F2DDrawer* drawer, FRenderState& state)
 
 void Draw2D(F2DDrawer* drawer, FRenderState& state, int x, int y, int width, int height)
 {
+	auto rtid = rtstate.push_uniqueid(drawer, RtIdKind::UI);
 	twoD.Clock();
 
 	state.SetViewport(x, y, width, height);

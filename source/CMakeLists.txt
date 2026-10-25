@@ -1246,8 +1246,28 @@ else()
 	set( NOT_COMPILED_SOURCE_FILES ${NOT_COMPILED_SOURCE_FILES} ${VM_JIT_SOURCES} )
 endif()
 
+# Ray tracing: the RTGL1 path tracer, loaded at run time. Point RTGL1_SDK_PATH at an
+# RTGL1 source tree (Include/RTGL1/RTGL1.h); leave it empty to build without.
+set( RTGL1_SDK_PATH "" CACHE PATH "RTGL1 source tree for the ray tracing renderer" )
+set( RT_SOURCES common/rendering/rt/rt_state.cpp )
+if( RTGL1_SDK_PATH AND EXISTS "${RTGL1_SDK_PATH}/Include/RTGL1/RTGL1.h" )
+	message( STATUS "Ray tracing renderer: RTGL1 headers from ${RTGL1_SDK_PATH}" )
+	add_definitions( -DHAVE_RT=1 )
+	include_directories( SYSTEM "${RTGL1_SDK_PATH}/Include" )
+	set( RT_BACKEND_SOURCES
+		common/rendering/rt/rt_main.cpp
+		common/rendering/rt/rt_draw.cpp
+	)
+	# the backend is written in C++20 (designated initializers, std::span)
+	set_source_files_properties( ${RT_BACKEND_SOURCES} PROPERTIES COMPILE_OPTIONS "-std=c++20" )
+	list( APPEND RT_SOURCES ${RT_BACKEND_SOURCES} )
+else()
+	add_definitions( -DHAVE_RT=0 )
+endif()
+
 set( GAME_SOURCES
 	${HEADER_FILES}
+	${RT_SOURCES}
 	${NOT_COMPILED_SOURCE_FILES}
 	${SYSTEM_SOURCES}
 	${FASTMATH_SOURCES}
@@ -1331,6 +1351,7 @@ target_link_libraries( ${PROJECT_NAME} ${PROJECT_LIBRARIES} ${ZMUSIC_LIBRARIES} 
 include_directories(
 	BEFORE
 	${CMAKE_CURRENT_SOURCE_DIR}
+	common/rendering/rt
 	build/include
 	libxmp-lite/include
 	libxmp-lite/include/libxmp-lite

@@ -57,8 +57,11 @@ private:
 	int BunchInFront(FBunch* b1, FBunch* b2);
 	int FindClosestBunch();
 	void ProcessSection(int sectnum, bool portal);
+	void AddSectorSprites(int sectnum, bool all);
 
 public:
+	// ray tracing: everything the clipper rejected, so off-screen geometry casts shadows
+	void RT_ProcessRemaining();
 	void Init(HWDrawInfo* _di, Clipper* c, const DVector2& view, angle_t a1, angle_t a2);
 	void RenderScene(const int* viewsectors, unsigned sectcount, bool portal);
 	const BitArray& GotSector() const { return gotsector; }

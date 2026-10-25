@@ -60,6 +60,10 @@
 #include "vulkan/system/vk_renderdevice.h"
 #endif
 
+#if HAVE_RT
+#include "rt_platform.h"
+#endif
+
 bool I_CreateVulkanSurface(VkInstance instance, VkSurfaceKHR *surface);
 
 extern bool ToggleFullscreen;
@@ -97,6 +101,48 @@ extern bool ToggleFullscreen;
 @end
 
 EXTERN_CVAR(Bool, vid_hidpi)
+
+#if HAVE_RT
+// The ray tracing renderer (RTGL1 on Metal). Off = the normal OpenGL renderer.
+CUSTOM_CVAR(Bool, vid_raytracing, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITCALL)
+{
+	Printf("Changing the renderer requires a restart.\n");
+}
+
+// The fullscreen frame's height in pixels, 0 = the screen's own. The window stays
+// fullscreen and the system scales the frame up, so a lower resolution costs no
+// mode switch.
+CUSTOM_CVAR(Int, vid_rt_fullscreen_height, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITCALL)
+{
+	if (self < 0)
+	{
+		self = 0;
+		return;
+	}
+	SystemBaseFrameBuffer::UseHiDPI(vid_hidpi);
+}
+
+// pixels per point of the RT view's layer: the screen's backing scale, or lower in
+// fullscreen for vid_rt_fullscreen_height
+static CGFloat RT_LayerScale(NSWindow* window, bool fullscreen)
+{
+	NSScreen* const screen = (window != nil && window.screen != nil) ? window.screen : [NSScreen mainScreen];
+	CGFloat scale = screen.backingScaleFactor;
+	if (fullscreen && vid_rt_fullscreen_height > 0)
+	{
+		const CGFloat points = screen.frame.size.height;
+		const CGFloat wanted = points > 0 ? CGFloat(*vid_rt_fullscreen_height) / points : scale;
+		if (wanted > 0.1 && wanted < scale)
+		{
+			scale = wanted;
+		}
+	}
+	return scale;
+}
+
+static bool rt_viewActive = false;
+#endif
+
 EXTERN_CVAR(Int,  vid_defwidth)
 EXTERN_CVAR(Int,  vid_defheight)
 EXTERN_CVAR(Bool, vk_debug)
@@ -378,6 +424,12 @@ public:
 
 	~CocoaVideo()
 	{
+#if HAVE_RT
+		if (rt_viewActive)
+		{
+			RT_DestroyRendererInstance();
+		}
+#endif
 		m_vulkanSurface.reset();
 		ms_window = nil;
 	}
@@ -390,6 +442,26 @@ public:
 		const NSRect contentRect = [ms_window contentRectForFrameRect:[ms_window frame]];
 		SystemBaseFrameBuffer *fb = nullptr;
 
+#if HAVE_RT
+		// RAZE_NO_RT=1 in the environment: OpenGL for this run, whatever the ini says
+		const char* const noRT = getenv("RAZE_NO_RT");
+		if (vid_raytracing && !(noRT && noRT[0] == '1'))
+		{
+			// the ray tracing renderer draws to the view's CAMetalLayer
+			NSView* const rtView = [[VulkanCocoaView alloc] initWithFrame:contentRect];
+			rtView.wantsLayer = YES;
+			rtView.layer.backgroundColor = NSColor.blackColor.CGColor;
+			rtView.layer.contentsScale = RT_LayerScale(ms_window, vid_fullscreen);
+
+			[ms_window setContentView:rtView];
+
+			rt_viewActive = true;
+			ms_isVulkanEnabled = false;
+			RT_CreateRendererInstance((void*)rtView.layer);
+			fb = RT_CreateFrameBuffer(nullptr, vid_fullscreen);
+		}
+		else
+#endif
 #ifdef HAVE_VULKAN
 		if (ms_isVulkanEnabled)
 		{
@@ -652,6 +724,11 @@ void SystemBaseFrameBuffer::SetMode(const bool fullscreen, const bool hiDPI)
     {
 		assert(m_window.screen != nil);
 		assert([m_window.contentView layer] != nil);
+#if HAVE_RT
+		if (rt_viewActive)
+			[m_window.contentView layer].contentsScale = RT_LayerScale(m_window, fullscreen);
+		else
+#endif
 		[m_window.contentView layer].contentsScale = hiDPI ? m_window.screen.backingScaleFactor : 1.0;
 	}
 
@@ -882,6 +959,15 @@ NSSize I_GetContentViewSize(const NSWindow* const window)
 {
 	const NSView* const view = [window contentView];
 	const NSSize frameSize   = [view frame].size;
+
+#if HAVE_RT
+	// the size the ray traced frame is made at: the layer's scale (RT_LayerScale)
+	if (rt_viewActive && view.layer != nil)
+	{
+		const CGFloat scale = view.layer.contentsScale;
+		return NSMakeSize(std::round(frameSize.width * scale), std::round(frameSize.height * scale));
+	}
+#endif
 
 	return (vid_hidpi)
 		? [view convertSizeToBacking:frameSize]

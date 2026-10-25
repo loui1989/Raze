@@ -39,6 +39,7 @@
 #include "hw_sections.h"
 #include "texturemanager.h"
 #include "buildtiles.h"
+#include "rt_state.h"
 
 #ifdef _DEBUG
 CVAR(Int, gl_breaksec, -1, 0)
@@ -231,6 +232,9 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 	}
 #endif
 
+	auto rtid = rtstate.push_uniqueid(Sprite ? (const void*)Sprite->ownerActor : (const void*)sec, Sprite ? RtIdKind::FlatSprite : plane ? RtIdKind::CeilingFlat : RtIdKind::FloorFlat);
+	RT_PUSH_TYPE(rtfb, Sprite && Sprite->shade <= -numshades ? RtPrim::Fullbright : RtPrim::Identity);
+
 	state.SetNormal(normal);
 	SetLightAndFog(di, state, fade, palette, shade, visibility, alpha);
 
@@ -247,7 +251,7 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 		if (texture && !checkTranslucentReplacement(texture->GetID(), palette)) state.AlphaFunc(Alpha_GEqual, texture->alphaThreshold);
 		else state.AlphaFunc(Alpha_GEqual, 0.f);
 	}
-	else if (shade > numshades && (GlobalMapFog || (fade & 0xffffff)))
+	else if (shade > numshades && (GlobalMapFog || (fade & 0xffffff)) && !RT_IsActive())
 	{
 		state.SetObjectColor(fade | 0xff000000);
 		state.EnableTexture(false);
@@ -332,7 +336,8 @@ void HWFlat::ProcessSector(HWDrawInfo *di, sectortype * frontsector, int section
 	//
 	//
 	//
-	if ((which & SSRF_RENDERFLOOR) && !(frontsector->floorstat & CSTAT_SECTOR_SKY) && florz <= vp.Pos.Z)
+	// (the path tracer needs the planes that face away from the camera too)
+	if ((which & SSRF_RENDERFLOOR) && !(frontsector->floorstat & CSTAT_SECTOR_SKY) && (florz <= vp.Pos.Z || RT_IsActive()))
 	{
 		// process the original floor first.
 
@@ -371,7 +376,7 @@ void HWFlat::ProcessSector(HWDrawInfo *di, sectortype * frontsector, int section
 	//
 	// 
 	//
-	if ((which & SSRF_RENDERCEILING) && !(frontsector->ceilingstat & CSTAT_SECTOR_SKY) && ceilz >= vp.Pos.Z)
+	if ((which & SSRF_RENDERCEILING) && !(frontsector->ceilingstat & CSTAT_SECTOR_SKY) && (ceilz >= vp.Pos.Z || RT_IsActive()))
 	{
 		// process the original ceiling first.
 
@@ -429,7 +434,7 @@ void HWFlat::ProcessFlatSprite(HWDrawInfo* di, tspritetype* sprite, sectortype* 
 	visibility = sectorVisibility(sector) *(4.f / 5.f); // The factor comes directly from Polymost. What is it with Build and these magic factors?
 
 	// Weird Build logic that really makes no sense.
-	if ((sprite->cstat & CSTAT_SPRITE_ONE_SIDE) != 0)
+	if ((sprite->cstat & CSTAT_SPRITE_ONE_SIDE) != 0 && !RT_IsActive())
 	{
 		DVector2 pos = { di->Viewpoint.Pos.X, -di->Viewpoint.Pos.Y };
 

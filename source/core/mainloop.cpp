@@ -498,7 +498,16 @@ void Display()
 	}
 	else
 	{
-		PerformWipe(wipestart, screen->WipeEndScreen(), nextwipe, true, DrawOverlays);
+		auto wipeend = wipestart ? screen->WipeEndScreen() : nullptr;
+		if (wipestart && wipeend)
+		{
+			PerformWipe(wipestart, wipeend, nextwipe, true, DrawOverlays);
+		}
+		else
+		{
+			// a renderer without screen copies (ray tracing): no wipe
+			DrawOverlays();
+		}
 		nextwipe = wipe_None;
 	}
 

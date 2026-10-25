@@ -23,6 +23,7 @@
 #include "filesystem.h"
 #include "hw_skydome.h"
 #include "hw_portal.h"
+#include "rt_state.h"
 #include "hw_renderstate.h"
 #include "skyboxtexture.h"
 
@@ -35,6 +36,9 @@ CVAR(Float, skyoffsettest, 0.f, 0)
 //-----------------------------------------------------------------------------
 void HWSkyPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 {
+	// one id per sky texture (the portal objects are made anew each frame)
+	auto rtid = rtstate.push_uniqueid(origin->texture, RtIdKind::Sky);
+
 	int indexed = hw_int_useindexedcolortextures;
 	hw_int_useindexedcolortextures = false; // this code does not work with indexed textures.
 

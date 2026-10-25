@@ -676,29 +676,7 @@ void BunchDrawer::ProcessSection(int sectionnum, bool portal)
 		Bsp.Unclock();
 		SetupSprite.Clock();
 		gotsector.Set(sectnum);
-		CoreSectIterator it(sectnum);
-		while (auto actor = it.Next())
-		{
-			if ((actor->spr.cstat & CSTAT_SPRITE_INVISIBLE) || actor->spr.scale.X == 0 || actor->spr.scale.Y == 0) // skip invisible sprites
-				continue;
-
-			auto tex = actor->spr.spritetexture();
-			if (!tex.isValid()) continue;
-			auto tx = TexMan.GetGameTexture(tex);
-			if (tx->GetUseType() == ETextureType::FirstDefined && (actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FACING) continue;
-
-			auto viewvec = actor->spr.pos.XY() - DVector2(viewx, -viewy); // note that viewy is in render coordinates
-
-			// this checks if the sprite is it behind the camera, which will not work if the pitch is high enough to necessitate a FOV of more than 180°.
-			//if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) || (hw_models && tile2model[actor->spr.picnum].modelid >= 0) || ((sx * gcosang) + (sy * gsinang) > 0)) 
-			{
-				if ((actor->spr.cstat & (CSTAT_SPRITE_ONE_SIDE | CSTAT_SPRITE_ALIGNMENT_MASK)) != (CSTAT_SPRITE_ONE_SIDE | CSTAT_SPRITE_ALIGNMENT_WALL) ||
-					tilehasvoxel(actor->spr.spritetexture()) ||
-					(actor->spr.Angles.Yaw.Cos() * viewvec.X) + (actor->spr.Angles.Yaw.Sin() * viewvec.Y) < 0)
-					if (!renderAddTsprite(di->tsprites, actor))
-						break;
-			}
-		}
+		AddSectorSprites(sectnum, false);
 		SetupSprite.Unclock();
 		Bsp.Clock();
 	}
@@ -748,6 +726,91 @@ void BunchDrawer::ProcessSection(int sectionnum, bool portal)
 		}
 		if (thisline->endpoint != section->lines[i] + 1) inbunch = false;
 	}
+}
+
+//==========================================================================
+//
+//
+//
+//==========================================================================
+
+void BunchDrawer::AddSectorSprites(int sectnum, bool all)
+{
+	CoreSectIterator it(sectnum);
+	while (auto actor = it.Next())
+	{
+		if ((actor->spr.cstat & CSTAT_SPRITE_INVISIBLE) || actor->spr.scale.X == 0 || actor->spr.scale.Y == 0) // skip invisible sprites
+			continue;
+
+		auto tex = actor->spr.spritetexture();
+		if (!tex.isValid()) continue;
+		auto tx = TexMan.GetGameTexture(tex);
+		if (tx->GetUseType() == ETextureType::FirstDefined && (actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FACING) continue;
+
+		auto viewvec = actor->spr.pos.XY() - DVector2(viewx, -viewy); // note that viewy is in render coordinates
+
+		// this checks if the sprite is it behind the camera, which will not work if the pitch is high enough to necessitate a FOV of more than 180°.
+		//if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) || (hw_models && tile2model[actor->spr.picnum].modelid >= 0) || ((sx * gcosang) + (sy * gsinang) > 0)) 
+		{
+			if (all || (actor->spr.cstat & (CSTAT_SPRITE_ONE_SIDE | CSTAT_SPRITE_ALIGNMENT_MASK)) != (CSTAT_SPRITE_ONE_SIDE | CSTAT_SPRITE_ALIGNMENT_WALL) ||
+				tilehasvoxel(actor->spr.spritetexture()) ||
+				(actor->spr.Angles.Yaw.Cos() * viewvec.X) + (actor->spr.Angles.Yaw.Sin() * viewvec.Y) < 0)
+				if (!renderAddTsprite(di->tsprites, actor))
+					break;
+		}
+	}
+}
+
+//==========================================================================
+//
+// Ray tracing: the path tracer needs the geometry that is not on screen too
+// (it casts shadows, reflects, bounces light). Process every section, wall
+// and sprite the clipper did not reach.
+//
+//==========================================================================
+
+void BunchDrawer::RT_ProcessRemaining()
+{
+	const BitArray visiblesectors = gotsector;	// what the game may look at afterwards (Blood)
+
+	for (unsigned s = 0; s < sections.Size(); s++)
+	{
+		if (gotsection2[s]) continue;
+		gotsection2.Set(s);
+
+		int sectnum = sections[s].sector;
+		if (sectnum < 0 || sectnum >= (int)sector.Size()) continue;
+		if (!gotsector[sectnum])
+		{
+			gotsector.Set(sectnum);
+			AddSectorSprites(sectnum, true);
+		}
+
+		// not seen by the player: keep the flag the game logic reads as it was
+		auto sect = &sector[sectnum];
+		const auto seen = sect->exflags & SECTOREX_SEEN;
+		HWFlat flat;
+		flat.ProcessSector(di, sect, s);
+		sect->exflags = (sect->exflags & ~SECTOREX_SEEN) | seen;
+	}
+
+	const unsigned numlines = min(sectionLines.Size(), gotwall.Size());
+	for (unsigned i = 0; i < numlines; i++)
+	{
+		if (gotwall[i]) continue;
+		int ww = sectionLines[i].wall;
+		if (ww < 0 || ww >= (int)wall.Size()) continue;
+		int section = sectionLines[i].section;
+		if (section < 0 || section >= (int)sections.Size()) continue;
+		int sectnum = sections[section].sector;
+		if (sectnum < 0 || sectnum >= (int)sector.Size()) continue;
+		gotwall.Set(i);
+
+		HWWall hwwall;
+		hwwall.Process(di, &wall[ww], &sector[sectnum], wall[ww].nextsector < 0 ? nullptr : &sector[wall[ww].nextsector]);
+	}
+
+	gotsector = visiblesectors;
 }
 
 //==========================================================================

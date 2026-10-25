@@ -29,6 +29,7 @@
 #include "build.h"
 #include "hw_renderstate.h"
 #include "hw_drawinfo.h"
+#include "rt_state.h"
 #include "models/modeldata.h"
 #include "hw_clock.h"
 #include "hw_cvars.h"
@@ -387,6 +388,10 @@ void HWDrawInfo::CreateScene(bool portal)
 	else
 		mDrawer.RenderScene(&vp.SectCount, 1, portal);
 
+	// the path tracer needs what is off screen too
+	if (RT_IsActive() && !portal)
+		mDrawer.RT_ProcessRemaining();
+
 	SetupSprite.Clock();
 	// vp is in render space, so we must convert back.
 	gi->processSprites(tsprites, DVector3(vp.Pos.X, -vp.Pos.Y, -vp.Pos.Z), DAngle::fromBam(vp.RotAngle), vp.TicFrac);
@@ -622,6 +627,42 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 {
 	auto gp = static_cast<HWPortal *>(p);
+
+	if (RT_IsActive())
+	{
+		// The path tracer does not render portals as recursive views:
+		//  - sky: the openings mark where the sky is seen, the dome becomes the sky
+		//  - mirror: the opening is an RTGL1 mirror
+		//  - anything else: not drawn (yet)
+		if (gp->IsSky())
+		{
+			{
+				auto rttype = rtstate.push_type(RtPrim::SkyVisibility);
+				gp->RT_DrawStencil(state);
+			}
+			auto new_di = StartDrawInfo(this, Viewpoint, &VPUniforms);
+			new_di->visibility = visibility;
+			new_di->rellight = rellight;
+			new_di->mCurrentPortal = gp;
+			state.SetLightIndex(-1);
+			{
+				auto rttype = rtstate.push_type(RtPrim::Sky);
+				gp->DrawContents(new_di, state);
+			}
+			new_di->EndDrawInfo();
+			state.SetVertexBuffer(screen->mVertexData);
+			screen->mViewpoints->Bind(state, vpIndex);
+		}
+		else if (gp->GetType() == PORTAL_WALL_MIRROR)
+		{
+			auto rttype = rtstate.push_type(RtPrim::Mirror);
+			state.EnableTexture(false);
+			gp->RT_DrawStencil(state);
+			state.EnableTexture(true);
+		}
+		return;
+	}
+
 	gp->SetupStencil(this, state, usestencil);
 	auto new_di = StartDrawInfo(this, Viewpoint, &VPUniforms);
 	new_di->visibility = visibility;

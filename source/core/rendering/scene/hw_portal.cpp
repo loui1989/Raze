@@ -27,6 +27,7 @@
 
 #include "c_dispatch.h"
 #include "hw_portal.h"
+#include "rt_state.h"
 #include "hw_clipper.h"
 #include "hw_renderstate.h"
 #include "flatvertices.h"
@@ -211,10 +212,12 @@ void HWPortal::DrawPortalStencil(FRenderState &state, int pass)
 
 	for (unsigned int i = 0; i < mPrimIndices.Size(); i += 2)
 	{
+		auto rtid = rtstate.push_uniqueid(lines[i / 2].seg, RtIdKind::Portal);
 		state.Draw(DT_TriangleFan, mPrimIndices[i], mPrimIndices[i + 1], i == 0);
 	}
 	if (NeedCap() && lines.Size() > 1)
 	{
+		auto rtid = rtstate.push_uniqueid(lines[0].seg, RtIdKind::Portal);
 		// The cap's depth handling needs special treatment so that it won't block further portal caps.
 		if (pass == STP_DepthRestore) state.SetDepthRange(1, 1);
 

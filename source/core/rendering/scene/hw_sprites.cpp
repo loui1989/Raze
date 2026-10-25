@@ -47,6 +47,7 @@
 #include "hw_viewpointbuffer.h"
 #include "hw_voxels.h"
 #include "buildtiles.h"
+#include "rt_state.h"
 
 //==========================================================================
 //
@@ -56,6 +57,10 @@
 
 void HWSprite::DrawSprite(HWDrawInfo* di, FRenderState& state, bool translucent)
 {
+	auto rtid = rtstate.push_uniqueid((const void*)(Sprite ? Sprite->ownerActor : nullptr), modelframe == 0 ? RtIdKind::Sprite : RtIdKind::Model);
+	RT_PUSH_TYPE(rtspr, modelframe == 0 ? RtPrim::Sprite : RtPrim::Identity);
+	RT_PUSH_TYPE(rtfb, shade <= -numshades ? RtPrim::Fullbright : RtPrim::Identity);
+
 	bool additivefog = false;
 	bool foglayer = false;
 
@@ -322,6 +327,9 @@ void HWSprite::Process(HWDrawInfo* di, tspritetype* spr, sectortype* sector, int
 
 	auto tex = TexMan.GetGameTexture(spr->spritetexture());
 	if (!tex || !tex->isValid()) return;
+
+	// the game's fake drop shadows (black, translucent); the path tracer casts real ones
+	if (RT_IsActive() && spr->shade == 127 && (spr->cstat & CSTAT_SPRITE_TRANSLUCENT)) return;
 
 	texture = tex;
 	Sprite = spr;

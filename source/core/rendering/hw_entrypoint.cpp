@@ -51,6 +51,11 @@
 #include "render.h"
 #include "gamestruct.h"
 #include "gamehud.h"
+#include "rt_state.h"
+
+#if HAVE_RT
+void RT_SetMainCamera(const DVector3& pos, const FRotator& hwangles, float fovDeg, float ratio, float fovratio);
+#endif
 
 EXTERN_CVAR(Bool, cl_capfps)
 
@@ -128,7 +133,17 @@ void RenderViewpoint(FRenderViewpoint& mainvp, IntRect* bounds, float fov, float
 	auto vrmode = VRMode::GetVRMode(mainview && toscreen);
 	const int eyeCount = vrmode->mEyeCount;
 	screen->FirstEye();
-	hw_int_useindexedcolortextures = eyeCount > 1? false : *hw_useindexedcolortextures;
+	hw_int_useindexedcolortextures = eyeCount > 1 || RT_IsActive() ? false : *hw_useindexedcolortextures;
+
+	// ray tracing: only the player's view goes to the path tracer (no camera
+	// textures or save pictures, it has no off-screen targets)
+	RT_PUSH_TYPE(rtignore, mainview && toscreen ? RtPrim::Identity : RtPrim::Ignored);
+#if HAVE_RT
+	if (RT_IsActive() && mainview && toscreen)
+	{
+		RT_SetMainCamera(mainvp.Pos, mainvp.HWAngles, fov, ratio, fovratio);
+	}
+#endif
 
 	for (int eye_ix = 0; eye_ix < eyeCount; ++eye_ix)
 	{

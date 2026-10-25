@@ -164,6 +164,8 @@ public:
 	virtual int GetType() { return -1; }
 	void SetupStencil(HWDrawInfo *di, FRenderState &state, bool usestencil);
 	void RemoveStencil(HWDrawInfo *di, FRenderState &state, bool usestencil);
+	// ray tracing: just the portal's opening, once
+	void RT_DrawStencil(FRenderState &state) { DrawPortalStencil(state, STP_AllInOne); }
 
 	void AddLine(HWWall * l)
 	{

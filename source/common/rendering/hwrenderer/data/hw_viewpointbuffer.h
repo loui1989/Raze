@@ -32,5 +32,9 @@ public:
 	void Set2D(FRenderState &di, int width, int height, int pll = 0);
 	int SetViewpoint(FRenderState &di, HWViewpointUniforms *vp);
 	unsigned int GetBlockSize() const { return mBlockSize; }
+
+	// for renderers that need the matrices on the CPU (RTGL1)
+	IDataBuffer* DataBuffer() const { return mBuffer; }
+	const HWViewpointUniforms& FetchViewpoint(size_t bindRangeStart) const;
 };
 
