@@ -65,7 +65,17 @@ enum class RtPrim : uint32_t
     Lava           = 1 << 7,
     Slime          = 1 << 8,
     Fullbright     = 1 << 9, // drawn at full brightness by the game (shade at or below the fullbright cutoff)
+    NoShadow       = 1 << 10, // casts no shadow (a fire sprite around its own light)
 };
+
+// Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it
+// is active: bit 0 = no shadow, bit 1 = fullbright.
+class DCoreActor;
+extern int ( *RT_ActorRuleFlagsHook )( DCoreActor* actor );
+inline int RT_ActorRuleFlags( DCoreActor* actor )
+{
+    return RT_ActorRuleFlagsHook && actor ? RT_ActorRuleFlagsHook( actor ) : 0;
+}
 
 // Unique id salts: the same game object can be drawn as different kinds of
 // primitive, they must not share ids.

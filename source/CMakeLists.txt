@@ -956,6 +956,7 @@ set (PCH_SOURCES
 	core/mainloop.cpp
 	core/gameconfigfile.cpp
 	core/gamecvars.cpp
+	core/lightoverlay.cpp
 	core/gamecontrol.cpp
 	core/gamehud.cpp
 	core/gamefuncs.cpp
@@ -1257,6 +1258,8 @@ if( RTGL1_SDK_PATH AND EXISTS "${RTGL1_SDK_PATH}/Include/RTGL1/RTGL1.h" )
 	set( RT_BACKEND_SOURCES
 		common/rendering/rt/rt_main.cpp
 		common/rendering/rt/rt_draw.cpp
+		common/rendering/rt/rt_materials.cpp
+		common/rendering/rt/rt_lights.cpp
 	)
 	# the backend is written in C++20 (designated initializers, std::span)
 	set_source_files_properties( ${RT_BACKEND_SOURCES} PROPERTIES COMPILE_OPTIONS "-std=c++20" )

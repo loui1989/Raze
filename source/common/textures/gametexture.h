@@ -242,6 +242,8 @@ public:
 	}
 	float GetGlossiness() const { return Glossiness; }
 	float GetSpecularLevel() const { return SpecularLevel; }
+	// read access for renderers that build their own materials (RTGL1)
+	const FMaterialLayers* GetMaterialLayers() const { return Layers.get(); }
 
 	void CopySize(FGameTexture* BaseTexture, bool forfont = false)
 	{

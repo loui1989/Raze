@@ -285,7 +285,7 @@ void HWDrawInfo::DispatchSprites()
 
 		if (actor == nullptr || tspr->scale.X == 0 || tspr->scale.Y == 0 || !texid.isValid()) continue;
 
-		actor->spr.cstat2 |= CSTAT2_SPRITE_MAPPED;
+		if (i < rtHiddenSpriteStart) actor->spr.cstat2 |= CSTAT2_SPRITE_MAPPED;	// not for what only the path tracer sees
 
 		if (!(tspr->cstat2 & CSTAT2_SPRITE_NOANIMATE))
 		{
@@ -376,6 +376,7 @@ void HWDrawInfo::CreateScene(bool portal)
 	screen->mLights->Map();
 
 	tsprites.clear();
+	rtHiddenSpriteStart = ~0u;
 	ingeo = false;
 	geoofs = { 0,0 };
 
@@ -390,7 +391,10 @@ void HWDrawInfo::CreateScene(bool portal)
 
 	// the path tracer needs what is off screen too
 	if (RT_IsActive() && !portal)
+	{
+		rtHiddenSpriteStart = tsprites.Size();
 		mDrawer.RT_ProcessRemaining();
+	}
 
 	SetupSprite.Clock();
 	// vp is in render space, so we must convert back.

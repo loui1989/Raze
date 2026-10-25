@@ -272,7 +272,9 @@ void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 		return;	// the mirror is the portal's opening, fog is not a surface
 	}
 	auto rtid = rtstate.push_uniqueid(Sprite ? (const void*)Sprite->ownerActor : (const void*)seg, Sprite ? RtIdKind::WallSprite : RtIdKind::Wall);
-	RT_PUSH_TYPE(rtfb, Sprite && Sprite->shade <= -numshades ? RtPrim::Fullbright : RtPrim::Identity);
+	const int rtflags = RT_IsActive() && Sprite ? RT_ActorRuleFlags(Sprite->ownerActor) : 0;
+	RT_PUSH_TYPE(rtfb, (Sprite && Sprite->shade <= -numshades) || (rtflags & 2) ? RtPrim::Fullbright : RtPrim::Identity);
+	RT_PUSH_TYPE(rtns, rtflags & 1 ? RtPrim::NoShadow : RtPrim::Identity);
 
 	rendered_lines++;
 	if (screen->BuffersArePersistent())

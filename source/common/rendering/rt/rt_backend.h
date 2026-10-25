@@ -240,20 +240,37 @@ public:
     ~RTHardwareTexture() override;
 
     void CreateIfWasnt( FGameTexture& src, int translation, int flags, const FRenderStyle& renderStyle );
+    // the same picture, clamped at the edges (HUD and menus: wrapping would bleed the
+    // opposite edge into a filtered border line)
+    void CreateClampedIfWasnt( FGameTexture& src, int translation, int flags, const FRenderStyle& renderStyle );
 
     auto GetRTName() const -> const char*
     {
         return m_created && !m_name.empty() ? m_name.c_str() : nullptr;
     }
+    auto GetRTNameClamped() const -> const char*
+    {
+        return m_createdClamped && !m_nameClamped.empty() ? m_nameClamped.c_str() : nullptr;
+    }
+    bool HasEmission() const { return m_hasEmission; }
 
 private:
     static auto TranslationSuffix( int translation ) -> std::string;
     static auto MakeTextureName( FGameTexture& gametex, int translation ) -> std::string;
+    bool Upload( FGameTexture& src, int translation, int flags, const FRenderStyle& renderStyle,
+                 const std::string& name, bool clamp, bool materials );
 
     bool        m_created{ false };
+    bool        m_createdClamped{ false };
     bool        m_dynamic{ false }; // no name of its own (movie frames...): unique name, freed with this
+    bool        m_hasEmission{ false };
     std::string m_name{};
+    std::string m_nameClamped{};
 };
+
+// Duke-RT's material maps (the overlay's materials/glowmaps, roughness, metallic) as
+// RTGL1 overrides in <rt>/mat_dev. Returns true if an emission map exists for 'name'.
+bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo );
 
 //
 // The frame and its render state
@@ -340,7 +357,13 @@ public:
     void EnableClipDistance( int num, bool state ) override {}
     void Clear( int targets ) override {}
     void EnableStencil( bool on ) override {}
-    void SetScissor( int x, int y, int w, int h ) override {}
+    void SetScissor( int x, int y, int w, int h ) override
+    {
+        m_scissor[ 0 ] = x;
+        m_scissor[ 1 ] = y;
+        m_scissor[ 2 ] = w;
+        m_scissor[ 3 ] = h;
+    }
     void SetViewport( int x, int y, int w, int h ) override
     {
         m_viewport = RgViewport{
@@ -376,17 +399,22 @@ private:
                        bool                                 islines = false );
 
     auto MakeTransform( bool isSky, bool isModel ) const -> RgTransform;
-    auto ResolveTexture() -> const char*;
+    auto ResolveTexture( bool clamped, bool* outEmission ) -> const char*;
+    auto ClipToScissor( std::span< const RgPrimitiveVertex > verts, std::span< const uint32_t > indices )
+        -> std::span< const RgPrimitiveVertex >;
     auto FallbackUniqueId( std::span< const RgPrimitiveVertex > verts, const char* texname ) const -> uint64_t;
 
     RgViewport m_viewport{};
     float      m_view[ 16 ]{};
     float      m_projection[ 16 ]{};
+    float      m_orthoSize[ 2 ]{}; // the 2D drawer's size, from its orthographic projection
+    int        m_scissor[ 4 ]{ -1, -1, -1, -1 };
 
     float m_mainCameraView_Inverse[ 16 ]{};
     float m_mainCameraProjection_Inverse[ 16 ]{};
 
     std::vector< RgPrimitiveVertex > m_tempverts{};
+    std::vector< RgPrimitiveVertex > m_clipverts{};
 
 public:
     RTFrameBuffer* m_fb{ nullptr };

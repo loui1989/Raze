@@ -5,3 +5,4 @@
 
 FRtState rtstate;
 bool     g_rtActive = false;
+int ( *RT_ActorRuleFlagsHook )( DCoreActor* actor ) = nullptr;

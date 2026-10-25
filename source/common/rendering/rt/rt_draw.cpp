@@ -217,10 +217,71 @@ RTHardwareTexture::~RTHardwareTexture()
 {
     // Named textures stay in RTGL1 (another hardware texture may share the name).
     // The made up names of dynamic ones are never seen again: free their slots.
-    if( m_dynamic && !m_name.empty() && g_rtActive && rt.rgMarkOriginalTextureAsDeleted )
+    if( m_dynamic && g_rtActive && rt.rgMarkOriginalTextureAsDeleted )
     {
-        rt.rgMarkOriginalTextureAsDeleted( m_name.c_str() );
+        if( !m_name.empty() )
+        {
+            rt.rgMarkOriginalTextureAsDeleted( m_name.c_str() );
+        }
+        if( !m_nameClamped.empty() )
+        {
+            rt.rgMarkOriginalTextureAsDeleted( m_nameClamped.c_str() );
+        }
     }
+}
+
+bool RTHardwareTexture::Upload( FGameTexture&       src,
+                                int                 translation,
+                                int                 flags,
+                                const FRenderStyle& renderStyle,
+                                const std::string&  name,
+                                bool                clamp,
+                                bool                materials )
+{
+    auto texbuffer = src.GetTexture()->CreateTexBuffer( translation, flags | CTF_ProcessData );
+    if( !texbuffer.mBuffer || texbuffer.mWidth <= 0 || texbuffer.mHeight <= 0 )
+    {
+        return false;
+    }
+
+    if( renderStyle.Flags & STYLEF_RedIsAlpha )
+    {
+        const size_t n = size_t( texbuffer.mWidth ) * size_t( texbuffer.mHeight );
+        for( size_t i = 0; i < n; i++ )
+        {
+            // BGRA: alpha = red
+            texbuffer.mBuffer[ 4 * i + 3 ] = texbuffer.mBuffer[ 4 * i + 2 ];
+        }
+    }
+
+    // RTGL1 reads the override files when the texture is given, so they come first
+    if( materials && !( flags & CTF_Indexed ) )
+    {
+        m_hasEmission = RT_PrepareMaterialOverrides( src, name, texbuffer );
+    }
+
+    auto details = RgOriginalTextureDetailsEXT{
+        .sType  = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT,
+        .pNext  = nullptr,
+        .flags  = 0,
+        .format = ( flags & CTF_Indexed ) ? RG_FORMAT_R8_SRGB : RG_FORMAT_B8G8R8A8_SRGB,
+    };
+
+    const auto address = clamp ? RG_SAMPLER_ADDRESS_MODE_CLAMP : RG_SAMPLER_ADDRESS_MODE_REPEAT;
+
+    auto info = RgOriginalTextureInfo{
+        .sType        = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO,
+        .pNext        = &details,
+        .pTextureName = name.c_str(),
+        .pPixels      = texbuffer.mBuffer,
+        .size         = { uint32_t( texbuffer.mWidth ), uint32_t( texbuffer.mHeight ) },
+        .filter       = RG_SAMPLER_FILTER_AUTO,
+        .addressModeU = address,
+        .addressModeV = address,
+    };
+
+    RG_CHECK( rt.rgProvideOriginalTexture( &info ) );
+    return true;
 }
 
 void RTHardwareTexture::CreateIfWasnt( FGameTexture&       src,
@@ -249,42 +310,42 @@ void RTHardwareTexture::CreateIfWasnt( FGameTexture&       src,
         m_dynamic = true;
     }
 
-    auto texbuffer = src.GetTexture()->CreateTexBuffer( translation, flags | CTF_ProcessData );
-    if( !texbuffer.mBuffer || texbuffer.mWidth <= 0 || texbuffer.mHeight <= 0 )
+    if( !Upload( src, translation, flags, renderStyle, m_name, false, !m_dynamic ) )
     {
         m_name.clear();
+    }
+}
+
+void RTHardwareTexture::CreateClampedIfWasnt( FGameTexture&       src,
+                                              int                 translation,
+                                              int                 flags,
+                                              const FRenderStyle& renderStyle )
+{
+    if( m_createdClamped )
+    {
+        return;
+    }
+    m_createdClamped = true;
+
+    if( !src.GetTexture() || src.isHardwareCanvas() )
+    {
         return;
     }
 
-    if( renderStyle.Flags & STYLEF_RedIsAlpha )
+    std::string base = MakeTextureName( src, translation );
+    if( base.empty() )
     {
-        const size_t n = size_t( texbuffer.mWidth ) * size_t( texbuffer.mHeight );
-        for( size_t i = 0; i < n; i++ )
-        {
-            // BGRA: alpha = red
-            texbuffer.mBuffer[ 4 * i + 3 ] = texbuffer.mBuffer[ 4 * i + 2 ];
-        }
+        // dynamic (movie frames): one name per hardware texture, freed with it
+        static uint64_t serial = 0;
+        base      = "rtdyn" + std::to_string( ++serial );
+        m_dynamic = true;
     }
+    m_nameClamped = base + "@ui";
 
-    auto details = RgOriginalTextureDetailsEXT{
-        .sType  = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT,
-        .pNext  = nullptr,
-        .flags  = 0,
-        .format = ( flags & CTF_Indexed ) ? RG_FORMAT_R8_SRGB : RG_FORMAT_B8G8R8A8_SRGB,
-    };
-
-    auto info = RgOriginalTextureInfo{
-        .sType        = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO,
-        .pNext        = &details,
-        .pTextureName = m_name.c_str(),
-        .pPixels      = texbuffer.mBuffer,
-        .size         = { uint32_t( texbuffer.mWidth ), uint32_t( texbuffer.mHeight ) },
-        .filter       = RG_SAMPLER_FILTER_AUTO,
-        .addressModeU = RG_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeV = RG_SAMPLER_ADDRESS_MODE_REPEAT,
-    };
-
-    RG_CHECK( rt.rgProvideOriginalTexture( &info ) );
+    if( !Upload( src, translation, flags, renderStyle, m_nameClamped, true, false ) )
+    {
+        m_nameClamped.clear();
+    }
 }
 
 //
@@ -367,10 +428,19 @@ void RTRenderState::RT_SetMatrices( const VSMatrix& view, const VSMatrix& proj )
 
     MatMul44( vkcorrection, proj.get(), m_projection );
     memcpy( m_view, view.get(), sizeof( float ) * 16 );
+
+    // ortho( 0, W, H, 0 ): remember W and H for the scissor
+    const float* p = proj.get();
+    if( std::abs( p[ 15 ] - 1.f ) < 1e-5f && p[ 0 ] != 0.f && p[ 5 ] != 0.f )
+    {
+        m_orthoSize[ 0 ] = 2.f / p[ 0 ];
+        m_orthoSize[ 1 ] = -2.f / p[ 5 ];
+    }
 }
 
-auto RTRenderState::ResolveTexture() -> const char*
+auto RTRenderState::ResolveTexture( bool clamped, bool* outEmission ) -> const char*
 {
+    *outEmission = false;
     if( !mTextureEnabled || !mMaterial.mMaterial )
     {
         return nullptr;
@@ -392,8 +462,135 @@ auto RTRenderState::ResolveTexture() -> const char*
     {
         return nullptr;
     }
+    if( clamped )
+    {
+        hwtex->CreateClampedIfWasnt( *gametex, mMaterial.mTranslation, scaleflags, mRenderStyle );
+        return hwtex->GetRTNameClamped();
+    }
     hwtex->CreateIfWasnt( *gametex, mMaterial.mTranslation, scaleflags, mRenderStyle );
+    *outEmission = hwtex->HasEmission();
     return hwtex->GetRTName();
+}
+
+// The 2D drawer clips with the scissor rectangle (menu transitions, scrolling lists,
+// the console). RTGL1's swapchained primitives have no scissor, so clip the triangles
+// on the CPU, in the drawer's pixel space.
+auto RTRenderState::ClipToScissor( std::span< const RgPrimitiveVertex > verts,
+                                   std::span< const uint32_t >          indices )
+    -> std::span< const RgPrimitiveVertex >
+{
+    const float W = m_orthoSize[ 0 ], H = m_orthoSize[ 1 ];
+    if( W <= 0 || H <= 0 || m_viewport.width <= 0 || m_viewport.height <= 0 )
+    {
+        return {};
+    }
+
+    // GL scissor: window pixels, origin at the bottom left
+    const float sx = float( m_scissor[ 0 ] ), sy = float( m_scissor[ 1 ] );
+    const float sw = float( m_scissor[ 2 ] ), sh = float( m_scissor[ 3 ] );
+    const float kx = W / m_viewport.width, ky = H / m_viewport.height;
+
+    const float x0 = ( sx - m_viewport.x ) * kx;
+    const float x1 = ( sx + sw - m_viewport.x ) * kx;
+    const float y0 = H - ( sy + sh - m_viewport.y ) * ky;
+    const float y1 = H - ( sy - m_viewport.y ) * ky;
+
+    struct V
+    {
+        float p[ 3 ];
+        float t[ 2 ];
+        float c[ 4 ];
+    };
+    auto unpack = []( const RgPrimitiveVertex& s ) {
+        V v;
+        memcpy( v.p, s.position, sizeof v.p );
+        memcpy( v.t, s.texCoord, sizeof v.t );
+        for( int k = 0; k < 4; k++ )
+        {
+            v.c[ k ] = float( ( s.color >> ( 8 * k ) ) & 0xFF );
+        }
+        return v;
+    };
+    auto pack = [ &verts ]( const V& v ) {
+        RgPrimitiveVertex r = verts[ 0 ];
+        memcpy( r.position, v.p, sizeof v.p );
+        memcpy( r.texCoord, v.t, sizeof v.t );
+        uint32_t c = 0;
+        for( int k = 0; k < 4; k++ )
+        {
+            c |= uint32_t( std::clamp( std::lround( v.c[ k ] ), 0l, 255l ) ) << ( 8 * k );
+        }
+        r.color = c;
+        return r;
+    };
+    auto lerp = []( const V& a, const V& b, float t ) {
+        V r;
+        for( int k = 0; k < 3; k++ ) r.p[ k ] = a.p[ k ] + ( b.p[ k ] - a.p[ k ] ) * t;
+        for( int k = 0; k < 2; k++ ) r.t[ k ] = a.t[ k ] + ( b.t[ k ] - a.t[ k ] ) * t;
+        for( int k = 0; k < 4; k++ ) r.c[ k ] = a.c[ k ] + ( b.c[ k ] - a.c[ k ] ) * t;
+        return r;
+    };
+
+    m_clipverts.clear();
+
+    const size_t triCount = indices.empty() ? verts.size() / 3 : indices.size() / 3;
+    std::vector< V > poly, next;
+    for( size_t t = 0; t < triCount; t++ )
+    {
+        poly.clear();
+        for( int k = 0; k < 3; k++ )
+        {
+            const size_t idx = indices.empty() ? t * 3 + k : indices[ t * 3 + k ];
+            if( idx >= verts.size() )
+            {
+                poly.clear();
+                break;
+            }
+            poly.push_back( unpack( verts[ idx ] ) );
+        }
+
+        // Sutherland-Hodgman against the four edges: axis, limit, keep >= (true) or <=
+        const struct
+        {
+            int   axis;
+            float limit;
+            bool  greater;
+        } edges[] = { { 0, x0, true }, { 0, x1, false }, { 1, y0, true }, { 1, y1, false } };
+
+        for( const auto& e : edges )
+        {
+            if( poly.empty() )
+            {
+                break;
+            }
+            next.clear();
+            for( size_t i = 0; i < poly.size(); i++ )
+            {
+                const V& a   = poly[ i ];
+                const V& b   = poly[ ( i + 1 ) % poly.size() ];
+                const float da = e.greater ? a.p[ e.axis ] - e.limit : e.limit - a.p[ e.axis ];
+                const float db = e.greater ? b.p[ e.axis ] - e.limit : e.limit - b.p[ e.axis ];
+                if( da >= 0 )
+                {
+                    next.push_back( a );
+                }
+                if( ( da >= 0 ) != ( db >= 0 ) )
+                {
+                    next.push_back( lerp( a, b, da / ( da - db ) ) );
+                }
+            }
+            poly.swap( next );
+        }
+
+        for( size_t i = 1; i + 1 < poly.size(); i++ )
+        {
+            m_clipverts.push_back( pack( poly[ 0 ] ) );
+            m_clipverts.push_back( pack( poly[ i ] ) );
+            m_clipverts.push_back( pack( poly[ i + 1 ] ) );
+        }
+    }
+
+    return m_clipverts;
 }
 
 auto RTRenderState::FallbackUniqueId( std::span< const RgPrimitiveVertex > verts, const char* texname ) const
@@ -501,7 +698,20 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         return;
     }
 
-    const char* texname = ( isSkyVis || isMirror ) ? nullptr : ResolveTexture();
+    // HUD and menu pictures are clamped at the edges, unless they are meant to tile
+    const bool clampUI  = isUI && mMaterial.mClampMode != CLAMP_NONE;
+    bool       emissionMap = false;
+    const char* texname = ( isSkyVis || isMirror ) ? nullptr : ResolveTexture( clampUI, &emissionMap );
+
+    if( isUI && !islines && m_scissor[ 2 ] >= 0 && m_scissor[ 3 ] >= 0 )
+    {
+        verts   = ClipToScissor( verts, indices );
+        indices = {};
+        if( verts.empty() )
+        {
+            return;
+        }
+    }
 
     if( isSky && texname )
     {
@@ -609,6 +819,17 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         if( rtstate.is< RtPrim::Sprite >() )
         {
             primFlags |= RG_MESH_PRIMITIVE_SPRITE;
+        }
+        if( rtstate.is< RtPrim::NoShadow >() )
+        {
+            primFlags |= RG_MESH_PRIMITIVE_NO_SHADOW;
+        }
+        if( emissionMap )
+        {
+            // the emission map (from Duke-RT's glowmaps) is the glow; this is how much
+            // of it reaches the bounce light
+            primFlags |= RG_MESH_PRIMITIVE_EMISSIVE_OVERRIDE;
+            emissive = std::max( emissive, float( *rt_emis_mult ) );
         }
         if( rtstate.is< RtPrim::Fullbright >() && *rt_fullbright_emis > 0.f )
         {

@@ -164,6 +164,7 @@ void LoadVoxelModels();
 void MarkMap();
 void BuildFogTable();
 void ParseGLDefs();
+bool ParseLightOverlays(bool verbose);
 void I_UpdateDiscordPresence(bool SendPresence, const char* curstatus, const char* appid, const char* steamappid);
 bool G_Responder(event_t* ev);
 void HudScaleChanged();
@@ -1161,6 +1162,7 @@ int RunGame()
 	StartWindow->Progress();
 	G_ParseMapInfo();
 	ParseGLDefs();
+	ParseLightOverlays(false);	// Duke-RT's LIGHTOVR (authored lights), used by the ray tracing renderer
 	ReplaceMusics(true);
 	CreateStatusBar();
 	SetDefaultMenuColors();

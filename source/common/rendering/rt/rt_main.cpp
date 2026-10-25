@@ -38,15 +38,23 @@ CVARD( Int, rt_sharpen, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0 auto, 1 naiv
 CVARD( Bool, rt_vsync, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: vertical sync" )
 CVARD( Float, rt_classic, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much of the screen uses the classic (not path traced) look" )
 CVARD( Bool, rt_world_white, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: do not bake the game's light colour into surfaces" )
-CVARD( Float, rt_fullbright_emis, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: emission of surfaces the game draws fullbright" )
+CVARD( Float, rt_fullbright_emis, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: emission of surfaces the game draws fullbright" )
 CVARD( Float, rt_additive_emis, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: emission of additive sprites (explosions, fire)" )
-CVARD( Float, rt_sky, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky brightness" )
+CVARD( Float, rt_sky, 25.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky brightness (its light on the scene)" )
+CVARD( Float, rt_emis_mult, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much glowing surfaces light their surroundings" )
+CVARD( Float, rt_emis_boost, 200.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: RTGL1's emission map boost (bounce light from glowing surfaces)" )
+CVARD( Float, rt_emis_screen, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: on-screen brightness of glowing surfaces" )
+CVARD( Int, rt_texture_filter, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0 nearest (pixelated), 1 linear" )
+CVARD( Float, rt_ev100_min, 2.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adaptation, darkest exposure (lower = dark scenes brighter)" )
+CVARD( Float, rt_ev100_max, 7.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adaptation, brightest exposure" )
+CVARD( Float, rt_white_point, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping white point" )
+CVARD( Float, rt_contrast, 0.1f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping contrast" )
 CVARD( Float, rt_sky_saturation, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky saturation" )
 CVARD( Int, rt_bounces, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: indirect light bounces" )
 CVARD( Bool, rt_volumetrics, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: volumetric light" )
 CVARD( Float, rt_znear, 0.05f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: camera near plane, metres" )
 CVARD( Float, rt_zfar, 2048.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: camera far plane, metres" )
-CVARD( Bool, rt_flashlight, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a light at the camera" )
+CVARD( Bool, rt_flashlight, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a light at the camera" )
 CVARD( Float, rt_flashlight_intensity, 156.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: flashlight brightness" )
 CVARD( Float, rt_flashlight_angle, 46.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: flashlight cone, degrees" )
 CVARD( Float, rt_flashlight_radius, 0.02f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: flashlight source size, metres" )
@@ -115,6 +123,8 @@ std::string RT_OverrideFolder()
 }
 
 std::string g_overrideFolder;
+
+uint32_t g_frameCounter = 0;
 
 auto RT_GetCurrentTime() -> double
 {
@@ -536,6 +546,8 @@ void RTFrameBuffer::RT_UploadLights()
         return;
     }
 
+    RT_UploadSceneLights( g_frameCounter++ );
+
     if( *rt_flashlight && *rt_flashlight_intensity > 0.f )
     {
         // slightly below and to the right of the eyes, pointing where they look
@@ -633,7 +645,34 @@ void RTFrameBuffer::RT_DrawFrame()
         .sunSplit                    = 0.0f,
     };
 
-    void* chain = &sky;
+    auto textures = RgDrawFrameTexturesParams{
+        .sType                  = RG_STRUCTURE_TYPE_DRAW_FRAME_TEXTURES_PARAMS,
+        .pNext                  = &sky,
+        .dynamicSamplerFilter   = *rt_texture_filter ? RG_SAMPLER_FILTER_LINEAR : RG_SAMPLER_FILTER_NEAREST,
+        .mipLodBiasOffset       = 0.0f,
+        .normalMapStrength      = 1.0f,
+        .emissionMapBoost       = std::max( 0.f, float( *rt_emis_boost ) ),
+        .emissionMaxScreenColor = std::max( 0.f, float( *rt_emis_screen ) ),
+        .minRoughness           = 0.0f,
+        .heightMapDepth         = 0.02f,
+    };
+
+    auto tonemap = RgDrawFrameTonemappingParams{
+        .sType                = RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS,
+        .pNext                = &textures,
+        .disableEyeAdaptation = false,
+        .ev100Min             = *rt_ev100_min,
+        .ev100Max             = std::max( float( *rt_ev100_min ) + 0.1f, float( *rt_ev100_max ) ),
+        .luminanceWhitePoint  = std::max( 0.1f, float( *rt_white_point ) ),
+        .saturation           = { 0, 0, 0 },
+        .crosstalk            = { 1, 1, 1 },
+        .contrast             = *rt_contrast,
+        .hdrBrightness        = 1.0f,
+        .hdrContrast          = 0.1f,
+        .hdrSaturation        = { 0.25f, 0.25f, 0.25f },
+    };
+
+    void* chain = &tonemap;
 
     auto volumetric = RgDrawFrameVolumetricParams{
         .sType                   = RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS,
@@ -737,4 +776,9 @@ CCMD( rt_info )
     Printf( "RT: MetalFX upscaler %s, denoiser %s\n",
             rt.rgUtilIsUpscaleTechniqueAvailable( RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2, RG_FRAME_GENERATION_MODE_OFF, nullptr ) ? "available" : "not available",
             ( rt.rgUtilGetSupportedFeatures() & RG_FEATURE_METALFX_DENOISER ) ? "available" : "not available" );
+}
+
+const std::string& RT_GetOverrideFolder()
+{
+    return g_overrideFolder;
 }

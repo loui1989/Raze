@@ -113,6 +113,7 @@ struct HWDrawInfo
 	HWViewpointUniforms VPUniforms;	// per-viewpoint uniform state
 	TArray<HWPortal *> Portals;
 	tspriteArray tsprites;
+	unsigned rtHiddenSpriteStart = ~0u;	// ray tracing: tsprites from here on were added for off-screen geometry
 	TArray<FFlatVertex> SlopeSpriteVertices;	// we need to cache these in system memory in case of translucency splits.
 
 	// This is needed by the BSP traverser.
