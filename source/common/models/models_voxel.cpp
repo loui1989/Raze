@@ -65,10 +65,21 @@ public:
 
 	int CopyPixels(FBitmap *bmp, int conversion, int frame = 0) override;
 	PalettedPixels CreatePalettedPixels(int conversion, int frame = 0) override;
+	const uint8_t *GetVoxelPalette() const { return SourceVox->Palette.Size() >= 768 ? SourceVox->Palette.Data() : nullptr; }
 
 protected:
 	FVoxel *SourceVox;
 };
+
+// ray tracing: is 'img' a voxel model's palette texture (16 x 16 texels, texel y * 16 + x
+// is colour index y * 16 + x)? 'palette': the voxel's own 6 bit palette, null for the game's
+bool IsVoxelPaletteTexture(FImageSource *img, const uint8_t **palette)
+{
+	auto vt = dynamic_cast<FVoxelTexture *>(img);
+	if (!vt) return false;
+	if (palette) *palette = vt->GetVoxelPalette();
+	return true;
+}
 
 //===========================================================================
 //

@@ -22,6 +22,10 @@
 #include "gametexture.h"
 #include "hw_material.h"
 #include "palettecontainer.h"
+
+// (models_voxel.cpp) a voxel model's palette texture, 'palette' its own 6 bit one or null
+class FImageSource;
+bool IsVoxelPaletteTexture( FImageSource* img, const uint8_t** palette );
 #include "filesystem.h"
 
 #include <span>
@@ -258,6 +262,8 @@ public:
     bool IsGlass() const { return m_glass; }
     float Glow() const { return m_glow; }
     bool IsLamp() const { return m_lamp; }
+    // a voxel palette's fullbright texels, their colour (linear; zero where not); null if none
+    const float* VoxelGlow() const { return m_voxGlow.empty() ? nullptr : m_voxGlow.data(); }
 
 private:
     static auto TranslationSuffix( int translation ) -> std::string;
@@ -274,6 +280,7 @@ private:
     bool        m_glass{ false };
     float       m_glow{ 0.f };
     bool        m_lamp{ false };
+    std::vector< float > m_voxGlow{};
     std::string m_name{};
     std::string m_nameClamped{};
 };
@@ -288,7 +295,10 @@ struct RtMaterialInfo
     bool  glass       = false; // the material table calls it glass
     float glow        = 0.f;   // the material table's glow (fire): drawn solid, glowing
     bool  lamp        = false; // ...following its room's light (a ceiling lamp)
+    bool  voxel       = false; // a voxel model's palette texture...
+    uint8_t voxGlow[ 256 ]{};  // ...and which of its colours (texels) are fullbright
 };
+
 bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, RtMaterialInfo& out );
 // the material table's glow of a texture (a tile "#01234..."), 0 = none
 float RT_TableGlow( const std::string& name );
@@ -440,6 +450,20 @@ private:
                            const float                          avg[ 3 ],
                            float                                scale,
                            uint64_t                             id );
+    // the light of a voxel model's fullbright faces (a voxel candle's flame), from them alone
+    void AddVoxelGlowLight( std::span< const RgPrimitiveVertex > verts,
+                            std::span< const uint32_t >          indices,
+                            const RgTransform&                   transform,
+                            const float*                         glow,
+                            float                                scale,
+                            uint64_t                             id );
+    struct VoxelGlowGeo
+    {
+        double area = 0;        // of the glowing faces, model space
+        float  centre[ 3 ]{};   // their centre, model space
+        float  rgb[ 3 ]{};      // their average glow colour (linear)
+    };
+    std::unordered_map< uint64_t, VoxelGlowGeo > m_voxGlowCache{};
     auto ClipToScissor( std::span< const RgPrimitiveVertex > verts, std::span< const uint32_t > indices )
         -> std::span< const RgPrimitiveVertex >;
     auto FallbackUniqueId( std::span< const RgPrimitiveVertex > verts, const char* texname ) const -> uint64_t;

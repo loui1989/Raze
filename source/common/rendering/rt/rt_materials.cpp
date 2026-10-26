@@ -31,6 +31,7 @@
 
 #include "m_png.h"
 #include "files.h"
+#include "colormatcher.h"
 
 #include <filesystem>
 #include <unordered_set>
@@ -381,6 +382,32 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     const int              w      = albedo.mWidth;
     const int              h      = albedo.mHeight;
 
+    // a voxel model's palette texture: its fullbright colours glow, as on the sprites
+    // (eyes, flames, embers) -- the game's brightmap does not cover these textures
+    const uint8_t* vpal   = nullptr;
+    FImageSource*  img    = src.GetTexture() ? src.GetTexture()->GetImage() : nullptr;
+    const bool     voxPal = img && IsVoxelPaletteTexture( img, &vpal ) && w == 16 && h == 16;
+    const auto     pathVx = dir / ( name + "_e.vox1" );
+    if( voxPal )
+    {
+        out.voxel       = true;
+        const int white = ColorMatcher.Pick( 255, 255, 255 );
+        for( int i = 0; i < 256; i++ )
+        {
+            int idx = i;
+            if( vpal )
+            {
+                auto c6 = []( uint8_t c ) { return int( ( c << 2 ) | ( c >> 4 ) ); };
+                idx     = ColorMatcher.Pick( c6( vpal[ i * 3 ] ), c6( vpal[ i * 3 + 1 ] ), c6( vpal[ i * 3 + 2 ] ) );
+            }
+            out.voxGlow[ i ] = GPalette.HasGlobalBrightmap && GPalette.GlobalBrightmap.Remap[ idx ] == white;
+        }
+        if( !Exists( pathVx ) )
+        {
+            hasE = noE = false; // made before this version: look again
+        }
+    }
+
     // a glowing class (fire): the texture itself is the glow, as it is
     if( const MatClass* g = TableClass( name ); g && g->glow > 0.f )
     {
@@ -442,6 +469,16 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     {
         Mask mask;
         bool have = layers && layers->Glowmap.get() && mask.Load( layers->Glowmap.get() );
+        if( !have && *rt_materials_brightmaps && voxPal )
+        {
+            mask.w = mask.h = 16;
+            mask.buf.Resize( 256 * 4 );
+            for( int i = 0; i < 256; i++ )
+            {
+                memset( &mask.buf[ unsigned( i * 4 ) ], out.voxGlow[ i ] ? 255 : 0, 4 );
+            }
+            have = true;
+        }
         if( !have && *rt_materials_brightmaps )
         {
             have = mask.Load( src.GetBrightmap() );
@@ -531,6 +568,10 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                     fclose( f );
                 }
             }
+        }
+        if( voxPal )
+        {
+            Touch( pathVx );
         }
         if( !hasE )
         {

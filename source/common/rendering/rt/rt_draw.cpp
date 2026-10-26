@@ -215,6 +215,20 @@ auto RTHardwareTexture::MakeTextureName( FGameTexture& gametex, int translation 
     {
         if( FImageSource* imgsrc = ftex->GetImage() )
         {
+            // a voxel model's palette: named by the palette (the same in every start, and
+            // one texture for all the models of a pack -- they share the game's palette)
+            const uint8_t* vpal = nullptr;
+            if( IsVoxelPaletteTexture( imgsrc, &vpal ) )
+            {
+                uint32_t h = 2166136261u;
+                for( int i = 0; vpal && i < 768; i++ )
+                {
+                    h = ( h ^ vpal[ i ] ) * 16777619u;
+                }
+                char buf[ 32 ];
+                snprintf( buf, sizeof( buf ), "voxpal%08x", vpal ? h : 0u );
+                return buf + suffix;
+            }
             return "img" + std::to_string( imgsrc->GetId() ) + suffix;
         }
     }
@@ -298,6 +312,29 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
         m_glass    = mi.glass;
         m_glow     = mi.glow;
         m_lamp     = mi.lamp;
+        m_voxGlow.clear();
+        if( mi.voxel && texbuffer.mWidth == 16 && texbuffer.mHeight == 16 )
+        {
+            m_voxGlow.assign( 256 * 3, 0.f );
+            bool any = false;
+            for( int i = 0; i < 256; i++ )
+            {
+                if( !mi.voxGlow[ i ] )
+                {
+                    continue;
+                }
+                for( int k = 0; k < 3; k++ )
+                {
+                    const float v              = texbuffer.mBuffer[ 4 * i + ( 2 - k ) ] / 255.f; // BGRA
+                    m_voxGlow[ size_t( i ) * 3 + k ] = v * v;
+                    any |= v > 0.05f;
+                }
+            }
+            if( !any )
+            {
+                m_voxGlow.clear();
+            }
+        }
     }
 
     auto details = RgOriginalTextureDetailsEXT{
@@ -1196,9 +1233,138 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     if( ( emissionMap || glowTex ) && *rt_emis_lights && ( !rtstate.is< RtPrim::Sprite >() || spriteGlow ) && !isUI && !isSky &&
         glowScale > 0.01f )
     {
-        AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(), glowScale * emisLightScale,
-                          FRtState::MixId( uniqueId * 31 + prim.primitiveIndexInMesh, RtIdKind::Other ) );
+        if( isModel )
+        {
+            if( const float* vg = hwtex->VoxelGlow() )
+            {
+                AddVoxelGlowLight( verts, indices, transform, vg, glowScale * emisLightScale,
+                                   FRtState::MixId( uniqueId * 31 + prim.primitiveIndexInMesh, RtIdKind::Other ) );
+            }
+        }
+        else
+        {
+            AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(), glowScale * emisLightScale,
+                              FRtState::MixId( uniqueId * 31 + prim.primitiveIndexInMesh, RtIdKind::Other ) );
+        }
     }
+}
+
+// A voxel model's palette texture holds every colour of the palette, the fullbright ones
+// too, whether the model uses them or not: its emission map says nothing about the
+// model. The faces of its fullbright colours do: their area, centre and colour (worked
+// out once per model and palette) make the light, a small ball where they are.
+void RTRenderState::AddVoxelGlowLight( std::span< const RgPrimitiveVertex > verts,
+                                       std::span< const uint32_t >          indices,
+                                       const RgTransform&                   transform,
+                                       const float*                         glow,
+                                       float                                scale,
+                                       uint64_t                             id )
+{
+    uint64_t key = 1469598103934665603ull;
+    for( uint64_t v : { uint64_t( uintptr_t( verts.data() ) ), uint64_t( verts.size() ), uint64_t( indices.size() ),
+                        uint64_t( uintptr_t( glow ) ) } )
+    {
+        key = ( key ^ v ) * 1099511628211ull;
+    }
+    auto it = m_voxGlowCache.find( key );
+    if( it == m_voxGlowCache.end() )
+    {
+        VoxelGlowGeo g;
+        double       c[ 3 ] = {}, rgb[ 3 ] = {};
+        const size_t tris   = indices.empty() ? verts.size() / 3 : indices.size() / 3;
+        for( size_t t = 0; t < tris; t++ )
+        {
+            size_t i0 = t * 3, i1 = i0 + 1, i2 = i0 + 2;
+            if( !indices.empty() )
+            {
+                i0 = indices[ i0 ], i1 = indices[ i1 ], i2 = indices[ i2 ];
+            }
+            if( i0 >= verts.size() || i1 >= verts.size() || i2 >= verts.size() )
+            {
+                continue;
+            }
+            // a face is one colour: one texel of the 16 x 16 palette
+            const int    tx = std::clamp( int( verts[ i0 ].texCoord[ 0 ] * 16.f ), 0, 15 );
+            const int    ty = std::clamp( int( verts[ i0 ].texCoord[ 1 ] * 16.f ), 0, 15 );
+            const float* e  = &glow[ ( ty * 16 + tx ) * 3 ];
+            if( e[ 0 ] + e[ 1 ] + e[ 2 ] <= 0.f )
+            {
+                continue;
+            }
+            const float* a  = verts[ i0 ].position;
+            const float* b  = verts[ i1 ].position;
+            const float* d  = verts[ i2 ].position;
+            const FVector3 ab{ b[ 0 ] - a[ 0 ], b[ 1 ] - a[ 1 ], b[ 2 ] - a[ 2 ] };
+            const FVector3 ad{ d[ 0 ] - a[ 0 ], d[ 1 ] - a[ 1 ], d[ 2 ] - a[ 2 ] };
+            const double   ta = 0.5 * ( ab ^ ad ).Length();
+            g.area += ta;
+            for( int k = 0; k < 3; k++ )
+            {
+                c[ k ] += ( a[ k ] + b[ k ] + d[ k ] ) / 3.0 * ta;
+                rgb[ k ] += e[ k ] * ta;
+            }
+        }
+        for( int k = 0; k < 3; k++ )
+        {
+            g.centre[ k ] = g.area > 0 ? float( c[ k ] / g.area ) : 0.f;
+            g.rgb[ k ]    = g.area > 0 ? float( rgb[ k ] / g.area ) : 0.f;
+        }
+        if( m_voxGlowCache.size() > 4096 )
+        {
+            m_voxGlowCache.clear();
+        }
+        it = m_voxGlowCache.emplace( key, g ).first;
+    }
+    const VoxelGlowGeo& g = it->second;
+    if( g.area <= 0 )
+    {
+        return;
+    }
+
+    const auto&    m = transform.matrix;
+    const FVector3 centre{
+        m[ 0 ][ 0 ] * g.centre[ 0 ] + m[ 0 ][ 1 ] * g.centre[ 1 ] + m[ 0 ][ 2 ] * g.centre[ 2 ] + m[ 0 ][ 3 ],
+        m[ 1 ][ 0 ] * g.centre[ 0 ] + m[ 1 ][ 1 ] * g.centre[ 1 ] + m[ 1 ][ 2 ] * g.centre[ 2 ] + m[ 1 ][ 3 ],
+        m[ 2 ][ 0 ] * g.centre[ 0 ] + m[ 2 ][ 1 ] * g.centre[ 1 ] + m[ 2 ][ 2 ] * g.centre[ 2 ] + m[ 2 ][ 3 ],
+    };
+    // the model's scale (the voxel size): areas by its square
+    const double det = m[ 0 ][ 0 ] * ( m[ 1 ][ 1 ] * m[ 2 ][ 2 ] - m[ 1 ][ 2 ] * m[ 2 ][ 1 ] ) -
+                       m[ 0 ][ 1 ] * ( m[ 1 ][ 0 ] * m[ 2 ][ 2 ] - m[ 1 ][ 2 ] * m[ 2 ][ 0 ] ) +
+                       m[ 0 ][ 2 ] * ( m[ 1 ][ 0 ] * m[ 2 ][ 1 ] - m[ 1 ][ 1 ] * m[ 2 ][ 0 ] );
+    const double s2   = std::pow( std::abs( det ), 2.0 / 3.0 );
+    const float  area = float( g.area * s2 );
+
+    const float lum = 0.2126f * g.rgb[ 0 ] + 0.7152f * g.rgb[ 1 ] + 0.0722f * g.rgb[ 2 ];
+    if( lum < 0.01f )
+    {
+        return;
+    }
+    // as a glowing sprite's light (AddEmissionLight), but from the glowing faces only (a
+    // sprite counts its whole quad, dimmed by its average): the flame's surface is
+    // small, and all of it glows -- *4 brings a voxel candle to its sprite's light
+    float lumens = 4.f * scale * *rt_emis_light_scale * std::sqrt( lum ) * area *
+                   RT_LightReachFade( { centre.X, centre.Y, centre.Z }, rtstate.get_sector() ) *
+                   std::max( 0.f, float( *rt_sprite_light_scale ) );
+    if( lumens < 0.5f )
+    {
+        return;
+    }
+    const float mx    = std::max( { g.rgb[ 0 ], g.rgb[ 1 ], g.rgb[ 2 ] } );
+    auto        light = RgLightSphericalEXT{
+        .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
+        .pNext     = nullptr,
+        .color     = rt.rgUtilPackColorFloat4D( g.rgb[ 0 ] / mx, g.rgb[ 1 ] / mx, g.rgb[ 2 ] / mx, 1.f ),
+        .intensity = lumens,
+        .position  = { centre.X, centre.Y, centre.Z },
+        .radius    = std::clamp( float( std::sqrt( area ) ) * 0.3f, 0.03f, 0.15f ),
+    };
+    auto info = RgLightInfo{
+        .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+        .pNext        = &light,
+        .uniqueID     = id,
+        .isExportable = false,
+    };
+    RG_CHECK( RT_UploadLight( &info ) );
 }
 
 void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts,

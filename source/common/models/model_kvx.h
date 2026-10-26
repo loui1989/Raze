@@ -40,6 +40,9 @@ struct FIndexInit
 typedef TMap<FModelVertex, unsigned int, FVoxelVertexHash, FIndexInit> FVoxelMap;
 
 
+class FImageSource;
+bool IsVoxelPaletteTexture(FImageSource *img, const uint8_t **palette);
+
 class FVoxelModel : public FModel
 {
 protected:
