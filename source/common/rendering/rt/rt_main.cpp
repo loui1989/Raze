@@ -54,9 +54,9 @@ CVARD( Float, rt_metallic_max, 0.75f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: cei
 CVARD( Float, rt_decal_offset, 0.03f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres a wall or floor sprite is moved off the surface it is on" )
 // how fast the denoiser drops its history when the lighting changes: lower = calmer
 // under flickering lights and explosions, but lighting changes trail a little
-CVARD( Float, rt_denoise_sens_direct, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, denoiser reaction to direct light changes (lower = fewer splotches, more lag)" )
-CVARD( Float, rt_denoise_sens_indirect, 0.15f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for bounce light" )
-CVARD( Float, rt_min_roughness, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, no surface is glossier than this (lower = sharper highlights, more noise)" )
+CVARD( Float, rt_denoise_sens_direct, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, denoiser reaction to direct light changes (lower = fewer splotches, more lag)" )
+CVARD( Float, rt_denoise_sens_indirect, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for bounce light" )
+CVARD( Float, rt_min_roughness, 0.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, no surface is glossier than this (lower = sharper highlights, more noise)" )
 CVARD( Float, rt_denoise_sens_spec, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for reflections" )
 CVARD( Bool, rt_muzzleflash, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: shooting lights the room" )
 CVARD( Float, rt_muzzleflash_intensity, 250.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash brightness" )
@@ -70,7 +70,12 @@ CVARD( Float, rt_white_point, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonema
 CVARD( Float, rt_contrast, 0.1f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping contrast" )
 CVARD( Float, rt_sky_saturation, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky saturation" )
 CVARD( Int, rt_bounces, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: indirect light bounces" )
-CVARD( Bool, rt_volumetrics, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: volumetric light" )
+CVARD( Bool, rt_volumetrics, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: volumetric light (haze, light shafts) and smoke" )
+CVARD( Float, rt_volume_far, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres the volume reaches (the reach of haze and smoke)" )
+CVARD( Float, rt_volume_scatter, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how thick the air's haze is (per metre)" )
+CVARD( Float, rt_volume_ambient, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the haze's own faint light" )
+CVARD( Float, rt_volume_lintensity, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strongly lights show in the haze" )
+CVARD( Bool, rt_volume_all_lights, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: every light shows in the haze, not only the moon (costly)" )
 CVARD( Float, rt_znear, 0.05f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: camera near plane, metres" )
 CVARD( Float, rt_zfar, 2048.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: camera far plane, metres" )
 CVARD( Bool, rt_flashlight, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a light at the camera" )
@@ -353,6 +358,14 @@ void RT_CreateRendererInstance( void* pMetalLayer )
     {
         rt_emis_light_scale->ResetToDefault();
         rt_config_version = 5;
+    }
+    if( *rt_config_version < 6 )
+    {
+        rt_denoise_sens_direct->ResetToDefault();
+        rt_denoise_sens_indirect->ResetToDefault();
+        rt_min_roughness->ResetToDefault();
+        rt_volumetrics->ResetToDefault();
+        rt_config_version = 6;
     }
 }
 
@@ -685,7 +698,8 @@ void RTFrameBuffer::RT_DrawFrame()
         .indirectDiffuseSensitivityToChange          = std::clamp( float( *rt_denoise_sens_indirect ), 0.f, 1.f ),
         .specularSensitivityToChange                 = std::clamp( float( *rt_denoise_sens_spec ), 0.f, 1.f ),
         .polygonalLightSpotlightFactor               = 2.0f,
-        .lightUniqueIdIgnoreFirstPersonViewerShadows = nullptr,
+        // the player's own body (seen in mirrors) does not shadow his muzzle flash
+        .lightUniqueIdIgnoreFirstPersonViewerShadows = &MuzzleFlashLightId,
         .enableRrTemporalPrefilter                   = false,
         .rrFireflyThreshold                          = 0.0f,
         .rrFireflyMinLum                             = 0.01f,
@@ -770,30 +784,69 @@ void RTFrameBuffer::RT_DrawFrame()
 
     void* chain = &tonemap;
 
+    // smoke: the puffs, packed for the froxel volume (rt_smoke.cpp)
+    const float volFar = std::clamp( float( *rt_volume_far ), 5.f, 500.f );
+    static RgFloat4D s_puffs[ RG_MAX_SMOKE_PUFFS ], s_albden[ RG_MAX_SMOKE_PUFFS ], s_shape[ RG_MAX_SMOKE_PUFFS ];
+    const uint32_t   puffCount = ( *rt_volumetrics && m_cameraUploaded )
+                                     ? RT_UpdateSmoke( m_camPos, m_camForward, m_camUp, m_camRight, volFar, s_puffs, s_albden, s_shape )
+                                     : 0;
+
+    auto smoke = RgDrawFrameSmokeParams{
+        .sType          = RG_STRUCTURE_TYPE_DRAW_FRAME_SMOKE_PARAMS,
+        .pNext          = chain,
+        .puffCount      = puffCount,
+        .pPuffs         = s_puffs,
+        .pAlbedoDensity = s_albden,
+        .pShape         = s_shape,
+        // Doom 64 RT's values
+        .lightNearFade  = 0.5f,
+        .illumBlend     = 0.45f,
+        .allLights      = bool( *rt_smoke_illum ),
+        .lightFarFade   = 12.f,
+        .samplesPerCell = 8,
+        .maxLight       = 6.f,
+        .debugMode      = 0,
+        .stylize        = 0.f,
+        .stylizeSteps   = 3,
+        .stylizeGrid    = 0.f,
+        .selfAmbient    = 0.10f,
+        .tintBias       = 0.8f,
+        .absorb         = 1.f,
+    };
+    chain = &smoke;
+
+    // The haze: Doom 64 RT's volume. Its density is given per metre (scaled by the
+    // reach), so a longer reach does not thin it. The moon (the one directional
+    // light) is what draws shafts through it; rt_volume_all_lights makes every
+    // light do so.
+    const float scatter = std::max( 0.f, float( *rt_volume_scatter ) ) * ( volFar / 30.f );
     auto volumetric = RgDrawFrameVolumetricParams{
         .sType                   = RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS,
         .pNext                   = chain,
         .enable                  = *rt_volumetrics,
+        .maxHistoryLength        = puffCount > 0 ? 20.f : 8.f,
         .useSimpleDepthBased     = false,
-        .volumetricFar           = std::numeric_limits< float >::max(),
-        .ambientColor            = { 0.8f, 0.85f, 1.0f },
-        .scaterring              = 0.2f,
-        .assymetry               = 0.75f,
+        .volumetricFar           = volFar,
+        .ambientColor            = { float( *rt_volume_ambient ), float( *rt_volume_ambient ), float( *rt_volume_ambient ) },
+        .scaterring              = scatter,
+        .assymetry               = 0.5f,
         .useIlluminationVolume   = false,
         .fallbackSourceColor     = { 0, 0, 0 },
         .fallbackSourceDirection = { 0, -1, 0 },
-        .lightMultiplier         = 1.0f,
-        .illuminateFromAllLights = false,
+        .lightMultiplier         = std::max( 0.f, float( *rt_volume_lintensity ) ),
+        .allowTintUnderwater     = false,
+        .underwaterColor         = { 0, 0, 0 },
+        .illuminateFromAllLights = bool( *rt_volume_all_lights ),
         .mediaColor              = { 1.0f, 1.0f, 1.0f },
         .mediaColorFar           = { 1.0f, 1.0f, 1.0f },
-        .farScattering           = 0.2f,
+        .farScattering           = scatter,
         .densityCurve            = 1.0f,
-        .occludeEmission         = false,
-        .ditherRadius            = 2.0f,
+        .occludeEmission         = true,
+        .ditherRadius            = 5.0f,
         .ditherRadiusZ           = 1.0f,
-        .spatialBlur             = 0.0f,
+        .spatialBlur             = 1.0f,
         .lightNearFade           = 0.0f,
-        .depthGate               = 0.0f,
+        .depthGate               = 1.0f,
         .depthGateBias           = 0.0f,
         .depthGateFeather        = 1.0f,
         .depthGateTaps           = 5,

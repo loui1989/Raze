@@ -957,7 +957,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     auto mesh = RgMeshInfo{
         .sType                = RG_STRUCTURE_TYPE_MESH_INFO,
         .pNext                = nullptr,
-        .flags                = 0,
+        .flags                = ( !isUI && rtstate.is< RtPrim::Viewer >() ) ? RgMeshInfoFlags( RG_MESH_FIRST_PERSON_VIEWER ) : 0,
         .uniqueObjectID       = uniqueId,
         .pMeshName            = nullptr,
         .transform            = transform,

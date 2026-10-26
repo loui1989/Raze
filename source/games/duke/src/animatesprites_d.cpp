@@ -39,6 +39,7 @@ source as it is released.
 #include "dukeactor.h"
 #include "gamefuncs.h"
 #include "models/modeldata.h"
+#include "rt_state.h"
 
 EXTERN_CVAR(Bool, wt_commentary)
 
@@ -202,9 +203,17 @@ void animatesprites_d(tspriteArray& tsprites, const DVector2& viewVec, DAngle vi
 				if (h->GetOwner() && display_mirror == 0 && p->over_shoulder_on == 0)
 					if (ud.multimode < 2 || (ud.multimode > 1 && p == spp))
 					{
-						t->ownerActor = nullptr;
-						t->scale = DVector2(0, 0);
-						continue;
+						// ray tracing: keep him, drawn only into mirrors, reflections and shadows
+						if (RT_IsActive())
+						{
+							g_rtViewerActor = h;
+						}
+						else
+						{
+							t->ownerActor = nullptr;
+							t->scale = DVector2(0, 0);
+							continue;
+						}
 					}
 
 
@@ -216,7 +225,12 @@ void animatesprites_d(tspriteArray& tsprites, const DVector2& viewVec, DAngle vi
 
 		}
 
-		applyanimations(t, h, viewVec, viewang);
+		// ray tracing: the player's own body is seen in mirrors and reflections, which
+		// face him -- so its rotation frame is the one seen from in front
+		if (RT_IsActive() && g_rtViewerActor == (const void*)h)
+			applyanimations(t, h, h->spr.pos.XY() + h->spr.Angles.Yaw.ToVector() * 64, viewang + DAngle180);
+		else
+			applyanimations(t, h, viewVec, viewang);
 
 		if (h->spr.statnum == STAT_DUMMYPLAYER || badguy(h) || (h->isPlayer() && h->GetOwner()))
 		{

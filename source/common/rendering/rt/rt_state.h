@@ -27,6 +27,15 @@ extern bool g_rtActive;
 // it renders the view (the path tracer adds a light for it)
 extern float g_rtMuzzleFlash;
 
+// Set by the game when the player fires: the counter goes up, the event names the
+// LIGHTOVR smoke event rule ("duke.pistol.primary"...), or is null
+extern uint32_t    g_rtShotCounter;
+extern const char* g_rtShotEvent;
+
+// The player's own actor: drawn only where the player cannot see it himself
+// (mirrors, reflections, shadows)
+extern const void* g_rtViewerActor;
+
 // Per sector, set by the game before it renders the view: -1 for a sector without a
 // light switch, else how far its lights are on (0 off .. 1 on). A switched room sits
 // at about half light when off, which the path tracer cannot tell from a dim room.
@@ -81,6 +90,7 @@ enum class RtPrim : uint32_t
     Fullbright     = 1 << 9, // drawn at full brightness by the game (shade at or below the fullbright cutoff)
     NoShadow       = 1 << 10, // casts no shadow (a fire sprite around its own light)
     Decal          = 1 << 11, // a wall or floor aligned sprite, usually flush with a surface
+    Viewer         = 1 << 12, // the player's own body: only in reflections and shadows
 };
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it

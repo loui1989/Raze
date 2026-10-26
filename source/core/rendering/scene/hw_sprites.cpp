@@ -60,6 +60,7 @@ void HWSprite::DrawSprite(HWDrawInfo* di, FRenderState& state, bool translucent)
 	auto rtid = rtstate.push_uniqueid((const void*)(Sprite ? Sprite->ownerActor : nullptr), modelframe == 0 ? RtIdKind::Sprite : RtIdKind::Model);
 	RT_PUSH_TYPE(rtspr, modelframe == 0 ? RtPrim::Sprite : RtPrim::Identity);
 	auto rtsec = rtstate.push_sector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : -1);
+	RT_PUSH_TYPE(rtviewer, Sprite && g_rtViewerActor && (const void*)Sprite->ownerActor == g_rtViewerActor ? RtPrim::Viewer : RtPrim::Identity);
 	const int rtflags = RT_IsActive() && Sprite ? RT_ActorRuleFlags(Sprite->ownerActor) : 0;
 	RT_PUSH_TYPE(rtfb, shade <= -numshades || (rtflags & 2) ? RtPrim::Fullbright : RtPrim::Identity);
 	RT_PUSH_TYPE(rtns, rtflags & 1 ? RtPrim::NoShadow : RtPrim::Identity);

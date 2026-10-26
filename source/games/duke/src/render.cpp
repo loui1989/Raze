@@ -341,6 +341,18 @@ void displayrooms(int snum, double interpfrac, bool sceneonly)
 		(float)clamp(1. - double(p->visibility) / ud.const_visibility, 0., 1.) : 0.f;
 	if (RT_IsActive())
 	{
+		// the shots, for the smoke (a new shot moves lastvisinc on)
+		static int s_lastvis = 0;
+		if (lastvisinc != s_lastvis && PlayClock < lastvisinc)
+		{
+			g_rtShotEvent = p->curr_weapon == PISTOL_WEAPON ? "duke.pistol.primary" :
+				p->curr_weapon == SHOTGUN_WEAPON ? "duke.shotgun.primary" :
+				p->curr_weapon == CHAINGUN_WEAPON ? "duke.chaingun.primary" : nullptr;
+			g_rtShotCounter++;
+		}
+		s_lastvis = lastvisinc;
+		g_rtViewerActor = nullptr; // animatesprites sets it
+
 		// the light switches (SE12: the sector's map shade is off, the effector's is on)
 		g_rtSectorSwitch.assign(sector.Size(), -1.f);
 		DukeStatIterator it(STAT_EFFECTOR);
