@@ -38,6 +38,15 @@ extern const char* g_rtShotEvent;
 // The player's own actor: drawn only where the player cannot see it himself
 // (mirrors, reflections, shadows)
 extern const void* g_rtViewerActor;
+// Set by the game: sectors (1 per sector, or empty) copied to another place this
+// frame, moved by g_rtCopyOffset (game units, z down). Duke's water: the world above
+// the surface lives elsewhere on the map; under water it is copied over the room
+extern std::vector< uint8_t > g_rtCopySector;
+extern double                 g_rtCopyOffset[ 3 ];
+inline bool RT_CopySector( int sectnum )
+{
+    return sectnum >= 0 && size_t( sectnum ) < g_rtCopySector.size() && g_rtCopySector[ size_t( sectnum ) ];
+}
 // where the main view is rendered from (game units, z down) and its sector; -1 = unknown
 extern int    g_rtViewSector;
 extern double g_rtViewPos[ 3 ];
@@ -97,6 +106,8 @@ enum class RtPrim : uint32_t
     NoShadow       = 1 << 10, // casts no shadow (a fire sprite around its own light)
     Decal          = 1 << 11, // a wall or floor aligned sprite, usually flush with a surface
     Viewer         = 1 << 12, // the player's own body: only in reflections and shadows
+    CopyMove       = 1 << 13, // a copy of geometry elsewhere: moved by g_rtCopyOffset, its own ids
+    CopyId         = 1 << 14, // a copy already in place (copied sprites): its own ids
 };
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it
@@ -123,6 +134,7 @@ enum class RtIdKind : uint64_t
     Sky         = 9,
     UI          = 10,
     Other       = 11,
+    Copy        = 12,
 };
 
 struct FRtState

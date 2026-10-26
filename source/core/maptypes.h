@@ -519,6 +519,7 @@ struct tspritetype : public spritetypebase
 {
 	DCoreActor* ownerActor;
 	int time;
+	uint8_t rtcopy;	// ray tracing: a copy of a sprite from a copied area (see g_rtCopySector)
 };
 
 class tspriteArray
@@ -536,7 +537,9 @@ public:
 	tspritetype* newTSprite()
 	{
 		if ((size & (blocksize - 1)) == 0) blocks.Push(new block);
-		return get(size++);
+		auto t = get(size++);
+		t->rtcopy = 0;
+		return t;
 	}
 
 	tspritetype* get(unsigned index)

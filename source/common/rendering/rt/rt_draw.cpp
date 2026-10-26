@@ -772,7 +772,15 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         }
     }
 
-    const RgTransform transform = isUI ? RT_TRANSFORM_IDENTITY : MakeTransform( isSky, isModel );
+    RgTransform transform = isUI ? RT_TRANSFORM_IDENTITY : MakeTransform( isSky, isModel );
+    // a copy of geometry from elsewhere (Duke's world above the water, seen from under it)
+    const bool isCopy = !isUI && ( rtstate.is< RtPrim::CopyMove >() || rtstate.is< RtPrim::CopyId >() );
+    if( !isUI && rtstate.is< RtPrim::CopyMove >() )
+    {
+        transform.matrix[ 0 ][ 3 ] += float( g_rtCopyOffset[ 0 ] ) * ONEGAMEUNIT_IN_METERS;
+        transform.matrix[ 1 ][ 3 ] -= float( g_rtCopyOffset[ 1 ] ) * ONEGAMEUNIT_IN_METERS;
+        transform.matrix[ 2 ][ 3 ] -= float( g_rtCopyOffset[ 2 ] ) * ONEGAMEUNIT_IN_METERS;
+    }
 
     // colour: the game's light levels are not baked into the albedo, the path tracer
     // does the lighting; the alpha is kept
@@ -953,6 +961,10 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     if( isUI && !rtstate.has_uniqueid() )
     {
         uniqueId = FRtState::MixId( 0x2D, RtIdKind::UI );
+    }
+    if( isCopy )
+    {
+        uniqueId = FRtState::MixId( uniqueId, RtIdKind::Copy );
     }
 
     auto ui = RgMeshPrimitiveSwapchainedEXT{

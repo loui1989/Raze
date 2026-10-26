@@ -11,6 +11,8 @@ uint32_t    g_rtShotCounter = 0;
 const char* g_rtShotEvent   = nullptr;
 const void* g_rtViewerActor = nullptr;
 int         g_rtViewSector  = -1;
+std::vector< uint8_t > g_rtCopySector;
+double      g_rtCopyOffset[ 3 ] = {};
 double      g_rtViewPos[ 3 ] = {};
 std::vector< float > g_rtSectorSwitch;
 int ( *RT_ActorRuleFlagsHook )( DCoreActor* actor ) = nullptr;

@@ -25,6 +25,7 @@ Modifications for JonoF's port by Jonathon Fowler (jf@jonof.id.au)
 */
 //-------------------------------------------------------------------------
 
+#include <queue>
 #include "ns.h"
 #include "duke3d.h"
 #include "build.h"
@@ -214,6 +215,84 @@ static int getdrugmode(DDukePlayer *p, int oyrepeat)
 //
 //---------------------------------------------------------------------------
 
+//---------------------------------------------------------------------------
+//
+// ray tracing: under water, look up through the surface. The world above the
+// water is somewhere else on the map (the water's SE7 transporters swap the player
+// between the two), so the path tracer gets a copy of it over the room: the
+// sectors near the camera's place up there, moved by the transporter pair's offset.
+//
+//---------------------------------------------------------------------------
+
+static void RT_SetupWaterCopy(sectortype* sect, const DVector3& cpos)
+{
+	g_rtCopySector.clear();
+	updatesector(cpos.XY(), &sect);
+	if (!sect || sect->lotag != ST_2_UNDERWATER) return;
+
+	// the transporter pair: the one in the camera's sector, else the nearest
+	DDukeActor* best = nullptr;
+	double bestd = 1e30;
+	DukeStatIterator it(STAT_TRANSPORT);
+	while (auto act = it.Next())
+	{
+		auto own = act->GetOwner();
+		if (!own || own == act || !act->insector() || !own->insector()) continue;
+		if (act->sector()->lotag != ST_2_UNDERWATER || own->sector()->lotag != ST_1_ABOVE_WATER) continue;
+		const double d = act->sector() == sect ? -1. : (act->spr.pos.XY() - cpos.XY()).LengthSquared();
+		if (d < bestd) { bestd = d; best = act; }
+	}
+	if (!best) return;
+	auto own = best->GetOwner();
+
+	// above = below + delta: the surface (the floor up there) is the room's ceiling
+	const DVector2 dxy = own->spr.pos.XY() - best->spr.pos.XY();
+	const double dz = own->sector()->floorz - best->sector()->ceilingz;
+	g_rtCopyOffset[0] = -dxy.X;
+	g_rtCopyOffset[1] = -dxy.Y;
+	g_rtCopyOffset[2] = -dz;
+
+	// the sectors up there within reach of the camera's place, through openings
+	sectortype* start = own->sector();
+	updatesector(cpos.XY() + dxy, &start);
+	if (!start || start->lotag == ST_2_UNDERWATER) start = own->sector();
+
+	constexpr double reach = 1600; // 50 m
+	const unsigned n = sector.Size();
+	std::vector<double> dist(n, -1.);
+	std::vector<DVector2> entry(n);
+	using Item = std::pair<double, int>;
+	std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
+	const int si0 = sectindex(start);
+	dist[si0] = 0;
+	entry[si0] = cpos.XY() + dxy;
+	q.push({ 0., si0 });
+	while (!q.empty())
+	{
+		auto [d, si] = q.top();
+		q.pop();
+		if (d > dist[si]) continue;
+		for (auto& w : sector[si].walls)
+		{
+			if (!w.twoSided()) continue;
+			auto ns = w.nextSector();
+			if (!ns || ns->lotag == ST_2_UNDERWATER) continue;
+			const int ni = sectindex(ns);
+			const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
+			const double nd = d + (mid - entry[si]).Length();
+			if (nd > reach) continue;
+			if (dist[ni] < 0 || nd < dist[ni])
+			{
+				dist[ni] = nd;
+				entry[ni] = mid;
+				q.push({ nd, ni });
+			}
+		}
+	}
+	g_rtCopySector.assign(n, 0);
+	for (unsigned i = 0; i < n; i++) if (dist[i] >= 0) g_rtCopySector[i] = 1;
+}
+
 void displayrooms(int snum, double interpfrac, bool sceneonly)
 {
 	DVector3 cpos;
@@ -352,6 +431,7 @@ void displayrooms(int snum, double interpfrac, bool sceneonly)
 		}
 		s_lastvis = lastvisinc;
 		g_rtCameraUnderwater = sect && sect->lotag == ST_2_UNDERWATER;
+		RT_SetupWaterCopy(sect, cpos);
 		g_rtViewerActor = nullptr; // animatesprites sets it
 
 		// the light switches (SE12: the sector's map shade is off, the effector's is on)

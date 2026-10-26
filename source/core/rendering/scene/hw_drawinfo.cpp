@@ -394,11 +394,23 @@ void HWDrawInfo::CreateScene(bool portal)
 	{
 		rtHiddenSpriteStart = tsprites.Size();
 		mDrawer.RT_ProcessRemaining();
+		mDrawer.RT_ProcessCopy();
 	}
 
 	SetupSprite.Clock();
 	// vp is in render space, so we must convert back.
 	gi->processSprites(tsprites, DVector3(vp.Pos.X, -vp.Pos.Y, -vp.Pos.Z), DAngle::fromBam(vp.RotAngle), vp.TicFrac);
+	// ray tracing: the copied sprites go where their copied area is (after the game
+	// has animated them where they really are)
+	if (RT_IsActive() && !portal && !g_rtCopySector.empty())
+	{
+		const DVector3 ofs(g_rtCopyOffset[0], g_rtCopyOffset[1], g_rtCopyOffset[2]);
+		for (unsigned i = 0; i < tsprites.Size(); i++)
+		{
+			auto t = tsprites.get(i);
+			if (t->rtcopy) t->pos += ofs;
+		}
+	}
 	DispatchSprites();
 	SetupSprite.Unclock();
 

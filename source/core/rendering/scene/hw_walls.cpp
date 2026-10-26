@@ -279,6 +279,7 @@ void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 	RT_PUSH_TYPE(rtfb, (Sprite && Sprite->shade <= -numshades) || (rtflags & 2) ? RtPrim::Fullbright : RtPrim::Identity);
 	RT_PUSH_TYPE(rtns, rtflags & 1 ? RtPrim::NoShadow : RtPrim::Identity);
 	RT_PUSH_TYPE(rtdecal, Sprite ? RtPrim::Decal : RtPrim::Identity);
+	RT_PUSH_TYPE(rtcopy, rtCopy ? RtPrim::CopyMove : Sprite && Sprite->rtcopy ? RtPrim::CopyId : RtPrim::Identity);
 
 	rendered_lines++;
 	if (screen->BuffersArePersistent())

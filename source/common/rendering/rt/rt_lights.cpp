@@ -167,9 +167,45 @@ void ComputeReach()
     s_reachOn = true;
 }
 
+// the copy pass: the lights of the copied sectors (g_rtCopySector, Duke's world
+// above the water) uploaded once more, moved like the copied geometry
+bool s_copyPass = false;
+
+RgFloat3D CopyMoved( const RgFloat3D& p )
+{
+    if( !s_copyPass )
+    {
+        return p;
+    }
+    return { p.data[ 0 ] + float( g_rtCopyOffset[ 0 ] ) * ONEGAMEUNIT_IN_METERS,
+             p.data[ 1 ] - float( g_rtCopyOffset[ 1 ] ) * ONEGAMEUNIT_IN_METERS,
+             p.data[ 2 ] - float( g_rtCopyOffset[ 2 ] ) * ONEGAMEUNIT_IN_METERS };
+}
+
+uint64_t CopyId( uint64_t id )
+{
+    return s_copyPass ? id ^ 0x8000000000000000ull : id;
+}
+
 // 0..1: how much of a light at 'p' (RT metres) in sector 'sect' to keep
 float ReachFade( const RgFloat3D& p, int sect )
 {
+    if( s_copyPass )
+    {
+        // only the copied sectors' lights, by plain distance from the view
+        if( !RT_CopySector( sect ) )
+        {
+            return 0.f;
+        }
+        const float     reach = *rt_light_reach > 0.f ? float( *rt_light_reach ) : 1e6f;
+        const RgFloat3D q     = CopyMoved( p );
+        const RgFloat3D cam   = WorldToRT( g_rtViewPos[ 0 ], g_rtViewPos[ 1 ], g_rtViewPos[ 2 ] );
+        const float     d     = ( FVector3{ q.data[ 0 ], q.data[ 1 ], q.data[ 2 ] } -
+                                FVector3{ cam.data[ 0 ], cam.data[ 1 ], cam.data[ 2 ] } )
+                                .Length();
+        const float t = std::clamp( ( reach - d ) / ( reach * 0.33f ), 0.f, 1.f );
+        return t * t * ( 3.f - 2.f * t );
+    }
     if( !s_reachOn )
     {
         return 1.f;
@@ -222,13 +258,13 @@ void UploadSphere( uint64_t id, const RgFloat3D& pos, RgColor4DPacked32 color, f
         .pNext     = nullptr,
         .color     = color,
         .intensity = lumens,
-        .position  = pos,
+        .position  = CopyMoved( pos ),
         .radius    = sourceRadiusM,
     };
     auto info = RgLightInfo{
         .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
         .pNext        = &sph,
-        .uniqueID     = id,
+        .uniqueID     = CopyId( id ),
         .isExportable = false,
     };
     RG_CHECK( RT_UploadLight( &info ) );
@@ -339,7 +375,7 @@ void UploadSectorLights()
         g_levelSmoothed.assign( sector.Size(), -1.f );
         g_levelGen = RT_LevelGeneration();
     }
-    for( unsigned i = 0; i < sector.Size(); i++ )
+    for( unsigned i = 0; i < sector.Size() && !s_copyPass; i++ )
     {
         const int   sh  = ( int( sector[ i ].ceilingshade ) + int( sector[ i ].floorshade ) ) / 2;
         const float lv  = std::clamp( 1.f - float( sh ) / ns, 0.f, 1.f );
@@ -400,7 +436,10 @@ void UploadSectorLights()
         float lumens = *rt_sector_light_scale * level * level * onness *
                        float( std::clamp( std::sqrt( areaM2 ), 1.0, 25.0 ) );
         float& sm = s_smoothed[ i ];
-        sm        = sm < 0.f ? lumens : sm + ( lumens - sm ) * std::clamp( float( *rt_sector_light_smooth ), 0.01f, 1.f );
+        if( !s_copyPass || sm < 0.f )
+        {
+            sm = sm < 0.f ? lumens : sm + ( lumens - sm ) * std::clamp( float( *rt_sector_light_smooth ), 0.01f, 1.f );
+        }
         lumens    = sm;
 
         lumens *= ReachFade( WorldToRT( cx, cy, z ), int( i ) );
@@ -497,7 +536,7 @@ void UploadOverlayLights( uint32_t time )
     }
 
     // the map's directional light: RTGL1 allows one
-    if( set.directionalRules.Size() > 0 )
+    if( set.directionalRules.Size() > 0 && !s_copyPass )
     {
         const auto& d = set.directionalRules.Last();
         const float len = std::sqrt( d.direction[ 0 ] * d.direction[ 0 ] + d.direction[ 1 ] * d.direction[ 1 ] +
@@ -648,7 +687,19 @@ void UploadOverlayLights( uint32_t time )
             }
             const float nrm[ 3 ] = { n.X, n.Y, n.Z };
             FString     tex      = r.hasFixtureTexture && r.fixtureTexture.IsNotEmpty() ? r.fixtureTexture : FString( "#00707" );
-            RT_UploadFixtureQuad( SurfaceLightBase + i, corners, nrm, tex.GetChars(), response );
+            if( s_copyPass )
+            {
+                if( fade <= 0.f )
+                {
+                    continue;
+                }
+                for( int k = 0; k < 4; k++ )
+                {
+                    const RgFloat3D m = CopyMoved( { corners[ k ][ 0 ], corners[ k ][ 1 ], corners[ k ][ 2 ] } );
+                    corners[ k ][ 0 ] = m.data[ 0 ], corners[ k ][ 1 ] = m.data[ 1 ], corners[ k ][ 2 ] = m.data[ 2 ];
+                }
+            }
+            RT_UploadFixtureQuad( CopyId( SurfaceLightBase + i ), corners, nrm, tex.GetChars(), response );
         }
     }
 
@@ -758,7 +809,14 @@ bool RT_PointInSector( int sectnum, float x, float y )
     {
         return true;
     }
-    return inside( double( x ) / ONEGAMEUNIT_IN_METERS, double( -y ) / ONEGAMEUNIT_IN_METERS, &sector[ sectnum ] ) == 1;
+    double wx = double( x ) / ONEGAMEUNIT_IN_METERS, wy = double( -y ) / ONEGAMEUNIT_IN_METERS;
+    // a copy is somewhere else than its sector
+    if( rtstate.is< RtPrim::CopyMove >() || rtstate.is< RtPrim::CopyId >() )
+    {
+        wx -= g_rtCopyOffset[ 0 ];
+        wy -= g_rtCopyOffset[ 1 ];
+    }
+    return inside( wx, wy, &sector[ sectnum ] ) == 1;
 }
 
 float RT_EmissiveOverride( int sectnum, int tile, float& glow )
@@ -795,6 +853,13 @@ void RT_UploadSceneLights( uint32_t time )
     ComputeReach();
     UploadSectorLights();
     UploadOverlayLights( time );
+    if( g_rtCopySector.size() == sector.Size() )
+    {
+        s_copyPass = true;
+        UploadSectorLights();
+        UploadOverlayLights( time );
+        s_copyPass = false;
+    }
 }
 
 CCMD( rt_lights_info )

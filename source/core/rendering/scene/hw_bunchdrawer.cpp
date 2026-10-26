@@ -32,6 +32,7 @@
 */ 
 
 #include "hw_drawinfo.h"
+#include "rt_state.h"
 #include "hw_bunchdrawer.h"
 #include "hw_clipper.h"
 #include "hw_clock.h"
@@ -811,6 +812,55 @@ void BunchDrawer::RT_ProcessRemaining()
 	}
 
 	gotsector = visiblesectors;
+}
+
+//==========================================================================
+//
+// Ray tracing: a copy of some sectors, drawn moved (g_rtCopyOffset) -- Duke's
+// water: under water, the world above the surface is copied over the room, so
+// the surface can be looked up through. The water surface itself (the floor of
+// an above-water sector) is left to the room under it.
+//
+//==========================================================================
+
+void BunchDrawer::RT_ProcessCopy()
+{
+	if (g_rtCopySector.size() != sector.Size()) return;
+
+	for (unsigned s = 0; s < sections.Size(); s++)
+	{
+		int sectnum = sections[s].sector;
+		if (!RT_CopySector(sectnum)) continue;
+		auto sect = &sector[sectnum];
+		const auto seen = sect->exflags & SECTOREX_SEEN;
+		HWFlat flat;
+		flat.rtCopy = true;
+		flat.ProcessSector(di, sect, s, sect->lotag == 1 ? SSRF_RENDERCEILING : SSRF_RENDERALL);
+		sect->exflags = (sect->exflags & ~SECTOREX_SEEN) | seen;
+	}
+
+	const unsigned numlines = sectionLines.Size();
+	for (unsigned i = 0; i < numlines; i++)
+	{
+		int ww = sectionLines[i].wall;
+		if (ww < 0 || ww >= (int)wall.Size()) continue;
+		int section = sectionLines[i].section;
+		if (section < 0 || section >= (int)sections.Size()) continue;
+		int sectnum = sections[section].sector;
+		if (!RT_CopySector(sectnum)) continue;
+
+		HWWall hwwall;
+		hwwall.rtCopy = true;
+		hwwall.Process(di, &wall[ww], &sector[sectnum], wall[ww].nextsector < 0 ? nullptr : &sector[wall[ww].nextsector]);
+	}
+
+	for (unsigned sn = 0; sn < sector.Size(); sn++)
+	{
+		if (!g_rtCopySector[sn]) continue;
+		const unsigned first = di->tsprites.Size();
+		AddSectorSprites(sn, true);
+		for (unsigned k = first; k < di->tsprites.Size(); k++) di->tsprites.get(k)->rtcopy = 1;
+	}
 }
 
 //==========================================================================
