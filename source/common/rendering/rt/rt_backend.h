@@ -361,6 +361,8 @@ public:
         m_vertsThisFrame    = 0;
         m_modelDraws        = 0;
         m_modelVerts        = 0;
+        m_modelDupes        = 0;
+        m_modelsSeen.clear();
         m_uploadSeconds     = 0;
     }
 
@@ -422,6 +424,7 @@ public:
     uint32_t m_modelDraws{ 0 };
     uint64_t m_modelVerts{ 0 };
     double   m_uploadSeconds{ 0 };
+    uint32_t m_modelDupes{ 0 };
 
 private:
     void InternalDraw( std::span< const RgPrimitiveVertex > verts,
@@ -451,6 +454,8 @@ private:
     float m_mainCameraProjection_Inverse[ 16 ]{};
 
     std::vector< RgPrimitiveVertex > m_tempverts{};
+    // the voxel models drawn this frame: one drawn again at the same place is skipped
+    std::vector< uint64_t > m_modelsSeen{};
     std::vector< RgPrimitiveVertex > m_clipverts{};
 
 public:

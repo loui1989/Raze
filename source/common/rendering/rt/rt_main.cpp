@@ -986,6 +986,7 @@ void RTFrameBuffer::RT_DrawFrame()
             double   frame = 0, draw = 0, upload = 0, tex = 0;
             uint32_t prims = 0, models = 0, texn = 0, lights = 0;
             uint64_t verts = 0, mverts = 0;
+            uint32_t dupes = 0;
         };
         static Worst  worst;
         static double last = 0, prevNow = 0;
@@ -996,7 +997,7 @@ void RTFrameBuffer::RT_DrawFrame()
         {
             worst = { frame, drawSeconds, m_state->m_uploadSeconds, g_rtTexSeconds, m_state->m_drawsThisFrame,
                       m_state->m_modelDraws, g_rtTexCreates, g_rtLightsThisFrame, m_state->m_vertsThisFrame,
-                      m_state->m_modelVerts };
+                      m_state->m_modelVerts, m_state->m_modelDupes };
         }
         g_rtTexCreates = 0;
         g_rtTexSeconds = 0;
@@ -1004,9 +1005,9 @@ void RTFrameBuffer::RT_DrawFrame()
         {
             last = now;
             Printf( "RT: slowest frame %.0f ms: rgDrawFrame %.1f ms, uploads %.1f ms (%u primitives, %llu vertices; "
-                    "voxel models %u, %llu vertices), %u textures made %.1f ms, %u lights\n",
+                    "voxel models %u, %llu vertices, %u drawn twice), %u textures made %.1f ms, %u lights\n",
                     worst.frame * 1000.0, worst.draw * 1000.0, worst.upload * 1000.0, worst.prims,
-                    (unsigned long long)worst.verts, worst.models, (unsigned long long)worst.mverts, worst.texn,
+                    (unsigned long long)worst.verts, worst.models, (unsigned long long)worst.mverts, worst.dupes, worst.texn,
                     worst.tex * 1000.0, worst.lights );
             worst = {};
         }

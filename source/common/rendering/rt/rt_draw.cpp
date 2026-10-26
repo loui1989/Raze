@@ -188,6 +188,8 @@ auto RTHardwareTexture::TranslationSuffix( int translation ) -> std::string
     return "_tr" + std::to_string( remap->Index );
 }
 
+CVARD( Bool, rt_voxel_alphatest, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models alpha tested, as their sprites are (slow; for comparison)" )
+
 uint32_t g_rtTexCreates = 0;   // rt_debug_stats: textures given to the path tracer...
 double   g_rtTexSeconds = 0;   // ...and the time it took (material files included)
 
@@ -839,6 +841,34 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     }
 
     RgTransform transform = isUI ? RT_TRANSFORM_IDENTITY : MakeTransform( isSky, isModel );
+    // a voxel model drawn twice at the same place (two passes reach its sprite) is the
+    // same mesh twice: twice the triangles, all of them overlapping
+    if( isModel )
+    {
+        uint64_t h = 1469598103934665603ull;
+        auto     mix = [ &h ]( const void* p, size_t n ) {
+            for( size_t i = 0; i < n; i++ )
+            {
+                h = ( h ^ static_cast< const uint8_t* >( p )[ i ] ) * 1099511628211ull;
+            }
+        };
+        const void* data  = verts.data();
+        const size_t count = verts.size();
+        mix( &data, sizeof( data ) );
+        mix( &count, sizeof( count ) );
+        mix( &transform, sizeof( transform ) );
+        if( rtstate.is< RtPrim::CopyMove >() )
+        {
+            mix( rtstate.get_copyoffset(), sizeof( double ) * 3 );
+        }
+        if( std::find( m_modelsSeen.begin(), m_modelsSeen.end(), h ) != m_modelsSeen.end() )
+        {
+            m_modelDupes++;
+            return;
+        }
+        m_modelsSeen.push_back( h );
+    }
+
     // a copy of geometry from elsewhere (Duke's world above the water, seen from under it)
     const bool isCopy = !isUI && ( rtstate.is< RtPrim::CopyMove >() || rtstate.is< RtPrim::CopyId >() );
     if( !isUI && rtstate.is< RtPrim::CopyMove >() )
@@ -957,12 +987,17 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             primFlags |= RG_MESH_PRIMITIVE_TRANSLUCENT;
             emissive = *rt_additive_emis;
         }
-        else if( mAlphaThreshold > 0.f && texname && !isMirror )
+        // (not a voxel model: its skin is a palette, every texel solid. Alpha tested
+        // geometry is tested in a shader function at every hit the rays find on it, near
+        // or far -- a few voxel models of a quarter million triangles made every frame
+        // several times slower)
+        else if( mAlphaThreshold > 0.f && texname && !isMirror && ( !isModel || *rt_voxel_alphatest ) )
         {
             primFlags |= RG_MESH_PRIMITIVE_ALPHA_TESTED;
         }
 
-        const bool isSprite = rtstate.is< RtPrim::Sprite >();
+        // (a voxel model is drawn by its sprite, but it is solid geometry)
+        const bool isSprite = rtstate.is< RtPrim::Sprite >() && !isModel;
         if( isSprite )
         {
             primFlags |= RG_MESH_PRIMITIVE_SPRITE;
