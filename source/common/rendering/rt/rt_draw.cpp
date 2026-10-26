@@ -777,9 +777,10 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     const bool isCopy = !isUI && ( rtstate.is< RtPrim::CopyMove >() || rtstate.is< RtPrim::CopyId >() );
     if( !isUI && rtstate.is< RtPrim::CopyMove >() )
     {
-        transform.matrix[ 0 ][ 3 ] += float( g_rtCopyOffset[ 0 ] ) * ONEGAMEUNIT_IN_METERS;
-        transform.matrix[ 1 ][ 3 ] -= float( g_rtCopyOffset[ 1 ] ) * ONEGAMEUNIT_IN_METERS;
-        transform.matrix[ 2 ][ 3 ] -= float( g_rtCopyOffset[ 2 ] ) * ONEGAMEUNIT_IN_METERS;
+        const double* ofs = RT_CopyOffset( rtstate.get_copygroup() );
+        transform.matrix[ 0 ][ 3 ] += float( ofs[ 0 ] ) * ONEGAMEUNIT_IN_METERS;
+        transform.matrix[ 1 ][ 3 ] -= float( ofs[ 1 ] ) * ONEGAMEUNIT_IN_METERS;
+        transform.matrix[ 2 ][ 3 ] -= float( ofs[ 2 ] ) * ONEGAMEUNIT_IN_METERS;
     }
 
     // colour: the game's light levels are not baked into the albedo, the path tracer
@@ -964,7 +965,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     }
     if( isCopy )
     {
-        uniqueId = FRtState::MixId( uniqueId, RtIdKind::Copy );
+        uniqueId = FRtState::MixId( uniqueId + uint64_t( rtstate.get_copygroup() ), RtIdKind::Copy );
     }
 
     auto ui = RgMeshPrimitiveSwapchainedEXT{

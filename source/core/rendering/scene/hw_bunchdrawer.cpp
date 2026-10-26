@@ -830,11 +830,12 @@ void BunchDrawer::RT_ProcessCopy()
 	for (unsigned s = 0; s < sections.Size(); s++)
 	{
 		int sectnum = sections[s].sector;
-		if (!RT_CopySector(sectnum)) continue;
+		const int copy = RT_CopySector(sectnum);
+		if (!copy) continue;
 		auto sect = &sector[sectnum];
 		const auto seen = sect->exflags & SECTOREX_SEEN;
 		HWFlat flat;
-		flat.rtCopy = true;
+		flat.rtCopy = uint8_t(copy);
 		flat.ProcessSector(di, sect, s, sect->lotag == 1 ? SSRF_RENDERCEILING : SSRF_RENDERALL);
 		sect->exflags = (sect->exflags & ~SECTOREX_SEEN) | seen;
 	}
@@ -847,10 +848,11 @@ void BunchDrawer::RT_ProcessCopy()
 		int section = sectionLines[i].section;
 		if (section < 0 || section >= (int)sections.Size()) continue;
 		int sectnum = sections[section].sector;
-		if (!RT_CopySector(sectnum)) continue;
+		const int copy = RT_CopySector(sectnum);
+		if (!copy) continue;
 
 		HWWall hwwall;
-		hwwall.rtCopy = true;
+		hwwall.rtCopy = uint8_t(copy);
 		hwwall.Process(di, &wall[ww], &sector[sectnum], wall[ww].nextsector < 0 ? nullptr : &sector[wall[ww].nextsector]);
 	}
 
@@ -859,7 +861,7 @@ void BunchDrawer::RT_ProcessCopy()
 		if (!g_rtCopySector[sn]) continue;
 		const unsigned first = di->tsprites.Size();
 		AddSectorSprites(sn, true);
-		for (unsigned k = first; k < di->tsprites.Size(); k++) di->tsprites.get(k)->rtcopy = 1;
+		for (unsigned k = first; k < di->tsprites.Size(); k++) di->tsprites.get(k)->rtcopy = g_rtCopySector[sn];
 	}
 }
 

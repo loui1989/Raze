@@ -38,14 +38,21 @@ extern const char* g_rtShotEvent;
 // The player's own actor: drawn only where the player cannot see it himself
 // (mirrors, reflections, shadows)
 extern const void* g_rtViewerActor;
-// Set by the game: sectors (1 per sector, or empty) copied to another place this
-// frame, moved by g_rtCopyOffset (game units, z down). Duke's water: the world above
-// the surface lives elsewhere on the map; under water it is copied over the room
+// Set by the game: sectors copied to another place this frame -- per sector the
+// copy it belongs to (1..RT_MAX_COPIES, 0 = none; or empty), each copy moved by its
+// g_rtCopyOffset (game units, z down). Duke's water: the world above a surface lives
+// elsewhere on the map; under water it is copied over the room
+constexpr int RT_MAX_COPIES = 8;
 extern std::vector< uint8_t > g_rtCopySector;
-extern double                 g_rtCopyOffset[ 3 ];
-inline bool RT_CopySector( int sectnum )
+extern double                 g_rtCopyOffset[ RT_MAX_COPIES ][ 3 ];
+inline int RT_CopySector( int sectnum )
 {
-    return sectnum >= 0 && size_t( sectnum ) < g_rtCopySector.size() && g_rtCopySector[ size_t( sectnum ) ];
+    return sectnum >= 0 && size_t( sectnum ) < g_rtCopySector.size() ? g_rtCopySector[ size_t( sectnum ) ] : 0;
+}
+inline const double* RT_CopyOffset( int copy )
+{
+    static const double none[ 3 ] = {};
+    return copy >= 1 && copy <= RT_MAX_COPIES ? g_rtCopyOffset[ copy - 1 ] : none;
 }
 // where the main view is rendered from (game units, z down) and its sector; -1 = unknown
 extern int    g_rtViewSector;
@@ -201,6 +208,19 @@ struct FRtState
     }
     int get_sector() const { return m_sector; }
 
+    // the copy (see g_rtCopySector) the primitive belongs to, 0 = none
+    [[nodiscard]] auto push_copygroup( int copy )
+    {
+        const int prev = m_copyGroup;
+        m_copyGroup    = copy;
+        return rtdetail::AutoPop{
+            prev,
+            []( FRtState& fthis, int p ) { fthis.m_copyGroup = p; },
+            *this,
+        };
+    }
+    int get_copygroup() const { return m_copyGroup; }
+
     bool has_uniqueid() const { return m_curUniqueID != 0; }
     uint64_t get_uniqueid() const { return m_curUniqueID; }
 
@@ -221,6 +241,7 @@ private:
     uint32_t m_state{ 0 };       // RtPrim flags
     uint64_t m_curUniqueID{ 0 }; // to identify an object between frames
     int      m_sector{ -1 };
+    int      m_copyGroup{ 0 };
 
     std::unordered_map< uint64_t, uint32_t > m_nextPrimIndex{};
 };

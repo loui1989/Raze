@@ -65,6 +65,7 @@ void HWSprite::DrawSprite(HWDrawInfo* di, FRenderState& state, bool translucent)
 	RT_PUSH_TYPE(rtfb, shade <= -numshades || (rtflags & 2) ? RtPrim::Fullbright : RtPrim::Identity);
 	RT_PUSH_TYPE(rtns, rtflags & 1 ? RtPrim::NoShadow : RtPrim::Identity);
 	RT_PUSH_TYPE(rtcopy, Sprite && Sprite->rtcopy ? RtPrim::CopyId : RtPrim::Identity);
+	auto rtcg = rtstate.push_copygroup(Sprite ? Sprite->rtcopy : 0);
 
 	bool additivefog = false;
 	bool foglayer = false;

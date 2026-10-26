@@ -26,6 +26,7 @@ Modifications for JonoF's port by Jonathon Fowler (jf@jonof.id.au)
 //-------------------------------------------------------------------------
 
 #include <queue>
+#include <algorithm>
 #include "ns.h"
 #include "duke3d.h"
 #include "build.h"
@@ -219,8 +220,11 @@ static int getdrugmode(DDukePlayer *p, int oyrepeat)
 //
 // ray tracing: under water, look up through the surface. The world above the
 // water is somewhere else on the map (the water's SE7 transporters swap the player
-// between the two), so the path tracer gets a copy of it over the room: the
+// between the two), so the path tracer gets a copy of it over the water: the
 // sectors near the camera's place up there, moved by the transporter pair's offset.
+// Different surfaces can lead to different places (the pool in Death Row's
+// submarine and the harbour outside it): one copy per offset, each kept from
+// putting anything over the other surfaces.
 //
 //---------------------------------------------------------------------------
 
@@ -230,67 +234,160 @@ static void RT_SetupWaterCopy(sectortype* sect, const DVector3& cpos)
 	updatesector(cpos.XY(), &sect);
 	if (!sect || sect->lotag != ST_2_UNDERWATER) return;
 
-	// the transporter pair: the one in the camera's sector, else the nearest
-	DDukeActor* best = nullptr;
-	double bestd = 1e30;
+	constexpr double reach = 1600; // 50 m
+	struct WaterCopy
+	{
+		DVector3 delta;          // below + delta = above
+		sectortype* above;
+		double dist;
+		TArray<DVector2> holes;  // points inside its surfaces (below)
+		TArray<int> seeds;       // the sectors of its transporters (below)
+	};
+	TArray<WaterCopy> copies;
+
+	auto addHolePoints = [](TArray<DVector2>& pts, sectortype* hs)
+	{
+		DVector2 c(0, 0);
+		for (auto& w : hs->walls) c += w.pos;
+		c /= max(1u, hs->walls.Size());
+		if (inside(c.X, c.Y, hs) == 1) pts.Push(c);
+		for (auto& w : hs->walls)
+		{
+			const DVector2 p = w.pos * 0.9 + c * 0.1;
+			if (inside(p.X, p.Y, hs) == 1) pts.Push(p);
+		}
+	};
+
 	DukeStatIterator it(STAT_TRANSPORT);
 	while (auto act = it.Next())
 	{
 		auto own = act->GetOwner();
 		if (!own || own == act || !act->insector() || !own->insector()) continue;
 		if (act->sector()->lotag != ST_2_UNDERWATER || own->sector()->lotag != ST_1_ABOVE_WATER) continue;
-		const double d = act->sector() == sect ? -1. : (act->spr.pos.XY() - cpos.XY()).LengthSquared();
-		if (d < bestd) { bestd = d; best = act; }
-	}
-	if (!best) return;
-	auto own = best->GetOwner();
+		const double d = act->sector() == sect ? 0. : (act->spr.pos.XY() - cpos.XY()).Length();
+		if (d > reach) continue;
+		const DVector3 delta(own->spr.pos.X - act->spr.pos.X, own->spr.pos.Y - act->spr.pos.Y,
+			own->sector()->floorz - act->sector()->ceilingz);
 
-	// above = below + delta: the surface (the floor up there) is the room's ceiling
-	const DVector2 dxy = own->spr.pos.XY() - best->spr.pos.XY();
-	const double dz = own->sector()->floorz - best->sector()->ceilingz;
-	g_rtCopyOffset[0] = -dxy.X;
-	g_rtCopyOffset[1] = -dxy.Y;
-	g_rtCopyOffset[2] = -dz;
-
-	// the sectors up there within reach of the camera's place, through openings
-	sectortype* start = own->sector();
-	updatesector(cpos.XY() + dxy, &start);
-	if (!start || start->lotag == ST_2_UNDERWATER) start = own->sector();
-
-	constexpr double reach = 1600; // 50 m
-	const unsigned n = sector.Size();
-	std::vector<double> dist(n, -1.);
-	std::vector<DVector2> entry(n);
-	using Item = std::pair<double, int>;
-	std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
-	const int si0 = sectindex(start);
-	dist[si0] = 0;
-	entry[si0] = cpos.XY() + dxy;
-	q.push({ 0., si0 });
-	while (!q.empty())
-	{
-		auto [d, si] = q.top();
-		q.pop();
-		if (d > dist[si]) continue;
-		for (auto& w : sector[si].walls)
+		WaterCopy* c = nullptr;
+		for (auto& cc : copies)
+			if (fabs(cc.delta.X - delta.X) < 4 && fabs(cc.delta.Y - delta.Y) < 4 && fabs(cc.delta.Z - delta.Z) < 4) { c = &cc; break; }
+		if (!c)
 		{
-			if (!w.twoSided()) continue;
-			auto ns = w.nextSector();
-			if (!ns || ns->lotag == ST_2_UNDERWATER) continue;
-			const int ni = sectindex(ns);
-			const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
-			const double nd = d + (mid - entry[si]).Length();
-			if (nd > reach) continue;
-			if (dist[ni] < 0 || nd < dist[ni])
-			{
-				dist[ni] = nd;
-				entry[ni] = mid;
-				q.push({ nd, ni });
-			}
+			copies.Push({ delta, own->sector(), d, {} });
+			c = &copies.Last();
 		}
+		else if (d < c->dist)
+		{
+			c->dist = d;
+			c->above = own->sector();
+		}
+		c->seeds.Push(act->sectno());
+	}
+	if (copies.Size() == 0) return;
+	std::sort(copies.begin(), copies.end(), [](const WaterCopy& a, const WaterCopy& b) { return a.dist < b.dist; });
+	if (copies.Size() > (unsigned)RT_MAX_COPIES) copies.Resize(RT_MAX_COPIES);
+
+	const unsigned n = sector.Size();
+
+	// each copy's surfaces: the under-water sectors with a water ceiling around its
+	// transporters, each going to the nearest transporter's copy
+	{
+		auto waterCeiling = [](sectortype* s)
+		{
+			if (s->lotag != ST_2_UNDERWATER) return false;
+			const int t = legacyTileNum(s->ceilingtexture);
+			return (t >= 336 && t <= 338) || (t >= 200 && t <= 202);
+		};
+		std::vector<int> owner(n, -1);
+		TArray<int> front, next;
+		for (unsigned k = 0; k < copies.Size(); k++)
+			for (int si : copies[k].seeds)
+				if (owner[si] < 0) { owner[si] = k; front.Push(si); }
+		while (front.Size())
+		{
+			next.Clear();
+			for (int si : front)
+				for (auto& w : sector[si].walls)
+				{
+					if (!w.twoSided()) continue;
+					auto ns = w.nextSector();
+					const int ni = sectindex(ns);
+					if (owner[ni] >= 0 || !waterCeiling(ns)) continue;
+					owner[ni] = owner[si];
+					next.Push(ni);
+				}
+			std::swap(front, next);
+		}
+		for (unsigned i = 0; i < n; i++)
+			if (owner[i] >= 0) addHolePoints(copies[owner[i]].holes, &sector[i]);
 	}
 	g_rtCopySector.assign(n, 0);
-	for (unsigned i = 0; i < n; i++) if (dist[i] >= 0) g_rtCopySector[i] = 1;
+
+	for (unsigned k = 0; k < copies.Size(); k++)
+	{
+		const auto& c = copies[k];
+		g_rtCopyOffset[k][0] = -c.delta.X;
+		g_rtCopyOffset[k][1] = -c.delta.Y;
+		g_rtCopyOffset[k][2] = -c.delta.Z;
+
+		// is any of these (below) points under sector 'ss' (above) in this copy?
+		auto over = [&](const TArray<DVector2>& pts, sectortype* ss)
+		{
+			for (auto& p : pts)
+			{
+				const DVector2 q = p + c.delta.XY();
+				if (inside(q.X, q.Y, ss) == 1) return true;
+			}
+			return false;
+		};
+		// nothing solid of this copy over another copy's surface (its own surface wins)
+		auto keep = [&](sectortype* ss)
+		{
+			if (ss->lotag == ST_1_ABOVE_WATER) return true; // its floor is left out anyway
+			for (unsigned j = 0; j < copies.Size(); j++)
+				if (j != k && over(copies[j].holes, ss)) return over(c.holes, ss);
+			return true;
+		};
+
+		// the sectors up there within reach of the camera's place, through openings
+		sectortype* start = c.above;
+		updatesector(cpos.XY() + c.delta.XY(), &start);
+		if (!start || start->lotag == ST_2_UNDERWATER) start = c.above;
+
+		std::vector<double> dist(n, -1.);
+		std::vector<DVector2> entry(n);
+		using Item = std::pair<double, int>;
+		std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
+		const int si0 = sectindex(start);
+		dist[si0] = 0;
+		entry[si0] = cpos.XY() + c.delta.XY();
+		q.push({ 0., si0 });
+		while (!q.empty())
+		{
+			auto [d, si] = q.top();
+			q.pop();
+			if (d > dist[si]) continue;
+			for (auto& w : sector[si].walls)
+			{
+				if (!w.twoSided()) continue;
+				auto ns = w.nextSector();
+				if (!ns || ns->lotag == ST_2_UNDERWATER) continue;
+				const int ni = sectindex(ns);
+				const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
+				const double nd = d + (mid - entry[si]).Length();
+				if (nd > reach) continue;
+				if (dist[ni] < 0 || nd < dist[ni])
+				{
+					dist[ni] = nd;
+					entry[ni] = mid;
+					q.push({ nd, ni });
+				}
+			}
+		}
+		for (unsigned i = 0; i < n; i++)
+			if (dist[i] >= 0 && g_rtCopySector[i] == 0 && keep(&sector[i])) g_rtCopySector[i] = uint8_t(k + 1);
+	}
 }
 
 void displayrooms(int snum, double interpfrac, bool sceneonly)

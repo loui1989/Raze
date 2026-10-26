@@ -188,7 +188,7 @@ public:
 public:
 	walltype* seg;
 	tspritetype* Sprite;
-	bool rtCopy = false;	// ray tracing: a copy of the wall, moved by g_rtCopyOffset
+	uint8_t rtCopy = 0;	// ray tracing: the copy (g_rtCopySector) this wall belongs to
 	sectortype* frontsector, * backsector;
 //private:
 
@@ -259,7 +259,7 @@ class HWFlatOrSprite
 public:
 	float depth;
 	tspritetype* Sprite; // for flat sprites.
-	bool rtCopy = false;	// ray tracing: a copy of the flat, moved by g_rtCopyOffset
+	uint8_t rtCopy = 0;	// ray tracing: the copy (g_rtCopySector) this flat belongs to
 };
 
 //==========================================================================

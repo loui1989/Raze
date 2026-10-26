@@ -404,11 +404,12 @@ void HWDrawInfo::CreateScene(bool portal)
 	// has animated them where they really are)
 	if (RT_IsActive() && !portal && !g_rtCopySector.empty())
 	{
-		const DVector3 ofs(g_rtCopyOffset[0], g_rtCopyOffset[1], g_rtCopyOffset[2]);
 		for (unsigned i = 0; i < tsprites.Size(); i++)
 		{
 			auto t = tsprites.get(i);
-			if (t->rtcopy) t->pos += ofs;
+			if (!t->rtcopy) continue;
+			const double* ofs = RT_CopyOffset(t->rtcopy);
+			t->pos += DVector3(ofs[0], ofs[1], ofs[2]);
 		}
 	}
 	DispatchSprites();

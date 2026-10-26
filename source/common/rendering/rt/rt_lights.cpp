@@ -169,7 +169,8 @@ void ComputeReach()
 
 // the copy pass: the lights of the copied sectors (g_rtCopySector, Duke's world
 // above the water) uploaded once more, moved like the copied geometry
-bool s_copyPass = false;
+bool s_copyPass  = false;
+int  s_copyGroup = 0;
 
 RgFloat3D CopyMoved( const RgFloat3D& p )
 {
@@ -177,14 +178,15 @@ RgFloat3D CopyMoved( const RgFloat3D& p )
     {
         return p;
     }
-    return { p.data[ 0 ] + float( g_rtCopyOffset[ 0 ] ) * ONEGAMEUNIT_IN_METERS,
-             p.data[ 1 ] - float( g_rtCopyOffset[ 1 ] ) * ONEGAMEUNIT_IN_METERS,
-             p.data[ 2 ] - float( g_rtCopyOffset[ 2 ] ) * ONEGAMEUNIT_IN_METERS };
+    const double* ofs = RT_CopyOffset( s_copyGroup );
+    return { p.data[ 0 ] + float( ofs[ 0 ] ) * ONEGAMEUNIT_IN_METERS,
+             p.data[ 1 ] - float( ofs[ 1 ] ) * ONEGAMEUNIT_IN_METERS,
+             p.data[ 2 ] - float( ofs[ 2 ] ) * ONEGAMEUNIT_IN_METERS };
 }
 
 uint64_t CopyId( uint64_t id )
 {
-    return s_copyPass ? id ^ 0x8000000000000000ull : id;
+    return s_copyPass ? id ^ ( 0x8000000000000000ull | ( uint64_t( s_copyGroup ) << 56 ) ) : id;
 }
 
 // 0..1: how much of a light at 'p' (RT metres) in sector 'sect' to keep
@@ -193,7 +195,7 @@ float ReachFade( const RgFloat3D& p, int sect )
     if( s_copyPass )
     {
         // only the copied sectors' lights, by plain distance from the view
-        if( !RT_CopySector( sect ) )
+        if( RT_CopySector( sect ) != s_copyGroup )
         {
             return 0.f;
         }
@@ -813,8 +815,9 @@ bool RT_PointInSector( int sectnum, float x, float y )
     // a copy is somewhere else than its sector
     if( rtstate.is< RtPrim::CopyMove >() || rtstate.is< RtPrim::CopyId >() )
     {
-        wx -= g_rtCopyOffset[ 0 ];
-        wy -= g_rtCopyOffset[ 1 ];
+        const double* ofs = RT_CopyOffset( rtstate.get_copygroup() );
+        wx -= ofs[ 0 ];
+        wy -= ofs[ 1 ];
     }
     return inside( wx, wy, &sector[ sectnum ] ) == 1;
 }
@@ -855,10 +858,22 @@ void RT_UploadSceneLights( uint32_t time )
     UploadOverlayLights( time );
     if( g_rtCopySector.size() == sector.Size() )
     {
+        int used = 0;
+        for( uint8_t c : g_rtCopySector )
+        {
+            used |= c >= 1 && c <= RT_MAX_COPIES ? 1 << ( c - 1 ) : 0;
+        }
         s_copyPass = true;
-        UploadSectorLights();
-        UploadOverlayLights( time );
-        s_copyPass = false;
+        for( s_copyGroup = 1; s_copyGroup <= RT_MAX_COPIES; s_copyGroup++ )
+        {
+            if( used & ( 1 << ( s_copyGroup - 1 ) ) )
+            {
+                UploadSectorLights();
+                UploadOverlayLights( time );
+            }
+        }
+        s_copyPass  = false;
+        s_copyGroup = 0;
     }
 }
 
