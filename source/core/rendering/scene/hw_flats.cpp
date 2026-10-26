@@ -40,6 +40,20 @@
 #include "texturemanager.h"
 #include "buildtiles.h"
 #include "rt_state.h"
+#include "texinfo.h"
+#include "gamecontrol.h"
+
+// ray tracing: the liquids, by their (animated) floor tiles -- the families of
+// Duke-RT's FLUIDOVR: water 336, slime 200, lava 1082
+static RtPrim RT_LiquidOf(FGameTexture* tex)
+{
+	if (!RT_IsActive() || !tex || !isDuke()) return RtPrim::Identity;
+	const int t = legacyTileNum(tex->GetID());
+	if (t >= 336 && t <= 338) return RtPrim::Water;
+	if (t >= 200 && t <= 202) return RtPrim::Slime;
+	if (t >= 1082 && t <= 1087) return RtPrim::Lava;
+	return RtPrim::Identity;
+}
 
 #ifdef _DEBUG
 CVAR(Int, gl_breaksec, -1, 0)
@@ -239,6 +253,7 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 	auto rtid = rtstate.push_uniqueid(Sprite ? (const void*)Sprite->ownerActor : (const void*)&sections[section], Sprite ? RtIdKind::FlatSprite : plane ? RtIdKind::CeilingFlat : RtIdKind::FloorFlat);
 	RT_PUSH_TYPE(rtfb, Sprite && Sprite->shade <= -numshades ? RtPrim::Fullbright : RtPrim::Identity);
 	RT_PUSH_TYPE(rtdecal, Sprite ? RtPrim::Decal : RtPrim::Identity);
+	RT_PUSH_TYPE(rtliquid, Sprite ? RtPrim::Identity : RT_LiquidOf(texture));
 	auto rtsec = rtstate.push_sector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : sec ? sectindex(sec) : -1);
 
 	state.SetNormal(normal);

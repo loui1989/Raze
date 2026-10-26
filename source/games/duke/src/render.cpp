@@ -351,6 +351,7 @@ void displayrooms(int snum, double interpfrac, bool sceneonly)
 			g_rtShotCounter++;
 		}
 		s_lastvis = lastvisinc;
+		g_rtCameraUnderwater = sect && sect->lotag == ST_2_UNDERWATER;
 		g_rtViewerActor = nullptr; // animatesprites sets it
 
 		// the light switches (SE12: the sector's map shade is off, the effector's is on)

@@ -6,6 +6,7 @@
 FRtState rtstate;
 bool     g_rtActive = false;
 float    g_rtMuzzleFlash = 0.f;
+bool     g_rtCameraUnderwater = false;
 uint32_t    g_rtShotCounter = 0;
 const char* g_rtShotEvent   = nullptr;
 const void* g_rtViewerActor = nullptr;

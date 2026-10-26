@@ -61,6 +61,9 @@ CVARD( Int, rt_samples_direct, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: direct 
 CVARD( Int, rt_samples_indirect, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bounce light paths per pixel (1..8; costly)" )
 CVARD( Float, rt_min_roughness, 0.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, no surface is glossier than this (lower = sharper highlights, more noise)" )
 CVARD( Float, rt_denoise_sens_spec, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for reflections" )
+CVARD( Bool, rt_world_motion, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: track walls and floors as moving geometry (off: only the camera moves them)" )
+CVARD( Bool, rt_water_style, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: stylized (Doom 64 RT) water and slime instead of physical refraction" )
+CVARD( Float, rt_lava_gi, 8.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strongly lava lights its surroundings through the bounce light" )
 CVARD( Bool, rt_muzzleflash, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: shooting lights the room" )
 CVARD( Float, rt_muzzleflash_intensity, 250.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash brightness" )
 CVARD( Color, rt_muzzleflash_color, 0xffa860, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash colour" )
@@ -737,9 +740,67 @@ void RTFrameBuffer::RT_DrawFrame()
         .rrPreExposureDebug                          = false,
     };
 
+    // the liquids: Doom 64 RT's stylized surfaces. Liquid 0 is water (blue), 1 is
+    // Duke's slime (Doom 64's nukage, green); lava has its own path
+    auto l_rgb = []( int r, int g, int b ) { return RgFloat3D{ r / 255.f, g / 255.f, b / 255.f }; };
+    auto reflrefr = RgDrawFrameReflectRefractParams{
+        .sType                                 = RG_STRUCTURE_TYPE_DRAW_FRAME_REFLECT_REFRACT_PARAMS,
+        .pNext                                 = &illum,
+        .maxReflectRefractDepth                = 8,
+        .typeOfMediaAroundCamera               = g_rtCameraUnderwater ? RG_MEDIA_TYPE_WATER : RG_MEDIA_TYPE_VACUUM,
+        .indexOfRefractionGlass                = 1.52f,
+        .indexOfRefractionWater                = 1.33f,
+        .thinMediaWidth                        = 0.1f,
+        .waterWaveSpeed                        = 0.2f,
+        .waterWaveNormalStrength               = 0.4f,
+        .waterColor                            = { 1.f, 1.f, 1.f },
+        .acidColor                             = { 0.0f, 0.66f, 0.55f },
+        .acidDensity                           = 10.0f,
+        .waterWaveTextureDerivativesMultiplier = 1.0f,
+        .waterTextureAreaScale                 = 0.35f,
+        .portalNormalTwirl                     = false,
+        .stylizedWaterStrength                 = *rt_water_style ? 1.0f : 0.0f,
+        .stylizedWaterCaustic                  = 1.5f,
+        .stylizedWaterReflMax                  = 0.75f,
+        .stylizedWaterRoughness                = 0.1f,
+        .stylizedWaterGlow                     = 0.04f,
+        .stylizedWaterVeinRef                  = 0.1f,
+        .stylizedLiquidTint                    = { l_rgb( 1, 6, 14 ), l_rgb( 1, 6, 1 ), l_rgb( 9, 3, 1 ), l_rgb( 20, 1, 1 ) },
+        .stylizedLiquidCrest                   = { l_rgb( 140, 204, 255 ), l_rgb( 60, 170, 40 ), l_rgb( 120, 78, 38 ), l_rgb( 255, 115, 102 ) },
+        .stylizedLiquidRelief                  = { 0.f, 0.f, 1.f, 1.f },
+        .stylizedLiquidFlow                    = { 0.f, 0.f, 0.f, 1.f },
+        .stylizedLiquidRefl                    = { 1.f, 0.5f, 0.f, 1.f },
+        .stylizedLiquidRough                   = { 0.f, 0.f, 0.8f, 0.f },
+        .liquidNoSplit                         = 0.f,
+        .stylizedLiquidCaustics                = { 1.f, 0.f, 0.f, 0.f },
+        .liquidFlowSpeed                       = 0.5f,
+        .liquidFlowScale                       = 6.f,
+        .liquidFlowAspect                      = 3.f,
+        .liquidFlowDebug                       = 0.f,
+        .lavaEmisBoost                         = 1.0f,
+        .lavaFlowStrength                      = 0.45f,
+        .lavaFlowSpeed                         = 0.03f,
+        .lavaFlowScale                         = 0.12f,
+        .lavaFlowPixel                         = 0.25f,
+        .lavaPulse                             = 0.10f,
+        .lavaPulseSpeed                        = 0.35f,
+        .lavaGiBoost                           = std::max( 0.f, float( *rt_lava_gi ) ),
+        .lavaDebug                             = 0.f,
+        .lavaTint                              = { 1.0f, 0.55f, 0.30f },
+        .stylizedWaterDebug                    = 0.f,
+        .stylizedWaterReflMin                  = 0.1f,
+        .waterCausticGain                      = 1.2f,
+        .waterCausticScale                     = 0.8f,
+        .waterCausticSpeed                     = 0.35f,
+        .waterCausticDist                      = 6.0f,
+        .waterCausticRise                      = 2.0f,
+        .waterCausticSlant                     = 0.6f,
+        .waterCausticWallBoost                 = 4.0f,
+    };
+
     auto sky = RgDrawFrameSkyParams{
         .sType                       = RG_STRUCTURE_TYPE_DRAW_FRAME_SKY_PARAMS,
-        .pNext                       = &illum,
+        .pNext                       = &reflrefr,
         .skyType                     = m_wassky ? RG_SKY_TYPE_RASTERIZED_GEOMETRY : RG_SKY_TYPE_COLOR,
         .skyColorDefault             = { 0.02f, 0.02f, 0.05f },
         .skyColorMultiplier          = *rt_sky,

@@ -27,6 +27,9 @@ extern bool g_rtActive;
 // it renders the view (the path tracer adds a light for it)
 extern float g_rtMuzzleFlash;
 
+// Set by the game: the camera is under water (the picture takes the water's tint)
+extern bool g_rtCameraUnderwater;
+
 // Set by the game when the player fires: the counter goes up, the event names the
 // LIGHTOVR smoke event rule ("duke.pistol.primary"...), or is null
 extern uint32_t    g_rtShotCounter;

@@ -850,7 +850,8 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         }
         else if( rtstate.is< RtPrim::Slime >() )
         {
-            primFlags |= RG_MESH_PRIMITIVE_ACID;
+            // the stylized liquid surface, liquid 1 (Doom 64's nukage: green)
+            primFlags |= RG_MESH_PRIMITIVE_WATER | RG_MESH_PRIMITIVE_LIQUID_BIT0;
         }
 
         if( additive && !isMirror )
@@ -935,6 +936,16 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         }
 
         primFlags |= RG_MESH_PRIMITIVE_FORCE_EXACT_NORMALS;
+
+        // Walls and floors do not move (bar doors and lifts): their motion is the
+        // camera's alone. Matched with "the same primitive last frame" instead, any
+        // part that is drawn in a different order or split differently this frame gets
+        // another part's old position -- the denoiser then pulls history from the
+        // wrong place: a smeared picture, black jagged edges as the view turns
+        if( !*rt_world_motion && !isModel && !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::Decal >() )
+        {
+            primFlags |= RG_MESH_PRIMITIVE_NO_MOTION_VECTORS;
+        }
     }
 
     // ids
