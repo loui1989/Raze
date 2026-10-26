@@ -760,6 +760,17 @@ void viewProcessSprites(tspriteArray& tsprites, const DVector3& cPos, DAngle cA,
 				break;
 			default:
 				viewApplyDefaultPal(pTSprite, pSector);
+				// the wall torch with its flame in the picture (tiles 506-509, no torch type):
+				// drawn as a voxel model (a pack's torch, ray tracing), it gets a torch's flame
+				if (RT_IsActive() && r_voxels)
+				{
+					const int tile = legacyTileNum(pTSprite->spritetexture());
+					if (tile >= 506 && tile <= 509 && tilehasvoxel(pTSprite->spritetexture()) && !(owneractor->sprext.renderflags & SPREXT_NOTMD) &&
+						!RT_VoxelTooFar(GetExtInfo(pTSprite->spritetexture()).tiletovox, pTSprite, cPos))
+					{
+						viewAddEffect(tsprites, nTSprite, kViewEffectTorchHigh);
+					}
+				}
 				break;
 			}
 		}

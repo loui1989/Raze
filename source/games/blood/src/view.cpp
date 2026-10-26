@@ -788,8 +788,9 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 		while (auto actor = it.Next())
 		{
 			if (!actor->insector() || (actor->spr.cstat & CSTAT_SPRITE_INVISIBLE) || actor->spr.scale.Y == 0) continue;
-			const bool torch = actor->spr.type == kDecorationTorch;
-			if (torch && actor->hasX() && actor->xspr.state != 1) continue;	// put out
+			const int tileNo = legacyTileNum(actor->spr.spritetexture());
+			const bool torch = actor->spr.type == kDecorationTorch || (tileNo >= 506 && tileNo <= 509);	// (506: a wall torch, no torch type)
+			if (actor->spr.type == kDecorationTorch && actor->hasX() && actor->xspr.state != 1) continue;	// put out
 			float glow = tileGlow(actor->spr.spritetexture());
 			if (torch) glow = max(glow, 0.2f);
 			if (glow < 0.02f) continue;
@@ -797,7 +798,9 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			double top, bottom;
 			GetActorExtents(actor, &top, &bottom);
 			// the flame: above a torch, else the picture's upper part
-			DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, torch ? top - 4 : top + (bottom - top) * 0.25);
+			// (506's flame is in its picture, the upper third; drawn as a voxel torch, about there too)
+			const bool pictureFlame = tileNo >= 506 && tileNo <= 509;
+			DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, torch && !pictureFlame ? top - 4 : top + (bottom - top) * (pictureFlame ? 0.35 : 0.25));
 			// off the wall it hangs on, into the room: a light on the wall lights the wall
 			// (a sprite torch stands in the wall, often a little behind its face: the light goes
 			// to the room's side of the nearest wall, whichever side the sprite is on)
