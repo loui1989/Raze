@@ -7,6 +7,7 @@
 
 #include "rt_backend.h"
 #include "texturemanager.h"
+#include "tiletexture.h"
 
 
 namespace rtx
@@ -255,6 +256,31 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
         }
     }
 
+    // a changing texture of a glowing class (the fire): no emission map, its own
+    // colours are the glow (it moves with the texture); the light it casts has the
+    // average colour
+    if( !materials && !( flags & CTF_Indexed ) && !clamp )
+    {
+        if( const float g = RT_TableGlow( name ); g > 0.f )
+        {
+            m_glow = g;
+            double     sum[ 3 ] = {};
+            const size_t n      = size_t( texbuffer.mWidth ) * size_t( texbuffer.mHeight );
+            for( size_t i = 0; i < n; i++ )
+            {
+                for( int k = 0; k < 3; k++ )
+                {
+                    const double v = texbuffer.mBuffer[ 4 * i + size_t( 2 - k ) ] / 255.0; // BGRA
+                    sum[ k ] += v * v;
+                }
+            }
+            for( int k = 0; k < 3; k++ )
+            {
+                m_emisAvg[ k ] = float( sum[ k ] / double( std::max< size_t >( n, 1 ) ) ) * g;
+            }
+        }
+    }
+
     // RTGL1 reads the override files when the texture is given, so they come first
     if( materials && !( flags & CTF_Indexed ) )
     {
@@ -307,12 +333,16 @@ void RTHardwareTexture::CreateIfWasnt( FGameTexture&       src,
     }
 
     m_name = MakeTextureName( src, translation );
-    if( m_name.empty() )
+    // a tile the game writes (Blood's fire) is made again each time it changes
+    const bool writable = IsWritableTile( &src );
+    if( m_name.empty() || writable )
     {
         // RTGL1 keeps the first texture given a name, so a texture whose content is
-        // replaced (a movie frame) must never reuse one
+        // replaced (a movie frame) must never reuse one. (A written tile keeps its
+        // own name in front: "#02342~17" -- the material table still knows it; it
+        // has no material files, they would be made for every frame.)
         static uint64_t serial = 0;
-        m_name    = "rtdyn" + std::to_string( ++serial );
+        m_name    = ( writable && !m_name.empty() ? m_name + "~" : std::string( "rtdyn" ) ) + std::to_string( ++serial );
         m_dynamic = true;
     }
 
@@ -709,6 +739,8 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     const RTHardwareTexture* hwtex = nullptr;
     const char* texname     = ( isSkyVis || isMirror ) ? nullptr : ResolveTexture( clampUI, &hwtex );
     const bool  emissionMap = hwtex && hwtex->HasEmission() && !isUI && !isSky;
+    // a glowing texture with no emission map (one that changes: the fire)
+    const bool  glowTex     = !emissionMap && hwtex && hwtex->Glow() > 0.f && !isUI && !isSky && !isSkyVis;
 
     if( isUI && !islines && m_scissor[ 2 ] >= 0 && m_scissor[ 3 ] >= 0 )
     {
@@ -963,6 +995,12 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             {
                 emissive = std::max( emissive, float( *rt_fullbright_emis ) );
             }
+            // a changing glowing texture (the fire): its own colours glow
+            if( glowTex )
+            {
+                emissive   = std::max( emissive, hwtex->Glow() );
+                emissiveGi = emissive * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
+            }
             // a floor under the path traced light, like Duke-RT's sector ambient: the
             // surface glows faintly with its sector's classic light level, so a room
             // the lights miss is dark rather than black (and it lights its
@@ -1087,7 +1125,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     // (sprites: Duke-RT's LIGHTOVR names the lights of Duke's actors; in the other
     // games a glowing sprite -- a candle, a torch -- casts its own)
     const bool spriteGlow = rtstate.is< RtPrim::Sprite >() && *rt_sprite_lights && !RT_HaveActorLightRules();
-    if( emissionMap && *rt_emis_lights && ( !rtstate.is< RtPrim::Sprite >() || spriteGlow ) && !isUI && !isSky &&
+    if( ( emissionMap || glowTex ) && *rt_emis_lights && ( !rtstate.is< RtPrim::Sprite >() || spriteGlow ) && !isUI && !isSky &&
         glowScale > 0.01f )
     {
         AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(), glowScale * emisLightScale,

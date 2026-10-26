@@ -265,6 +265,12 @@ std::vector< float > Heights( const FTextureBuffer& albedo )
 
 const std::string& RT_GetOverrideFolder();
 
+float rtx::RT_TableGlow( const std::string& name )
+{
+    const MatClass* g = TableClass( name );
+    return g ? g->glow : 0.f;
+}
+
 bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, RtMaterialInfo& out )
 {
     out = {};

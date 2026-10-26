@@ -7,6 +7,9 @@
 
 const uint8_t* GetRawPixels(FTextureID texid);
 uint8_t* GetWritablePixels(FTextureID texid, bool reload = false);
+// whether the game writes this texture's pixels (Blood's fire): its content changes
+class FGameTexture;
+bool IsWritableTile(FGameTexture* gtex);
 FImageSource* createDummyTile(int width, int height);
 void InitArtFiles(TArray<FString>& addart);
 void GetArtImages(TArray<FImageSource*>& array, TArray<unsigned>& picanm);

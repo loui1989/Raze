@@ -287,6 +287,8 @@ struct RtMaterialInfo
     float glow        = 0.f;   // the material table's glow (fire): drawn solid, glowing
 };
 bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, RtMaterialInfo& out );
+// the material table's glow of a texture (a tile "#01234..."), 0 = none
+float RT_TableGlow( const std::string& name );
 
 //
 // The frame and its render state

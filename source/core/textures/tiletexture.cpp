@@ -275,6 +275,12 @@ const uint8_t* GetRawPixels(FTextureID texid)
 //
 //==========================================================================
 
+bool IsWritableTile(FGameTexture* gtex)
+{
+	auto tex = gtex ? dynamic_cast<FImageTexture*>(gtex->GetTexture()) : nullptr;
+	return tex && tex->GetImage() && dynamic_cast<FWritableTile*>(tex->GetImage()) != nullptr;
+}
+
 uint8_t* GetWritablePixels(FTextureID texid, bool reload)
 {
 	if (!texid.isValid()) return nullptr;
