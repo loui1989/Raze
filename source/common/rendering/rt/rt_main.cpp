@@ -59,6 +59,9 @@ CVARD( Float, rt_denoise_sens_indirect, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, 
 // more samples per pixel: less noise to clean up, so newly seen places settle faster
 CVARD( Int, rt_samples_direct, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: direct light samples per pixel (1..8; each costs a shadow ray)" )
 CVARD( Int, rt_samples_indirect, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bounce light paths per pixel (1..8; costly)" )
+CVARD( Float, rt_water_waves, 0.8f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strongly water and slime ripple (0 = flat)" )
+CVARD( Float, rt_water_wave_speed, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how fast the ripples move" )
+CVARD( Float, rt_water_wave_size, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ripple size (smaller = finer ripples)" )
 CVARD( Int, rt_restir_initial, 12, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: candidate lights tried per pixel each frame (1..64); more = less black/smeary areas when turning" )
 CVARD( Int, rt_restir_spatial, 8, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: neighbouring pixels whose light choice is reused (1..16)" )
 CVARD( Float, rt_min_roughness, 0.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, no surface is glossier than this (lower = sharper highlights, more noise)" )
@@ -761,13 +764,13 @@ void RTFrameBuffer::RT_DrawFrame()
         .indexOfRefractionGlass                = 1.52f,
         .indexOfRefractionWater                = 1.33f,
         .thinMediaWidth                        = 0.1f,
-        .waterWaveSpeed                        = 0.2f,
-        .waterWaveNormalStrength               = 0.4f,
+        .waterWaveSpeed                        = std::max( 0.f, float( *rt_water_wave_speed ) ),
+        .waterWaveNormalStrength               = std::clamp( float( *rt_water_waves ), 0.f, 4.f ),
         .waterColor                            = { 1.f, 1.f, 1.f },
         .acidColor                             = { 0.0f, 0.66f, 0.55f },
         .acidDensity                           = 10.0f,
         .waterWaveTextureDerivativesMultiplier = 1.0f,
-        .waterTextureAreaScale                 = 0.35f,
+        .waterTextureAreaScale                 = std::clamp( float( *rt_water_wave_size ), 0.02f, 4.f ),
         .portalNormalTwirl                     = false,
         .stylizedWaterStrength                 = *rt_water_style ? 1.0f : 0.0f,
         .stylizedWaterCaustic                  = 1.5f,
