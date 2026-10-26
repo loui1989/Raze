@@ -1027,8 +1027,10 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
                                       float                                scale,
                                       uint64_t                             id )
 {
+    // a faint glow (graffiti, a few lit pixels) glows on screen but lights nothing:
+    // through the square root below even a trace of glow would become a visible light
     const float lum = 0.2126f * avg[ 0 ] + 0.7152f * avg[ 1 ] + 0.0722f * avg[ 2 ];
-    if( lum <= 1e-4f )
+    if( lum < 0.01f )
     {
         return;
     }
@@ -1113,13 +1115,14 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
     const float     mx    = std::max( { avg[ 0 ], avg[ 1 ], avg[ 2 ] } );
     const RgColor4DPacked32 color = rt.rgUtilPackColorFloat4D( avg[ 0 ] / mx, avg[ 1 ] / mx, avg[ 2 ] / mx, 1.f );
 
-    // On a wall (a sign, a screen) the light must reach the wall around it: real neon
-    // stands off the wall and shines every way. A spot facing out from the wall lights
-    // only what is straight across, and the wall itself and the floor below it sit at
-    // the edge of its cone -- so there it is a sphere a little way out. Ceiling and
-    // floor fixtures stay a spot pointing away from the surface (no light up into
-    // the ceiling they hang from).
-    const bool vertical = std::abs( n.Z ) < 0.7f || rtstate.is< RtPrim::Decal >();
+    // NEON (a strongly coloured glow) on a wall must reach the wall around it: real
+    // neon stands off the wall and shines every way, and a spot facing out from the
+    // wall leaves the wall and the floor below at the edge of its cone -- so it is a
+    // sphere a little way out. Everything else -- screens, panels, ceiling and floor
+    // fixtures -- shines out from its surface, not back onto it: a spot.
+    const float mn       = std::min( { avg[ 0 ], avg[ 1 ], avg[ 2 ] } );
+    const bool  neon     = mx > 0.f && ( mx - mn ) / mx > 0.75f;
+    const bool  vertical = neon && ( std::abs( n.Z ) < 0.7f || rtstate.is< RtPrim::Decal >() );
     if( vertical )
     {
         const float    out = 0.25f;
