@@ -480,6 +480,11 @@ void HWWall::PutPortal(HWDrawInfo *di, int ptype, int plane)
 {
 	HWPortal * portal = nullptr;
 
+	// ray tracing: no opening from a sector that is not drawn -- in a room-over-room
+	// view, the rest of the map is processed too, and its sky openings (drawn as the
+	// sky) would be moved into place with the view: patches of sky in the crypt's walls
+	if (RT_IsActive() && RT_SkipSector(frontsector ? sectindex(frontsector) : -1)) return;
+
 	MakeVertices(di, false);
 	switch (ptype)
 	{
