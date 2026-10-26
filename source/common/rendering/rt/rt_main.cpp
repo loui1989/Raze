@@ -59,7 +59,7 @@ CVARD( Float, rt_denoise_sens_indirect, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, 
 // more samples per pixel: less noise to clean up, so newly seen places settle faster
 CVARD( Int, rt_samples_direct, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: direct light samples per pixel (1..8; each costs a shadow ray)" )
 CVARD( Int, rt_samples_indirect, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bounce light paths per pixel (1..8; costly)" )
-CVARD( Int, rt_restir_initial, 32, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: candidate lights tried per pixel each frame (1..64); more = less black/smeary areas when turning" )
+CVARD( Int, rt_restir_initial, 12, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: candidate lights tried per pixel each frame (1..64); more = less black/smeary areas when turning" )
 CVARD( Int, rt_restir_spatial, 8, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: neighbouring pixels whose light choice is reused (1..16)" )
 CVARD( Float, rt_min_roughness, 0.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, no surface is glossier than this (lower = sharper highlights, more noise)" )
 CVARD( Float, rt_denoise_sens_spec, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for reflections" )
@@ -775,12 +775,15 @@ void RTFrameBuffer::RT_DrawFrame()
         .stylizedWaterRoughness                = 0.1f,
         .stylizedWaterGlow                     = 0.04f,
         .stylizedWaterVeinRef                  = 0.1f,
-        .stylizedLiquidTint                    = { l_rgb( 1, 6, 14 ), l_rgb( 1, 6, 1 ), l_rgb( 9, 3, 1 ), l_rgb( 20, 1, 1 ) },
-        .stylizedLiquidCrest                   = { l_rgb( 140, 204, 255 ), l_rgb( 60, 170, 40 ), l_rgb( 120, 78, 38 ), l_rgb( 255, 115, 102 ) },
+        // slime: Duke-RT's "sludge.viscous" (FLUIDOVR) -- a dark green body with
+        // dull green crests. Duke's slime tile is far brighter than Doom 64's
+        // near-black liquid flats, so nearly all of it counts as crest
+        .stylizedLiquidTint                    = { l_rgb( 1, 6, 14 ), l_rgb( 5, 18, 5 ), l_rgb( 9, 3, 1 ), l_rgb( 20, 1, 1 ) },
+        .stylizedLiquidCrest                   = { l_rgb( 140, 204, 255 ), l_rgb( 23, 51, 14 ), l_rgb( 120, 78, 38 ), l_rgb( 255, 115, 102 ) },
         .stylizedLiquidRelief                  = { 0.f, 0.f, 1.f, 1.f },
         .stylizedLiquidFlow                    = { 0.f, 0.f, 0.f, 1.f },
         .stylizedLiquidRefl                    = { 1.f, 0.5f, 0.f, 1.f },
-        .stylizedLiquidRough                   = { 0.f, 0.f, 0.8f, 0.f },
+        .stylizedLiquidRough                   = { 0.f, 0.24f, 0.8f, 0.f },
         .liquidNoSplit                         = 0.f,
         .stylizedLiquidCaustics                = { 1.f, 0.f, 0.f, 0.f },
         .liquidFlowSpeed                       = 0.5f,
