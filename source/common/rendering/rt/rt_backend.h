@@ -262,6 +262,7 @@ public:
     bool IsGlass() const { return m_glass; }
     float Glow() const { return m_glow; }
     bool IsLamp() const { return m_lamp; }
+    bool IsFlame() const { return m_flame; }
     // a voxel palette's fullbright texels, their colour (linear; zero where not); null if none
     const float* VoxelGlow() const { return m_voxGlow.empty() ? nullptr : m_voxGlow.data(); }
 
@@ -280,6 +281,7 @@ private:
     bool        m_glass{ false };
     float       m_glow{ 0.f };
     bool        m_lamp{ false };
+    bool        m_flame{ false };
     std::vector< float > m_voxGlow{};
     std::string m_name{};
     std::string m_nameClamped{};
@@ -295,6 +297,7 @@ struct RtMaterialInfo
     bool  glass       = false; // the material table calls it glass
     float glow        = 0.f;   // the material table's glow (fire): drawn solid, glowing
     bool  lamp        = false; // ...following its room's light (a ceiling lamp)
+    bool  flame       = false; // ...only where its flame is (a candle): the game places its light
     bool  voxel       = false; // a voxel model's palette texture...
     uint8_t voxGlow[ 256 ]{};  // ...and which of its colours (texels) are fullbright
 };

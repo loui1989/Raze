@@ -119,6 +119,7 @@ struct MatClass
     float       glow  = 0.f; // optional 6th column: the texture glows (fire), this bright
     bool        lamp  = false; // a class named lamp...: its glow follows its room's light (switched off: dark)
     uint32_t    hash  = 0;
+    bool        flame = false; // a class named flame...: only its flame coloured texels glow (a candle's flame, not its wax)
 };
 struct MatTable
 {
@@ -158,7 +159,7 @@ const MatClass* TableClass( const std::string& texname )
             }
             if( sscanf( line, " class %127s %f %f %f %f %f", a, &r, &m, &bu, &po, &gl ) >= 5 )
             {
-                MatClass mc{ a, r, m, bu, po, gl, strncmp( a, "lamp", 4 ) == 0, 0 };
+                MatClass mc{ a, r, m, bu, po, gl, strncmp( a, "lamp", 4 ) == 0, 0, strncmp( a, "flame", 5 ) == 0 };
                 char     key[ 256 ];
                 snprintf( key, sizeof( key ), "%s %.3f %.3f %.3f %.3f v2", a, r, m, bu, po );
                 uint32_t hsh = 2166136261u;
@@ -214,6 +215,14 @@ const MatClass* TableClass( const std::string& texname )
         }
     }
     return it == g_table.tiles.end() ? nullptr : &g_table.classes[ it->second ];
+}
+
+// a flame's colours (BGRA): the fire ramps of the palette, yellow to deep orange, no blue
+// in them (the wax, brass and wood around a flame have some)
+bool FlameTexel( const uint8_t* a )
+{
+    const int b = a[ 0 ], g = a[ 1 ], r = a[ 2 ];
+    return a[ 3 ] >= 128 && b <= 12 && r >= 140 && g * 4 >= r && g <= r;
 }
 
 bool Exists( const std::filesystem::path& p )
@@ -346,7 +355,22 @@ const std::string& RT_GetOverrideFolder();
 float rtx::RT_TableGlow( const std::string& name )
 {
     const MatClass* g = TableClass( name );
-    return g ? g->glow : 0.f;
+    // (a flame class's texture glows only where its flame is: its emission map)
+    return g && !g->flame ? g->glow : 0.f;
+}
+
+float RT_TableFlame( int tile )
+{
+    char nm[ 16 ];
+    snprintf( nm, sizeof( nm ), "#%05d", tile );
+    const MatClass* g = TableClass( nm );
+    return g && g->flame ? g->glow : 0.f;
+}
+
+bool RT_FlameColor( uint8_t r, uint8_t g, uint8_t b )
+{
+    const uint8_t bgra[ 4 ] = { b, g, r, 255 };
+    return FlameTexel( bgra );
 }
 
 bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, RtMaterialInfo& out )
@@ -427,7 +451,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     if( const MatClass* g = TableClass( name ); g && g->glow > 0.f )
     {
         char sfx[ 32 ];
-        snprintf( sfx, sizeof( sfx ), "_e.t%08x", g->hash ^ uint32_t( g->glow * 1000.f ) ^ 0x51u );
+        snprintf( sfx, sizeof( sfx ), "_e.t%08x", g->hash ^ uint32_t( g->glow * 1000.f ) ^ ( g->flame ? 0x52u : 0x51u ) );
         const auto pathGT = dir / ( name + sfx );
         if( regen || !Exists( pathGT ) || !Exists( pathE ) )
         {
@@ -437,6 +461,10 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
             for( int i = 0; i < w * h; i++ )
             {
                 const uint8_t* a = &albedo.mBuffer[ size_t( i ) * 4 ]; // BGRA
+                if( g->flame && !FlameTexel( a ) )
+                {
+                    continue;
+                }
                 peak             = std::max( { peak, int( a[ 0 ] ), int( a[ 1 ] ), int( a[ 2 ] ) } );
             }
             const float gain = std::min( 4.f, 245.f / float( peak ) );
@@ -445,7 +473,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 const uint8_t* a = &albedo.mBuffer[ size_t( i ) * 4 ];
                 for( int k = 0; k < 3; k++ )
                 {
-                    const uint8_t c                   = a[ 3 ] < 128 ? 0 : a[ 2 - k ];
+                    const uint8_t c                   = a[ 3 ] < 128 || ( g->flame && !FlameTexel( a ) ) ? 0 : a[ 2 - k ];
                     rgb[ size_t( i ) * 3 + size_t( k ) ] = uint8_t( std::clamp( c * gain + 0.5f, 0.f, 255.f ) );
                     const double v                    = rgb[ size_t( i ) * 3 + size_t( k ) ] / 255.0;
                     sum[ k ] += v * v;
@@ -475,8 +503,9 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
             }
             noE = !hasE;
         }
-        out.glow = g->glow;
-        out.lamp = g->lamp;
+        out.glow  = g->glow;
+        out.lamp  = g->lamp;
+        out.flame = g->flame;
     }
 
     // emission

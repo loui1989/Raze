@@ -143,6 +143,11 @@ inline float RT_SectorSwitch( int sectnum )
 {
     return sectnum >= 0 && size_t( sectnum ) < g_rtSectorSwitch.size() ? g_rtSectorSwitch[ size_t( sectnum ) ] : -1.f;
 }
+// the material table's flame class (<rt>/materials.txt: a candle, a torch whose flame is
+// in its picture): how brightly the tile's flame glows, 0 if not one; and its colours
+float RT_TableFlame( int tile );
+bool  RT_FlameColor( uint8_t r, uint8_t g, uint8_t b );
+
 inline bool RT_IsActive()
 {
     return g_rtActive;

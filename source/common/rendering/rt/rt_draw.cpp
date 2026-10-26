@@ -313,6 +313,7 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
         m_glass    = mi.glass;
         m_glow     = mi.glow;
         m_lamp     = mi.lamp;
+        m_flame    = mi.flame;
         m_voxGlow.clear();
         if( mi.voxel && texbuffer.mWidth == 16 && texbuffer.mHeight == 16 )
         {
@@ -1077,7 +1078,8 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // it go out with it. Lit rooms are shade 0..10 (level 0.7+), "off" is 20+
             // a fixture in a switched room goes out with its lights
             // (not a fullbright actor's: a fire burns in a dark alcove too)
-            if( *rt_emis_follow_shade && !rtstate.is< RtPrim::Fullbright >() )
+            // (nor a candle's flame: it burns in a dark room)
+            if( *rt_emis_follow_shade && !rtstate.is< RtPrim::Fullbright >() && !hwtex->IsFlame() )
             {
                 const float sw = RT_SectorSwitch( rtstate.get_sector() );
                 if( sw >= 0.f )
@@ -1262,8 +1264,10 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     // (sprites: Duke-RT's LIGHTOVR names the lights of Duke's actors; in the other
     // games a glowing sprite -- a candle, a torch -- casts its own)
     const bool spriteGlow = rtstate.is< RtPrim::Sprite >() && *rt_sprite_lights && !RT_HaveActorLightRules();
+    // (a flame class's light is the game's, placed at its flame: this one would be at the
+    // middle of the picture, a candelabra's stem)
     if( ( emissionMap || glowTex ) && *rt_emis_lights && ( !rtstate.is< RtPrim::Sprite >() || spriteGlow ) && !isUI && !isSky &&
-        glowScale > 0.01f )
+        glowScale > 0.01f && !hwtex->IsFlame() )
     {
         if( isModel )
         {

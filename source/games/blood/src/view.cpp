@@ -756,32 +756,50 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 	// light from a sprite's glowing area alone (rt_draw.cpp) was faint -- a torch's flame
 	// is a small picture. By how much of its picture is fullbright (cached per tile); a
 	// lit torch always (its flame is a separate effect). "Candle & torch light" scales it.
+	// (Blood's palette has no fullbright colours: its candles, candelabras and lamps are
+	// the material table's flame class, their flames found by colour -- the light is by
+	// the flame's size, at the flame)
 	{
-		static TMap<int, float> s_tileGlow;
+		struct TileLight { float frac; float flamePx; float flameV; };
+		static TMap<int, TileLight> s_tileGlow;
 		static const void* s_glowLevel = nullptr;
 		if (s_glowLevel != currentLevel) { s_tileGlow.Clear(); s_glowLevel = currentLevel; }
-		auto tileGlow = [](FTextureID texid) -> float
+		auto tileGlow = [](FTextureID texid) -> TileLight
 		{
 			if (auto v = s_tileGlow.CheckKey(texid.GetIndex())) return *v;
-			float frac = 0.f;
+			TileLight tl{ 0.f, 0.f, 0.25f };
 			auto gt = TexMan.GetGameTexture(texid);
-			if (gt && gt->GetTexture() && GPalette.HasGlobalBrightmap)
+			const bool flame = RT_TableFlame(legacyTileNum(texid)) > 0.f;
+			if (gt && gt->GetTexture() && (GPalette.HasGlobalBrightmap || flame))
 			{
 				auto px = gt->GetTexture()->Get8BitPixels(false);
-				const int n = gt->GetTexture()->GetWidth() * gt->GetTexture()->GetHeight();
+				const int H = gt->GetTexture()->GetHeight();
+				const int n = gt->GetTexture()->GetWidth() * H;
 				const int white = ColorMatcher.Pick(255, 255, 255);
-				int solid = 0, bright = 0;
+				int solid = 0, bright = 0, flamePx = 0;
+				double rows = 0;
 				for (int i = 0; i < n; i++)
 				{
 					if (px[i] == 255) continue;	// transparent
 					solid++;
-					bright += GPalette.GlobalBrightmap.Remap[px[i]] == white;
+					if (GPalette.HasGlobalBrightmap) bright += GPalette.GlobalBrightmap.Remap[px[i]] == white;
+					const PalEntry c = GPalette.BaseColors[px[i]];
+					if (flame && RT_FlameColor(c.r, c.g, c.b))
+					{
+						flamePx++;
+						rows += (i % H) + 0.5;	// (column major)
+					}
 				}
 				// a few speckles are no flame
-				frac = solid > 0 && bright >= 6 ? float(bright) / float(solid) : 0.f;
+				tl.frac = solid > 0 && bright >= 6 ? float(bright) / float(solid) : 0.f;
+				if (flamePx >= 4)
+				{
+					tl.flamePx = float(flamePx);
+					tl.flameV = float(rows / flamePx / H);
+				}
 			}
-			s_tileGlow.Insert(texid.GetIndex(), frac);
-			return frac;
+			s_tileGlow.Insert(texid.GetIndex(), tl);
+			return tl;
 		};
 		const float scale = max(0.f, float(*rt_sprite_light_scale)) / 4.5f;
 		it.Reset(kStatDecoration);
@@ -791,16 +809,23 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			const int tileNo = legacyTileNum(actor->spr.spritetexture());
 			const bool torch = actor->spr.type == kDecorationTorch || (tileNo >= 506 && tileNo <= 509);	// (506: a wall torch, no torch type)
 			if (actor->spr.type == kDecorationTorch && actor->hasX() && actor->xspr.state != 1) continue;	// put out
-			float glow = tileGlow(actor->spr.spritetexture());
+			const TileLight tl = tileGlow(actor->spr.spritetexture());
+			float glow = tl.frac;
 			if (torch) glow = max(glow, 0.2f);
-			if (glow < 0.02f) continue;
+			// a flame tile: as a torch's (its 49 flame texels) by the flame's size, a
+			// candle's about half
+			const float flameSize = tl.flamePx * float(actor->spr.scale.X * actor->spr.scale.Y) / 49.f;
+			const float flameLight = flameSize > 0.f ? clamp(sqrtf(flameSize), 0.35f, 1.6f) : 0.f;
+			if (glow < 0.02f && flameLight == 0.f) continue;
 
 			double top, bottom;
 			GetActorExtents(actor, &top, &bottom);
 			// the flame: above a torch, else the picture's upper part
 			// (506's flame is in its picture, the upper third; drawn as a voxel torch, about there too)
 			const bool pictureFlame = tileNo >= 506 && tileNo <= 509;
-			DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, torch && !pictureFlame ? top - 4 : top + (bottom - top) * (pictureFlame ? 0.35 : 0.25));
+			// (a flame tile's: where its flame is in the picture -- a candelabra's top, a hanging lamp's bowl)
+			const double flameV = pictureFlame ? 0.35 : flameLight > 0.f ? tl.flameV : 0.25;
+			DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, torch && !pictureFlame ? top - 4 : top + (bottom - top) * flameV);
 			// off the wall it hangs on, into the room: a light on the wall lights the wall
 			// (a sprite torch stands in the wall, often a little behind its face: the light goes
 			// to the room's side of the nearest wall, whichever side the sprite is on)
@@ -826,7 +851,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 					p = DVector3(bestC + n * 10, p.Z);
 				}
 			}
-			const float lumens = 900.f * sqrtf(min(glow / 0.2f, 1.5f)) * scale * flicker(actor);
+			const float lumens = 900.f * max(glow >= 0.02f ? sqrtf(min(glow / 0.2f, 1.5f)) : 0.f, flameLight) * scale * flicker(actor);
 			RtGameLight l;
 			l.pos[0] = p.X; l.pos[1] = p.Y; l.pos[2] = p.Z;
 			l.color[0] = 1.f; l.color[1] = 0.6f; l.color[2] = 0.28f;
