@@ -522,6 +522,17 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
             }
         }
 
+        // a class without bumps (glass) has no bump or height map -- not one made when the
+        // texture was in another class
+        if( !( mc->bump > 0.f ) )
+        {
+            std::filesystem::remove( dir / ( name + "_h.png" ), ec );
+            if( !( layers && layers->Normal.get() ) )
+            {
+                std::filesystem::remove( pathN, ec );
+            }
+        }
+
         // the height map, for parallax occlusion mapping (RTGL1: _h, white = raised): the
         // same heights, stretched to the full range; a flatter class keeps to the top
         if( mc->bump > 0.f )
