@@ -26,6 +26,11 @@ extern FixedBitArray<MAXVOXELS> voxdefined;	// from a definitions file (a voxel 
 // ray tracing: a voxel model this far from the view is drawn as its sprite (rt_voxel_distance)
 bool RT_VoxelTooFar(int vox, const DVector3& pos, const DVector3& view);
 
+// where the top of the voxel model a sprite is drawn as will be (as HWSprite::ProcessVoxel
+// places it); false if the sprite is drawn as a sprite
+struct tspritetype;
+bool VoxelTopZ(tspritetype* spr, double& top);
+
 void voxInit();
 void voxClear();
 int voxDefine(int voxindex, const char* filename);

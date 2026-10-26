@@ -37,6 +37,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "v_video.h"
 #include "v_font.h"
 #include "hw_voxels.h"
+#include "rt_state.h"
 #include "gamefuncs.h"
 #include "texturemanager.h"
 #include "texinfo.h"
@@ -363,6 +364,8 @@ static tspritetype* viewAddEffect(tspriteArray& tsprites, int nTSprite, VIEW_EFF
 
 		double top, bottom;
 		GetSpriteExtents(pTSprite, &top, &bottom);
+		// a torch drawn as a voxel model: the flame on the model, not where the sprite's top was
+		VoxelTopZ(pTSprite, top);
 		pNSprite->pos.Z = top;
 		pNSprite->setspritetexture(aTexIds[kTexTORCHEFFECT]);
 		pNSprite->shade = -128;
@@ -387,6 +390,10 @@ static tspritetype* viewAddEffect(tspriteArray& tsprites, int nTSprite, VIEW_EFF
 	}
 	case kViewEffectShadow:
 	{
+		// the path tracer casts the real shadow; the flattened dark copy of the sprite
+		// (of the voxel model, with a voxel pack: a grey slab on the floor) is not needed
+		if (RT_IsActive())
+			break;
 		auto pNSprite = viewInsertTSprite(tsprites, pTSprite->sectp, 32767, pTSprite);
 		if (!pNSprite)
 			break;

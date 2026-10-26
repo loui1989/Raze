@@ -74,6 +74,27 @@ bool RT_VoxelTooFar(int vox, const DVector3& pos, const DVector3& view)
 	return (pos - view).LengthSquared() > far * far;
 }
 
+bool VoxelTopZ(tspritetype* spr, double& top)
+{
+	auto actor = spr->ownerActor;
+	const int vox = GetExtInfo(spr->spritetexture()).tiletovox;
+	if (!r_voxels || vox < 0 || !voxmodels[vox] || !actor) return false;
+	if ((actor->sprext.renderflags & SPREXT_NOTMD) || (spr->cstat2 & CSTAT2_SPRITE_NOMODEL)) return false;
+	if ((spr->cstat & CSTAT_SPRITE_YFLIP) || (spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR) return false;
+	if (RT_VoxelTooFar(vox, spr->pos, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]))) return false;
+
+	const voxmodel_t* voxel = voxmodels[vox];
+	const double sprz = spr->scale.Y * voxel->bscale;
+	const double zpos = spr->pos.Z + actor->sprext.position_offset.Z - spr->yoffset * sprz;
+	double zoff = voxel->siz.Z * .5;
+	if (!(spr->cstat & CSTAT_SPRITE_YCENTER))
+		zoff += voxel->piv.Z;
+	else if ((spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_SLAB)
+		zoff += voxel->piv.Z - voxel->siz.Z * .5;
+	top = zpos + voxel->zadd * voxel->scale * sprz - voxel->scale * sprz * zoff;
+	return true;
+}
+
 static void RT_PlanPortalViews(HWDrawInfo* di, unsigned seen);
 
 //==========================================================================
