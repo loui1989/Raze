@@ -43,7 +43,7 @@ CVARD( Float, rt_additive_emis, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: emis
 CVARD( Float, rt_sky, 25.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky brightness (its light on the scene)" )
 CVARD( Float, rt_emis_mult, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much glowing surfaces light their surroundings" )
 CVARD( Bool, rt_emis_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing surfaces cast real light" )
-CVARD( Float, rt_emis_light_scale, 300.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the light glowing surfaces cast" )
+CVARD( Float, rt_emis_light_scale, 600.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the light glowing surfaces cast" )
 CVARD( Bool, rt_emis_follow_shade, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing textures go out with their room's light switch" )
 CVARD( Float, rt_emis_gi, 0.25f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: with rt_emis_lights, how much bounce light a glowing texture still gives itself" )
 CVARD( Float, rt_ambient, 0.04f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: faint glow of every surface by its sector's light level, so unlit places are dark rather than black" )
@@ -342,6 +342,11 @@ void RT_CreateRendererInstance( void* pMetalLayer )
     {
         rt_metallic_max->ResetToDefault();
         rt_config_version = 4;
+    }
+    if( *rt_config_version < 5 )
+    {
+        rt_emis_light_scale->ResetToDefault();
+        rt_config_version = 5;
     }
 }
 

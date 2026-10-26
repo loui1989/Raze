@@ -903,7 +903,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // surroundings a little, through the bounce light)
             if( *rt_ambient > 0.f && !isMirror && !rtstate.is< RtPrim::Glass >() && !rtstate.is< RtPrim::Water >() )
             {
-                emissive = std::max( emissive, float( *rt_ambient ) * classic );
+                // a switched-off room is darker than its half-light shade says
+                const float sw = RT_SectorSwitch( rtstate.get_sector() );
+                emissive = std::max( emissive, float( *rt_ambient ) * classic * ( sw < 0.f ? 1.f : 0.35f + 0.65f * sw ) );
             }
         }
 
@@ -1079,16 +1081,46 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
         return;
     }
 
+    // the colour of the glow, at full brightness
+    const float     mx    = std::max( { avg[ 0 ], avg[ 1 ], avg[ 2 ] } );
+    const RgColor4DPacked32 color = rt.rgUtilPackColorFloat4D( avg[ 0 ] / mx, avg[ 1 ] / mx, avg[ 2 ] / mx, 1.f );
+
+    // On a wall (a sign, a screen) the light must reach the wall around it: real neon
+    // stands off the wall and shines every way. A spot facing out from the wall lights
+    // only what is straight across, and the wall itself and the floor below it sit at
+    // the edge of its cone -- so there it is a sphere a little way out. Ceiling and
+    // floor fixtures stay a spot pointing away from the surface (no light up into
+    // the ceiling they hang from).
+    const bool vertical = std::abs( n.Z ) < 0.7f || rtstate.is< RtPrim::Decal >();
+    if( vertical )
+    {
+        const float    out = 0.25f;
+        const FVector3 p   = centre + n * out;
+        auto sphere = RgLightSphericalEXT{
+            .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
+            .pNext     = nullptr,
+            .color     = color,
+            .intensity = lumens,
+            .position  = { p.X, p.Y, p.Z },
+            .radius    = std::clamp( float( std::sqrt( area ) ) * 0.2f, 0.03f, 0.18f ),
+        };
+        auto info = RgLightInfo{
+            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+            .pNext        = &sphere,
+            .uniqueID     = id,
+            .isExportable = false,
+        };
+        RG_CHECK( rt.rgUploadLight( &info ) );
+        return;
+    }
+
     const float    offset = 0.12f;
     const FVector3 pos    = centre + n * offset;
-
-    // the colour of the glow, at full brightness
-    const float mx = std::max( { avg[ 0 ], avg[ 1 ], avg[ 2 ] } );
 
     auto spot = RgLightSpotEXT{
         .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
         .pNext      = nullptr,
-        .color      = rt.rgUtilPackColorFloat4D( avg[ 0 ] / mx, avg[ 1 ] / mx, avg[ 2 ] / mx, 1.f ),
+        .color      = color,
         .intensity  = lumens,
         .position   = { pos.X, pos.Y, pos.Z },
         .direction  = { n.X, n.Y, n.Z },

@@ -32,6 +32,7 @@ CVARD( Float, rt_sector_light_scale, 30.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT
 CVARD( Float, rt_sector_light_min, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sectors darker than this (0..1 of full light) get no sector light" )
 CVARD( Float, rt_sector_light_height, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector light height, 0 = at the ceiling, 1 = on the floor" )
 CVARD( Float, rt_sector_light_smooth, 0.15f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how fast sector lights follow shade changes (1 = at once)" )
+CVARD( Float, rt_switch_light_boost, 2.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much brighter a switched-on room's light is than an ordinary room's" )
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
 
 namespace
@@ -188,7 +189,8 @@ void UploadSectorLights()
 
         // a switched room: off is about half light, which must still be dark
         const float sw     = RT_SectorSwitch( int( i ) );
-        const float onness = sw < 0.f ? 1.f : 0.03f + 0.97f * sw;
+        // switched on, a room is meant to light up: brighter than an ordinary one
+        const float onness = sw < 0.f ? 1.f : 0.03f + ( float( *rt_switch_light_boost ) - 0.03f ) * sw;
         float lumens = *rt_sector_light_scale * level * level * onness *
                        float( std::clamp( std::sqrt( areaM2 ), 1.0, 25.0 ) );
         float& sm = s_smoothed[ i ];
