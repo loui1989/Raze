@@ -44,6 +44,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "render.h"
 #include "razefont.h"
 #include "rt_state.h"
+#include "colormatcher.h"
+#include "palettecontainer.h"
+
+EXTERN_CVAR(Float, rt_sprite_light_scale)
 
 
 BEGIN_BLD_NS
@@ -745,6 +749,80 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				add(actor, 3, 1.f, 0.5f, 0.2f, 500.f * flicker(actor), 0.2f);
 				smoke(actor->spr.pos, uint64_t(actor->GetIndex()), RtSmokeKind::Fire, 0.7f);
 			}
+		}
+	}
+
+	// torches, candles, braziers and the other lit decorations: a light of their own. The
+	// light from a sprite's glowing area alone (rt_draw.cpp) was faint -- a torch's flame
+	// is a small picture. By how much of its picture is fullbright (cached per tile); a
+	// lit torch always (its flame is a separate effect). "Candle & torch light" scales it.
+	{
+		static TMap<int, float> s_tileGlow;
+		static const void* s_glowLevel = nullptr;
+		if (s_glowLevel != currentLevel) { s_tileGlow.Clear(); s_glowLevel = currentLevel; }
+		auto tileGlow = [](FTextureID texid) -> float
+		{
+			if (auto v = s_tileGlow.CheckKey(texid.GetIndex())) return *v;
+			float frac = 0.f;
+			auto gt = TexMan.GetGameTexture(texid);
+			if (gt && gt->GetTexture() && GPalette.HasGlobalBrightmap)
+			{
+				auto px = gt->GetTexture()->Get8BitPixels(false);
+				const int n = gt->GetTexture()->GetWidth() * gt->GetTexture()->GetHeight();
+				const int white = ColorMatcher.Pick(255, 255, 255);
+				int solid = 0, bright = 0;
+				for (int i = 0; i < n; i++)
+				{
+					if (px[i] == 255) continue;	// transparent
+					solid++;
+					bright += GPalette.GlobalBrightmap.Remap[px[i]] == white;
+				}
+				// a few speckles are no flame
+				frac = solid > 0 && bright >= 6 ? float(bright) / float(solid) : 0.f;
+			}
+			s_tileGlow.Insert(texid.GetIndex(), frac);
+			return frac;
+		};
+		const float scale = max(0.f, float(*rt_sprite_light_scale)) / 4.5f;
+		it.Reset(kStatDecoration);
+		while (auto actor = it.Next())
+		{
+			if (!actor->insector() || (actor->spr.cstat & CSTAT_SPRITE_INVISIBLE) || actor->spr.scale.Y == 0) continue;
+			const bool torch = actor->spr.type == kDecorationTorch;
+			if (torch && actor->hasX() && actor->xspr.state != 1) continue;	// put out
+			float glow = tileGlow(actor->spr.spritetexture());
+			if (torch) glow = max(glow, 0.2f);
+			if (glow < 0.02f) continue;
+
+			double top, bottom;
+			GetActorExtents(actor, &top, &bottom);
+			// the flame: above a torch, else the picture's upper part
+			DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, torch ? top - 4 : top + (bottom - top) * 0.25);
+			// off the wall it hangs on, into the room: a light on the wall lights the wall
+			{
+				double best = 1e9;
+				DVector2 away(0, 0);
+				for (auto& wal : actor->sector()->walls)
+				{
+					const DVector2 a2 = wal.pos, b2 = wal.point2Wall()->pos, d = b2 - a2;
+					const double len2 = d.LengthSquared();
+					if (len2 < 1e-6) continue;
+					const double t = clamp(((p.XY() - a2) | d) / len2, 0., 1.);
+					const DVector2 c = a2 + d * t;
+					const double dist = (p.XY() - c).Length();
+					if (dist < best) { best = dist; away = dist > 1e-3 ? (p.XY() - c) / dist : DVector2(-d.Y, d.X).Unit(); }
+				}
+				if (best < 10) p += DVector3(away * (10 - best), 0);
+			}
+			const float lumens = 450.f * sqrtf(min(glow / 0.2f, 1.5f)) * scale * flicker(actor);
+			RtGameLight l;
+			l.pos[0] = p.X; l.pos[1] = p.Y; l.pos[2] = p.Z;
+			l.color[0] = 1.f; l.color[1] = 0.6f; l.color[2] = 0.28f;
+			l.intensity = lumens;
+			l.radius = 0.06f;
+			l.id = (uint64_t(actor->GetIndex()) << 4) | 5u;
+			l.sector = actor->sectno();
+			g_rtGameLights.push_back(l);
 		}
 	}
 }
