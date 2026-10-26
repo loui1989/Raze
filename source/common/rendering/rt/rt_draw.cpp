@@ -775,6 +775,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     RgMeshPrimitiveFlags primFlags  = 0;
     float                emissive   = 0.f;
     float                emissiveGi = 0.f;
+    float                glowScale  = 1.f; // a glowing texture's brightness, by its shade
 
     // classic (non path traced) brightness: the soft light level from the shade
     float classic = 1.0f;
@@ -844,8 +845,15 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // cast by the surface (rt_emis_lights), the bounce light from the texture
             // itself is mostly redundant -- and it is the grainy, splotchy part
             primFlags |= RG_MESH_PRIMITIVE_EMISSIVE_OVERRIDE | RG_MESH_PRIMITIVE_EMISSIVE_SCREEN_SCALED;
-            emissive   = 1.f;
-            emissiveGi = float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
+            // a light switch darkens its sector (the shade goes up): the fixtures in
+            // it go out with it. Lit rooms are shade 0..10 (level 0.7+), "off" is 20+
+            if( *rt_emis_follow_shade )
+            {
+                const float t = std::clamp( ( classic - 0.15f ) / ( 0.5f - 0.15f ), 0.f, 1.f );
+                glowScale     = t * t * ( 3.f - 2.f * t );
+            }
+            emissive   = glowScale;
+            emissiveGi = glowScale * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
         }
         else
         {
@@ -954,9 +962,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
 
     // a glowing surface lights the room with a real light, which the path tracer
     // samples directly (its emission alone only shows up in the bounce light, grainy)
-    if( emissionMap && *rt_emis_lights && !rtstate.is< RtPrim::Sprite >() && !isUI && !isSky )
+    if( emissionMap && *rt_emis_lights && !rtstate.is< RtPrim::Sprite >() && !isUI && !isSky && glowScale > 0.01f )
     {
-        AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(),
+        AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(), glowScale,
                           FRtState::MixId( uniqueId * 31 + prim.primitiveIndexInMesh, RtIdKind::Other ) );
     }
 }
@@ -965,6 +973,7 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
                                       std::span< const uint32_t >          indices,
                                       const RgTransform&                   transform,
                                       const float                          avg[ 3 ],
+                                      float                                scale,
                                       uint64_t                             id )
 {
     const float lum = 0.2126f * avg[ 0 ] + 0.7152f * avg[ 1 ] + 0.0722f * avg[ 2 ];
@@ -1028,7 +1037,7 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
 
     // by the square root of the average brightness: a neon sign is mostly dark
     // texels, and its few bright tubes must still light the wall it is on
-    const float lumens = *rt_emis_light_scale * std::sqrt( lum ) * float( area );
+    const float lumens = scale * *rt_emis_light_scale * std::sqrt( lum ) * float( area );
     if( lumens < 0.5f )
     {
         return;

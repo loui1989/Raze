@@ -415,6 +415,7 @@ private:
                            std::span< const uint32_t >          indices,
                            const RgTransform&                   transform,
                            const float                          avg[ 3 ],
+                           float                                scale,
                            uint64_t                             id );
     auto ClipToScissor( std::span< const RgPrimitiveVertex > verts, std::span< const uint32_t > indices )
         -> std::span< const RgPrimitiveVertex >;

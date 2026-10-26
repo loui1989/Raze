@@ -13,8 +13,13 @@
 //    way the brightest texel is brought to full brightness: the glowmaps are drawn
 //    soft (a neon sign peaks at a quarter), and RTGL1 shows _e as it is.
 //  - roughness / metallic: packed into _orm (R unused, G roughness, B metallic).
-//    A texture with smooth texels is "polished": RTGL1 then mirrors the scene in
-//    them (low roughness alone gets denoised away), with the roughness as the mask.
+//    RTGL1's "polished" surfaces mirror the scene (traced mirror rays; low roughness
+//    alone gets denoised away), masked per texel by the _orm roughness -- and much
+//    more strongly than a real dielectric (15% head on, where wood or concrete gives
+//    4%). Duke-RT's roughness maps are smooth almost everywhere (mean 0.3), so a
+//    texture is polished only where it has smooth METAL (the stars on the Hollywood
+//    walk) or near-glass texels (window panes); in such a texture the other texels
+//    are written just rough enough not to mirror.
 //
 // A file is made once and kept; rt_materials_regen 1 makes them again.
 
@@ -111,7 +116,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     const auto pathORM = dir / ( name + "_orm.png" );
     const auto pathNoE = dir / ( name + "_e.v3none" ); // looked, nothing glows
     const auto pathAvg = dir / ( name + "_e.v3avg" );  // the emission map's average colour (linear)
-    const auto pathPol = dir / ( name + "_orm.v3" );   // the share of smooth texels (0..1)
+    const auto pathPol = dir / ( name + "_orm.v4" );   // 1 if polished (see above)
 
     const bool regen = *rt_materials_regen && g_made.insert( name ).second;
 
@@ -133,7 +138,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         {
             float smooth = 0;
             hasORM       = fscanf( f, "%f", &smooth ) == 1;
-            out.polished = smooth >= 0.02f;
+            out.polished = smooth > 0.5f;
             fclose( f );
         }
     }
@@ -263,7 +268,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         if( ( hr || hm ) && ow > 0 && oh > 0 )
         {
             std::vector< uint8_t > rgb( size_t( ow ) * oh * 3 );
-            size_t                 smooth = 0;
+            size_t                 metalSmooth = 0, glassy = 0;
             for( int y = 0; y < oh; y++ )
             {
                 for( int x = 0; x < ow; x++ )
@@ -272,17 +277,33 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                     o[ 0 ] = 255;
                     o[ 1 ] = uint8_t( hr ? rough.At( x, y, ow, oh ) : 255 );
                     o[ 2 ] = uint8_t( hm ? metal.At( x, y, ow, oh ) : 0 );
-                    // RTGL1 starts mirroring below 0.7, noticeably below ~0.55
-                    smooth += o[ 1 ] < 140;
+                    metalSmooth += o[ 2 ] >= 128 && o[ 1 ] < 140;
+                    glassy += o[ 2 ] < 128 && o[ 1 ] < 38;
+                }
+            }
+            const double n        = double( ow ) * oh;
+            const bool   polished = metalSmooth >= 0.02 * n || glassy >= 0.05 * n;
+            if( polished )
+            {
+                // RTGL1: polish = (0.7 - roughness) * 4.5, up to 3. Metal keeps its
+                // roughness (and mirrors); near-glass (the window panes, painted
+                // roughness 0) gets polish 1 (15% head on, 60% at grazing angles);
+                // everything else none
+                for( size_t i = 0; i < rgb.size(); i += 3 )
+                {
+                    if( rgb[ i + 2 ] >= 128 )
+                    {
+                        continue;
+                    }
+                    rgb[ i + 1 ] = rgb[ i + 1 ] < 38 ? uint8_t( 122 ) : std::max< uint8_t >( rgb[ i + 1 ], 180 );
                 }
             }
             if( WritePNG( pathORM, rgb, ow, oh ) )
             {
-                const float share = float( double( smooth ) / ( double( ow ) * oh ) );
-                out.polished      = share >= 0.02f;
+                out.polished = polished;
                 if( FILE* f = fopen( pathPol.string().c_str(), "wb" ) )
                 {
-                    fprintf( f, "%f\n", share );
+                    fprintf( f, "%d\n", polished ? 1 : 0 );
                     fclose( f );
                 }
             }
