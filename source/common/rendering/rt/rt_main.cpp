@@ -52,6 +52,7 @@ CVARD( Float, rt_world_pbr, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, ho
 CVARD( Float, rt_sprite_pbr, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for sprites" )
 CVARD( Float, rt_metallic_max, 0.75f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ceiling on metalness (a metal has no diffuse light of its own)" )
 CVARD( Float, rt_decal_offset, 0.03f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres a wall or floor sprite is moved off the surface it is on" )
+CVARD( Float, rt_flat_offset, 0.01f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres floors move up and ceilings down (rooms over rooms: a ceiling flush with the floor above)" )
 // how fast the denoiser drops its history when the lighting changes: lower = calmer
 // under flickering lights and explosions, but lighting changes trail a little
 CVARD( Float, rt_denoise_sens_direct, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, denoiser reaction to direct light changes (lower = fewer splotches, more lag)" )

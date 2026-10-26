@@ -257,6 +257,7 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 	auto rtsec = rtstate.push_sector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : sec ? sectindex(sec) : -1);
 	RT_PUSH_TYPE(rtcopy, Sprite ? (Sprite->rtcopy ? RtPrim::CopyId : RtPrim::Identity) : rtCopy ? RtPrim::CopyMove : RtPrim::Identity);
 	auto rtcg = rtstate.push_copygroup(Sprite ? Sprite->rtcopy : rtCopy);
+	RT_PUSH_TYPE(rtplane, Sprite ? RtPrim::Identity : plane ? RtPrim::CeilingPlane : RtPrim::FloorPlane);
 
 	state.SetNormal(normal);
 	SetLightAndFog(di, state, fade, palette, shade, visibility, alpha);

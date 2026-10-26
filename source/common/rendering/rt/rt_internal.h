@@ -131,6 +131,7 @@ EXTERN_CVAR( Bool, rt_emis_follow_shade )
 EXTERN_CVAR( Float, rt_ambient )
 EXTERN_CVAR( Bool, rt_polish )
 EXTERN_CVAR( Float, rt_decal_offset )
+EXTERN_CVAR( Float, rt_flat_offset )
 EXTERN_CVAR( Bool, rt_world_motion )
 EXTERN_CVAR( Float, rt_sector_light_scale )
 

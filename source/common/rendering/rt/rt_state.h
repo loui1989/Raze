@@ -115,6 +115,8 @@ enum class RtPrim : uint32_t
     Viewer         = 1 << 12, // the player's own body: only in reflections and shadows
     CopyMove       = 1 << 13, // a copy of geometry elsewhere: moved by g_rtCopyOffset, its own ids
     CopyId         = 1 << 14, // a copy already in place (copied sprites): its own ids
+    FloorPlane     = 1 << 15, // a sector's floor
+    CeilingPlane   = 1 << 16, // a sector's ceiling
 };
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it

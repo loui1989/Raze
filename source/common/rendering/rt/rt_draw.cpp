@@ -740,6 +740,26 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         verts = m_tempverts;
     }
 
+    // Build's rooms over rooms: a room's ceiling is often at exactly the height of the
+    // floor of the room above it (overlapping sectors). The rasterizer draws only the
+    // one it can see; rays hit both at random -- a grainy, speckled mix of the two.
+    // Every floor moves up a little and every ceiling down, into its own room, so each
+    // side sees its own surface. (Walls reach past them: no gaps.)
+    if( !isUI && *rt_flat_offset > 0.f &&
+        ( rtstate.is< RtPrim::FloorPlane >() || rtstate.is< RtPrim::CeilingPlane >() ) )
+    {
+        if( verts.data() != m_tempverts.data() )
+        {
+            m_tempverts.assign( verts.begin(), verts.end() );
+        }
+        const float dz = rtstate.is< RtPrim::FloorPlane >() ? float( *rt_flat_offset ) : -float( *rt_flat_offset );
+        for( auto& v : m_tempverts )
+        {
+            v.position[ 2 ] += dz;
+        }
+        verts = m_tempverts;
+    }
+
     // A sprite on a wall (a switch, a sign) or a floor is usually exactly flush with it:
     // rays then hit the sprite or the surface at random -- grainy, half see-through.
     // Raster depth offsets it; here it is moved off the surface, towards the viewer.
