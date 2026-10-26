@@ -42,7 +42,7 @@ CVARD( Bool, rt_materials, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: use the 
 CVARD( Bool, rt_materials_brightmaps, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: textures without a glowmap glow where the palette is fullbright" )
 CVARD( Bool, rt_materials_regen, false, 0, "RT: make the material files again (this session)" )
 CVARD( Bool, rt_materials_normals, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: use the normal maps (World Tour's, imported by setup.sh)" )
-CVARD( Float, rt_cavity, 0.6f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much a material table texture's cracks and joints darken its ambient glow (0..1; new maps at the next start)" )
+CVARD( Float, rt_cavity, 0.6f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much a texture's cracks and joints darken its ambient glow (0..1; new maps at the next start)" )
 
 const std::string& RT_GetOverrideFolder();
 
@@ -977,6 +977,91 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         }
     }
 
+    // a see-through texture (a sprite, a grate), a glowing one (a sign) or one that is not
+    // a tile (a voxel model's skin: the voxel enemies went black) has no height map or
+    // made-up bumps
+    size_t holes = 0;
+    for( int i = 0; i < w * h; i++ )
+    {
+        holes += albedo.mBuffer[ size_t( i ) * 4 + 3 ] < 128;
+    }
+    // (and only the game's tiles, "#01234": not voxel models' skins, skies, pictures)
+    const bool solid = holes <= size_t( w ) * h / 100 && w >= 16 && h >= 16 && !hasE && name.size() > 1 && name[ 0 ] == '#';
+
+    // Duke's textures (no material table class): cavities, the _orm's R (rt_cavity) -- from
+    // the heights of World Tour's normal map, or of the texture's own light and dark
+    // texels (autobump): cracks and joints darken the surface's ambient glow, as the
+    // table's textures' do
+    const bool hasOverlayORM = layers && ( layers->Roughness.get() || layers->Metallic.get() );
+    const bool hasNormalLayer = layers && layers->Normal.get() && *rt_materials_normals;
+    const bool cavWanted = !mc && solid && !out.glass &&
+                           ( hasNormalLayer || ( TableClass( "" ) == nullptr && g_table.autoBump > 0.f ) );
+    const float cavD = std::clamp( float( *rt_cavity ), 0.f, 1.f );
+    char        cavSfx[ 32 ];
+    snprintf( cavSfx, sizeof( cavSfx ), "_orm.c%08x", ( uint32_t( cavD * 100.f + 0.5f ) * 0x9e3779b1u ) ^ ( hasNormalLayer ? 0x2u : 0x1u ) ^ 0x10u );
+    const auto           pathOC = dir / ( name + cavSfx );
+    std::vector< float > cavOcc; // 0..1, 1 = open
+    int                  cavW = 0, cavH = 0;
+    if( cavWanted && ( regen || !Exists( pathOC ) || !Exists( pathORM ) ) )
+    {
+        std::vector< float > hgt;
+        Mask                 nm;
+        if( hasNormalLayer && nm.Load( layers->Normal.get() ) )
+        {
+            hgt = HeightsFromNormals( nm, cavW, cavH );
+        }
+        else
+        {
+            hgt = Heights( albedo ), cavW = w, cavH = h;
+        }
+        double avg = 0;
+        for( float v : hgt )
+        {
+            avg += v;
+        }
+        avg /= std::max< size_t >( 1, hgt.size() );
+        cavOcc.resize( hgt.size() );
+        for( size_t i = 0; i < hgt.size(); i++ )
+        {
+            const float rel      = std::clamp( float( hgt[ i ] / std::max( avg, 0.02 ) ), 0.f, 2.f );
+            const float depthRel = std::clamp( 1.f - rel, 0.f, 1.f );
+            cavOcc[ i ]          = 1.f - cavD * 0.6f * depthRel * ( 2.f - depthRel );
+        }
+        hasORM = false; // (made again, with them)
+    }
+    auto cavAt = [ & ]( int x, int y, int tw, int th ) -> uint8_t {
+        if( cavOcc.empty() )
+        {
+            return 255;
+        }
+        const int cx = std::clamp( int( ( x + 0.5 ) * cavW / tw ), 0, cavW - 1 );
+        const int cy = std::clamp( int( ( y + 0.5 ) * cavH / th ), 0, cavH - 1 );
+        return uint8_t( std::clamp( cavOcc[ size_t( cy ) * cavW + cx ] * 255.f + 0.5f, 0.f, 255.f ) );
+    };
+    // (no roughness or metallic of its own: an _orm with the cavities only -- rough, not
+    // metal, as RTGL1 takes a texture without one)
+    if( !cavOcc.empty() && !hasOverlayORM )
+    {
+        std::vector< uint8_t > rgb( size_t( cavW ) * cavH * 3 );
+        for( int y = 0; y < cavH; y++ )
+        {
+            for( int x = 0; x < cavW; x++ )
+            {
+                uint8_t* o = &rgb[ size_t( y * cavW + x ) * 3 ];
+                o[ 0 ]     = cavAt( x, y, cavW, cavH );
+                o[ 1 ]     = 255;
+                o[ 2 ]     = 0;
+            }
+        }
+        if( WritePNG( pathORM, rgb, cavW, cavH ) )
+        {
+            Touch( pathPol, "0\n" );
+            Touch( pathOC );
+            out.polished = false;
+            hasORM       = true;
+        }
+    }
+
     // roughness and metallic
     if( !hasORM && layers && ( layers->Roughness.get() || layers->Metallic.get() ) )
     {
@@ -994,7 +1079,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 for( int x = 0; x < ow; x++ )
                 {
                     uint8_t* o = &rgb[ size_t( y * ow + x ) * 3 ];
-                    o[ 0 ] = 255;
+                    o[ 0 ] = cavAt( x, y, ow, oh );
                     o[ 1 ] = uint8_t( hr ? rough.At( x, y, ow, oh ) : 255 );
                     o[ 2 ] = uint8_t( hm ? metal.At( x, y, ow, oh ) : 0 );
                     metalSmooth += o[ 2 ] >= 128 && o[ 1 ] < 140;
@@ -1029,6 +1114,10 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
             }
             if( WritePNG( pathORM, rgb, ow, oh ) )
             {
+                if( cavWanted )
+                {
+                    Touch( pathOC );
+                }
                 out.polished = polished;
                 if( FILE* f = fopen( pathPol.string().c_str(), "wb" ) )
                 {
@@ -1063,17 +1152,6 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
             }
         }
     }
-
-    // a see-through texture (a sprite, a grate), a glowing one (a sign) or one that is not
-    // a tile (a voxel model's skin: the voxel enemies went black) has no height map or
-    // made-up bumps
-    size_t holes = 0;
-    for( int i = 0; i < w * h; i++ )
-    {
-        holes += albedo.mBuffer[ size_t( i ) * 4 + 3 ] < 128;
-    }
-    // (and only the game's tiles, "#01234": not voxel models' skins, skies, pictures)
-    const bool solid = holes <= size_t( w ) * h / 100 && w >= 16 && h >= 16 && !hasE && name.size() > 1 && name[ 0 ] == '#';
 
     // parallax for the textures with World Tour's normal maps: heights made from them
     if( layers && layers->Normal.get() && *rt_materials_normals && !solid )
