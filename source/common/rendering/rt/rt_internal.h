@@ -132,6 +132,7 @@ EXTERN_CVAR( Float, rt_ambient )
 EXTERN_CVAR( Bool, rt_polish )
 EXTERN_CVAR( Float, rt_decal_offset )
 EXTERN_CVAR( Float, rt_flat_offset )
+EXTERN_CVAR( Bool, rt_sprite_lights )
 EXTERN_CVAR( Bool, rt_world_motion )
 EXTERN_CVAR( Float, rt_sector_light_scale )
 
@@ -139,6 +140,10 @@ void RT_UploadSceneLights( uint32_t time ); // rt_lights.cpp
 uint32_t RT_LevelGeneration();              // rt_lights.cpp: changes when a map is (re)loaded
 // rt_lights.cpp: is the point (RTGL1 space) inside the sector (true if the sector is unknown)
 bool RT_PointInSector( int sectnum, float x, float y );
+// Duke-RT's LIGHTOVR has actor rules for this game (else glowing sprites cast lights)
+bool RT_HaveActorLightRules();
+// 0..1: how much of a light at p (RT metres) in sector 'sect' is within the light reach
+float RT_LightReachFade( const RgFloat3D& p, int sect );
 // rt_lights.cpp: smoothed / current light level of a sector (a flickering sector's
 // surfaces glow with the smoothed one)
 float RT_SectorFlickerSmoothing( int sectnum );

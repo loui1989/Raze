@@ -1061,7 +1061,11 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
 
     // a glowing surface lights the room with a real light, which the path tracer
     // samples directly (its emission alone only shows up in the bounce light, grainy)
-    if( emissionMap && *rt_emis_lights && !rtstate.is< RtPrim::Sprite >() && !isUI && !isSky && glowScale > 0.01f )
+    // (sprites: Duke-RT's LIGHTOVR names the lights of Duke's actors; in the other
+    // games a glowing sprite -- a candle, a torch -- casts its own)
+    const bool spriteGlow = rtstate.is< RtPrim::Sprite >() && *rt_sprite_lights && !RT_HaveActorLightRules();
+    if( emissionMap && *rt_emis_lights && ( !rtstate.is< RtPrim::Sprite >() || spriteGlow ) && !isUI && !isSky &&
+        glowScale > 0.01f )
     {
         AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(), glowScale * emisLightScale,
                           FRtState::MixId( uniqueId * 31 + prim.primitiveIndexInMesh, RtIdKind::Other ) );
@@ -1139,7 +1143,7 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
         {
             n = -n;
         }
-        else if( front == back && rtstate.is< RtPrim::Decal >() )
+        else if( front == back && ( rtstate.is< RtPrim::Decal >() || rtstate.is< RtPrim::Sprite >() ) )
         {
             // a free-standing two-sided sprite: the side it is seen from
             const RgFloat3D& cam = m_fb->RT_CameraPosition();
@@ -1153,7 +1157,13 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
 
     // by the square root of the average brightness: a neon sign is mostly dark
     // texels, and its few bright tubes must still light the wall it is on
-    const float lumens = scale * *rt_emis_light_scale * std::sqrt( lum ) * float( area );
+    float lumens = scale * *rt_emis_light_scale * std::sqrt( lum ) * float( area );
+    if( rtstate.is< RtPrim::Sprite >() )
+    {
+        // a glowing billboard (a candle flame): a small ball just in front of it, and
+        // only near the view -- a level has hundreds of them
+        lumens *= RT_LightReachFade( { centre.X, centre.Y, centre.Z }, rtstate.get_sector() );
+    }
     if( lumens < 0.5f )
     {
         return;
@@ -1170,10 +1180,11 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
     // fixtures -- shines out from its surface, not back onto it: a spot.
     const float mn       = std::min( { avg[ 0 ], avg[ 1 ], avg[ 2 ] } );
     const bool  neon     = mx > 0.f && ( mx - mn ) / mx > 0.75f;
-    const bool  vertical = neon && ( std::abs( n.Z ) < 0.7f || rtstate.is< RtPrim::Decal >() );
+    const bool  vertical = ( neon && ( std::abs( n.Z ) < 0.7f || rtstate.is< RtPrim::Decal >() ) ) ||
+                          rtstate.is< RtPrim::Sprite >();
     if( vertical )
     {
-        const float    out = 0.25f;
+        const float    out = rtstate.is< RtPrim::Sprite >() ? 0.08f : 0.25f;
         const FVector3 p   = centre + n * out;
         auto sphere = RgLightSphericalEXT{
             .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,

@@ -43,6 +43,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "precache.h"
 #include "render.h"
 #include "razefont.h"
+#include "rt_state.h"
 
 
 BEGIN_BLD_NS
@@ -556,6 +557,97 @@ void renderCrystalBall()
 //
 //---------------------------------------------------------------------------
 
+//---------------------------------------------------------------------------
+//
+// ray tracing: the lights Blood's own effects make (Duke-RT's LIGHTOVR names Duke's;
+// Blood has nothing like it, so they come from the game: explosions, burning
+// things, flares, fireballs, tesla) and the shotgun's flash
+//
+//---------------------------------------------------------------------------
+
+static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
+{
+	g_rtMuzzleFlash = (float)clamp(pPlayer->visibility / 20., 0., 1.);
+	g_rtCameraUnderwater = pSector && IsUnderwaterSector(pSector);
+	g_rtViewerActor = nullptr;
+	g_rtSectorSwitch.clear();
+	g_rtGameLights.clear();
+
+	auto add = [](DBloodActor* a, int kind, float r, float g, float b, float lumens, float radius)
+	{
+		if (!a->insector() || lumens <= 0) return;
+		RtGameLight l;
+		l.pos[0] = a->spr.pos.X; l.pos[1] = a->spr.pos.Y; l.pos[2] = a->spr.pos.Z;
+		l.color[0] = r; l.color[1] = g; l.color[2] = b;
+		l.intensity = lumens;
+		l.radius = radius;
+		l.id = (uint64_t(a->GetIndex()) << 4) | uint64_t(kind);
+		l.sector = a->sectno();
+		g_rtGameLights.push_back(l);
+	};
+	// a soft, slow flicker for fire (a jumping light makes the denoiser crawl)
+	auto flicker = [](DBloodActor* a)
+	{
+		const double t = PlayClock * (1. / 120.) * 6.0 + a->GetIndex() * 1.7;
+		return float(0.85 + 0.1 * sin(t) + 0.05 * sin(t * 2.3 + 1.0));
+	};
+
+	BloodStatIterator it(kStatExplosion);
+	while (auto actor = it.Next())
+	{
+		if (actor->hasX()) add(actor, 0, 1.f, 0.55f, 0.25f, 40.f * actor->xspr.data3, 0.3f);
+	}
+	it.Reset(kStatProjectile);
+	while (auto actor = it.Next())
+	{
+		switch (actor->spr.type)
+		{
+		case kMissileFlareRegular:
+		case kMissileFlareAlt:
+			add(actor, 1, 1.f, 0.25f, 0.12f, 700.f, 0.05f);
+			break;
+		case kMissileTeslaRegular:
+		case kMissileTeslaAlt:
+		case kMissileArcGargoyle:
+			add(actor, 1, 0.45f, 0.6f, 1.f, 900.f, 0.05f);
+			break;
+		case kMissileFireball:
+		case kMissileFireballNapalm:
+		case kMissileFireballCerberus:
+		case kMissileFireballTchernobog:
+		case kMissileFlameSpray:
+		case kMissileFlameHound:
+			add(actor, 1, 1.f, 0.5f, 0.2f, 900.f, 0.1f);
+			break;
+		case kMissileLifeLeechRegular:
+		case kMissileLifeLeechAltNormal:
+		case kMissileLifeLeechAltSmall:
+			add(actor, 1, 0.6f, 1.f, 0.4f, 600.f, 0.05f);
+			break;
+		default:
+			break;
+		}
+	}
+	// flares stuck in something
+	it.Reset(kStatFlare);
+	while (auto actor = it.Next())
+	{
+		add(actor, 2, 1.f, 0.25f, 0.12f, 600.f * flicker(actor), 0.05f);
+	}
+	// burning creatures and things
+	for (int stat : { kStatDude, kStatThing })
+	{
+		it.Reset(stat);
+		while (auto actor = it.Next())
+		{
+			if (actor->hasX() && actor->xspr.burnTime > 0)
+			{
+				add(actor, 3, 1.f, 0.5f, 0.2f, 500.f * flicker(actor), 0.2f);
+			}
+		}
+	}
+}
+
 void viewDrawScreen(bool sceneonly)
 {
 	DBloodPlayer* pPlayer = getPlayer(gViewIndex);
@@ -687,6 +779,7 @@ void viewDrawScreen(bool sceneonly)
 		auto bakCstat = pPlayer->GetActor()->spr.cstat;
 		pPlayer->GetActor()->spr.cstat |= (gViewPos == 0) ? CSTAT_SPRITE_INVISIBLE : CSTAT_SPRITE_TRANSLUCENT | CSTAT_SPRITE_TRANS_FLIP;
 		cAngles.Pitch -= deliriumPitchI;
+		if (RT_IsActive()) RT_BloodLights(pPlayer, pSector);
 		render_drawrooms(pPlayer->GetActor(), cPos, pSector, cAngles, interpfrac);
 		pPlayer->GetActor()->spr.cstat = bakCstat;
 		bDeliriumOld = bDelirium && gDeliriumBlur;

@@ -41,6 +41,7 @@ CVARD( Float, rt_flicker_amount, 0.6f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0.
 CVARD( Bool, rt_sector_light_tint, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights take the colour of the sector's palette" )
 CVARD( Bool, rt_lightovr_fixtures, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: draw the lamp panels of LIGHTOVR surface lights" )
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
+CVARD( Float, rt_game_light_scale, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the lights the game names (Blood: explosions, fire, flares)" )
 CVARD( Float, rt_light_reach, 40.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lights further than this (metres, walking through openings) from the view are left out; 0 = all lights" )
 
 namespace
@@ -52,6 +53,7 @@ constexpr uint64_t SectorLightBase  = 0x100000000ull;
 constexpr uint64_t MapLightBase     = 0x200000000ull;
 constexpr uint64_t SurfaceLightBase = 0x300000000ull;
 constexpr uint64_t ActorLightBase   = 0x400000000ull;
+constexpr uint64_t GameLightBase    = 0x500000000ull;
 
 RgFloat3D WorldToRT( double x, double y, double z )
 {
@@ -851,11 +853,31 @@ float RT_EmissiveOverride( int sectnum, int tile, float& glow )
     return scale;
 }
 
+bool RT_HaveActorLightRules()
+{
+    return *rt_lightovr && currentLevel && GetResolvedLightOverlaySet().actorRules.Size() > 0;
+}
+
+float RT_LightReachFade( const RgFloat3D& p, int sect )
+{
+    return ReachFade( p, sect );
+}
+
 void RT_UploadSceneLights( uint32_t time )
 {
     ComputeReach();
     UploadSectorLights();
     UploadOverlayLights( time );
+    // the game's own lights
+    for( const RtGameLight& l : g_rtGameLights )
+    {
+        const RgFloat3D p = WorldToRT( l.pos[ 0 ], l.pos[ 1 ], l.pos[ 2 ] );
+        UploadSphere( GameLightBase + ( l.id & 0xFFFFFFFFull ),
+                      p,
+                      PackColor( l.color ),
+                      l.intensity * float( *rt_game_light_scale ) * ReachFade( p, l.sector ),
+                      std::clamp( l.radius, 0.02f, 0.5f ) );
+    }
     if( g_rtCopySector.size() == sector.Size() )
     {
         int used = 0;

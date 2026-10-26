@@ -54,6 +54,21 @@ inline const double* RT_CopyOffset( int copy )
     static const double none[ 3 ] = {};
     return copy >= 1 && copy <= RT_MAX_COPIES ? g_rtCopyOffset[ copy - 1 ] : none;
 }
+// Lights the game itself names this frame (Blood: explosions, burning things,
+// flares...), set before it renders the view. Position in game units (z down);
+// colour 0..1; intensity in lumens; radius of the source in metres; id stable while
+// the light lives; sector (-1 unknown) for the light reach.
+struct RtGameLight
+{
+    double   pos[ 3 ];
+    float    color[ 3 ];
+    float    intensity;
+    float    radius;
+    uint64_t id;
+    int      sector;
+};
+extern std::vector< RtGameLight > g_rtGameLights;
+
 // where the main view is rendered from (game units, z down) and its sector; -1 = unknown
 extern int    g_rtViewSector;
 extern double g_rtViewPos[ 3 ];
