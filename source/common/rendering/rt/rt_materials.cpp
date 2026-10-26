@@ -119,7 +119,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     const auto pathORM = dir / ( name + "_orm.png" );
     const auto pathNoE = dir / ( name + "_e.v3none" ); // looked, nothing glows
     const auto pathAvg = dir / ( name + "_e.v3avg" );  // the emission map's average colour (linear)
-    const auto pathPol = dir / ( name + "_orm.v4" );   // 1 if polished (see above)
+    const auto pathPol = dir / ( name + "_orm.v5" );   // 1 if polished (see above)
     const auto pathN   = dir / ( name + "_n.png" );
     const auto pathNv  = dir / ( name + "_n.v1" );     // made by this version
 
@@ -290,17 +290,26 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
             const bool   polished = metalSmooth >= 0.02 * n || glassy >= 0.05 * n;
             if( polished )
             {
-                // RTGL1: polish = (0.7 - roughness) * 4.5, up to 3. Metal keeps its
-                // roughness (and mirrors); near-glass (the window panes, painted
-                // roughness 0) gets polish 1 (15% head on, 60% at grazing angles);
-                // everything else none
+                // RTGL1: polish = (0.7 - roughness) * 4.5, up to 3 -- and at 3 a texel
+                // is 45% mirror head on and 95% at grazing angles, its own texture all
+                // but gone. Here: smooth metal up to polish 1 (15% / 60%), by how
+                // smooth and how metallic it is; near-glass (the window panes, painted
+                // roughness 0) polish 1; everything else none
                 for( size_t i = 0; i < rgb.size(); i += 3 )
                 {
-                    if( rgb[ i + 2 ] >= 128 )
+                    const float r = rgb[ i + 1 ] / 255.f;
+                    const float m = rgb[ i + 2 ] / 255.f;
+                    float       polish;
+                    if( m >= 0.5f )
                     {
-                        continue;
+                        polish = std::clamp( ( 0.55f - r ) / 0.55f, 0.f, 1.f ) * m;
                     }
-                    rgb[ i + 1 ] = rgb[ i + 1 ] < 38 ? uint8_t( 122 ) : std::max< uint8_t >( rgb[ i + 1 ], 180 );
+                    else
+                    {
+                        polish = r < 0.15f ? 1.f : 0.f;
+                    }
+                    const float rOut = polish > 0.f ? 0.7f - polish / 4.5f : std::max( r, 0.71f );
+                    rgb[ i + 1 ]     = uint8_t( std::clamp( rOut * 255.f + 0.5f, 0.f, 255.f ) );
                 }
             }
             if( WritePNG( pathORM, rgb, ow, oh ) )

@@ -50,7 +50,8 @@ CVARD( Float, rt_ambient, 0.04f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: faint gl
 CVARD( Bool, rt_polish, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: textures with smooth texels (roughness maps) mirror the room" )
 CVARD( Float, rt_world_pbr, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much of the walls' and floors' roughness and metallic maps to use" )
 CVARD( Float, rt_sprite_pbr, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for sprites" )
-CVARD( Float, rt_metallic_max, 0.9f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ceiling on metalness (a metal has no diffuse light of its own)" )
+CVARD( Float, rt_metallic_max, 0.75f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ceiling on metalness (a metal has no diffuse light of its own)" )
+CVARD( Float, rt_decal_offset, 0.03f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres a wall or floor sprite is moved off the surface it is on" )
 CVARD( Bool, rt_muzzleflash, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: shooting lights the room" )
 CVARD( Float, rt_muzzleflash_intensity, 250.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash brightness" )
 CVARD( Color, rt_muzzleflash_color, 0xffa860, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash colour" )
@@ -161,8 +162,12 @@ auto RT_MakeUpRightForwardVectors( float yawDeg, float pitchDeg, float rollDeg )
     return { up, right, forward };
 }
 
+static RgExtent2D g_lastOutputSize{};
+static int        g_lastUpscaleMode = 0;
+
 void RT_FillResolution( RgStartFrameRenderResolutionParams& dst, RgExtent2D winsize )
 {
+    g_lastOutputSize = winsize;
     dst.frameGeneration   = RG_FRAME_GENERATION_MODE_OFF;
     dst.preferDxgiPresent = false;
     dst.pixelizedRenderSizeEnable = false;
@@ -187,6 +192,7 @@ void RT_FillResolution( RgStartFrameRenderResolutionParams& dst, RgExtent2D wins
         case 5: dst.resolutionMode = RG_RENDER_RESOLUTION_MODE_CUSTOM; break;
         default: mode = 0; break;
     }
+    g_lastUpscaleMode = mode;
 
     if( mode == 0 )
     {
@@ -331,6 +337,11 @@ void RT_CreateRendererInstance( void* pMetalLayer )
         rt_sector_light_scale->ResetToDefault();
         rt_emis_light_scale->ResetToDefault();
         rt_config_version = 3;
+    }
+    if( *rt_config_version < 4 )
+    {
+        rt_metallic_max->ResetToDefault();
+        rt_config_version = 4;
     }
 }
 
@@ -828,6 +839,36 @@ void RT_SetMainCamera( const DVector3& pos, const FRotator& hwangles, float fovD
     if( g_rtActive && screen )
     {
         static_cast< RTFrameBuffer* >( screen )->RT_SetMainCamera( pos, hwangles, fovDeg, ratio, fovratio );
+    }
+}
+
+// The size the frame is made at (MetalFX upscales to it; macOS scales it to the
+// screen). Fullscreen only, as in the Doom 64 port: vid_rt_fullscreen_height.
+EXTERN_CVAR( Int, vid_rt_fullscreen_height )
+CCMD( rt_resolution )
+{
+    if( argv.argc() > 1 )
+    {
+        vid_rt_fullscreen_height = std::max( 0, atoi( argv[ 1 ] ) );
+    }
+    static const double kTraced[] = { 0, 1 / 1.5, 1 / 1.7, 1 / 2.0, 1 / 3.0 };
+    const double        f         = g_lastUpscaleMode >= 1 && g_lastUpscaleMode <= 4 ? kTraced[ g_lastUpscaleMode ]
+                                                                                     : std::clamp( double( *rt_renderscale ), 0.2, 1.0 );
+    Printf( "Output %ux%u (vid_rt_fullscreen_height %d: %s), traced about %ux%u (rt_upscale %d)\n",
+            g_lastOutputSize.width,
+            g_lastOutputSize.height,
+            *vid_rt_fullscreen_height,
+            *vid_rt_fullscreen_height > 0 ? "lower than the screen" : "the screen's own",
+            unsigned( g_lastOutputSize.width * f ),
+            unsigned( g_lastOutputSize.height * f ),
+            g_lastUpscaleMode );
+    if( argv.argc() <= 1 )
+    {
+        Printf( "rt_resolution <height>: make the frame that tall in fullscreen (e.g. 1440, 1080); 0 = the screen's\n" );
+    }
+    else
+    {
+        Printf( "(applies from the next frame, in fullscreen)\n" );
     }
 }
 

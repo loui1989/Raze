@@ -80,6 +80,7 @@ enum class RtPrim : uint32_t
     Slime          = 1 << 8,
     Fullbright     = 1 << 9, // drawn at full brightness by the game (shade at or below the fullbright cutoff)
     NoShadow       = 1 << 10, // casts no shadow (a fire sprite around its own light)
+    Decal          = 1 << 11, // a wall or floor aligned sprite, usually flush with a surface
 };
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it

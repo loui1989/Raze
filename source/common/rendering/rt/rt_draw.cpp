@@ -739,6 +739,38 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         verts = m_tempverts;
     }
 
+    // A sprite on a wall (a switch, a sign) or a floor is usually exactly flush with it:
+    // rays then hit the sprite or the surface at random -- grainy, half see-through.
+    // Raster depth offsets it; here it is moved off the surface, towards the viewer.
+    if( !isUI && rtstate.is< RtPrim::Decal >() && *rt_decal_offset > 0.f )
+    {
+        const FVector4& gn = mStreamData.uVertexNormal;
+        FVector3        n{ gn.X, gn.Z, gn.Y };
+        if( n.LengthSquared() > 0.25f )
+        {
+            n.MakeUnit();
+            if( verts.data() != m_tempverts.data() )
+            {
+                m_tempverts.assign( verts.begin(), verts.end() );
+            }
+            const RgFloat3D& cam = m_fb->RT_CameraPosition();
+            const float*     p0  = m_tempverts[ 0 ].position;
+            const FVector3   toCam{ cam.data[ 0 ] - p0[ 0 ], cam.data[ 1 ] - p0[ 1 ], cam.data[ 2 ] - p0[ 2 ] };
+            if( ( n | toCam ) < 0.f )
+            {
+                n = -n;
+            }
+            const FVector3 d = n * float( *rt_decal_offset );
+            for( auto& v : m_tempverts )
+            {
+                v.position[ 0 ] += d.X;
+                v.position[ 1 ] += d.Y;
+                v.position[ 2 ] += d.Z;
+            }
+            verts = m_tempverts;
+        }
+    }
+
     const RgTransform transform = isUI ? RT_TRANSFORM_IDENTITY : MakeTransform( isSky, isModel );
 
     // colour: the game's light levels are not baked into the albedo, the path tracer

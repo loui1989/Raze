@@ -276,6 +276,7 @@ void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 	const int rtflags = RT_IsActive() && Sprite ? RT_ActorRuleFlags(Sprite->ownerActor) : 0;
 	RT_PUSH_TYPE(rtfb, (Sprite && Sprite->shade <= -numshades) || (rtflags & 2) ? RtPrim::Fullbright : RtPrim::Identity);
 	RT_PUSH_TYPE(rtns, rtflags & 1 ? RtPrim::NoShadow : RtPrim::Identity);
+	RT_PUSH_TYPE(rtdecal, Sprite ? RtPrim::Decal : RtPrim::Identity);
 
 	rendered_lines++;
 	if (screen->BuffersArePersistent())
