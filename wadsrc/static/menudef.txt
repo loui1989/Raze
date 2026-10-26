@@ -2226,6 +2226,7 @@ OptionMenu "RTOptions" protected
 	Slider "Light bounces",				"rt_bounces", 1, 4, 1, 0
 	Slider "Minimum roughness",			"rt_min_roughness", 0, 1, 0.05, 2
 	Option "Mirror-like polished surfaces",	"rt_polish", "OnOff"
+	Slider "Bump strength",				"rt_bump", 0, 4, 0.1, 1
 	Slider "Voxel model distance (metres)",	"rt_voxel_distance", 0, 40, 1, 0
 	StaticText " "
 

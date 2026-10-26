@@ -704,9 +704,31 @@ void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 			g_rtCopySkipWater[copy - 1] = false;
 
 			// the linked place near the opening only: the sectors within ~30 m of the
-			// portal's targets, through openings (shut doors too: they open)
+			// portal's targets, through openings (shut doors too: they open), and only
+			// what lies wholly beyond the opening once moved -- nothing of it may poke
+			// through to this side (the courtyard copied over itself: enemies knee deep
+			// in a floor, bits of ground hanging under the tomb's ceiling)
 			const unsigned n = sector.Size();
 			std::vector<char> allow(n, 0);
+			const int pnum = int(pd - allPortals.Data());
+			bool isFloor = true, haveOpen = false;
+			double zOpen = 0;
+			for (unsigned i = 0; i < n; i++)
+			{
+				auto& os = sector[i];
+				if (os.portalnum != pnum || (os.portalflags != PORTAL_SECTOR_FLOOR && os.portalflags != PORTAL_SECTOR_CEILING)) continue;
+				isFloor = os.portalflags == PORTAL_SECTOR_FLOOR;
+				const double z = isFloor ? os.floorz : os.ceilingz;
+				zOpen = haveOpen ? (isFloor ? min(zOpen, z) : max(zOpen, z)) : z;
+				haveOpen = true;
+			}
+			auto beyond = [&](const sectortype& ls)
+			{
+				if (!haveOpen) return true;
+				// moved by -delta; z grows downwards
+				if (isFloor) return ls.ceilingz - pd->delta.Z >= zOpen - 1.0;	// all of it below the floor opening
+				return ls.floorz - pd->delta.Z <= zOpen + 1.0;					// all of it above the ceiling opening
+			};
 			{
 				std::vector<double> dist(n, 1e30);
 				std::vector<DVector2> entry(n);
@@ -726,7 +748,7 @@ void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 					auto [d, si] = q.top();
 					q.pop();
 					if (d > dist[si]) continue;
-					allow[si] = 1;
+					allow[si] = beyond(sector[si]);
 					for (auto& w : sector[si].walls)
 					{
 						if (!w.twoSided()) continue;

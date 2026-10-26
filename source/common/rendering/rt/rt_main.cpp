@@ -52,6 +52,7 @@ CVARD( Float, rt_world_pbr, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, ho
 CVARD( Float, rt_sprite_pbr, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for sprites" )
 CVARD( Float, rt_metallic_max, 0.75f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ceiling on metalness (a metal has no diffuse light of its own)" )
 CVARD( Float, rt_decal_offset, 0.03f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres a wall or floor sprite is moved off the surface it is on" )
+CVARD( Float, rt_bump, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: strength of the bump (normal) maps" )
 CVARD( Bool, rt_sprite_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing sprites (candles, torches) cast light, in games without Duke-RT's light rules" )
 CVARD( Float, rt_flat_offset, 0.01f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres floors move up and ceilings down (rooms over rooms: a ceiling flush with the floor above)" )
 // how fast the denoiser drops its history when the lighting changes: lower = calmer
@@ -838,7 +839,7 @@ void RTFrameBuffer::RT_DrawFrame()
         .pNext                  = &sky,
         .dynamicSamplerFilter   = *rt_texture_filter ? RG_SAMPLER_FILTER_LINEAR : RG_SAMPLER_FILTER_NEAREST,
         .mipLodBiasOffset       = 0.0f,
-        .normalMapStrength      = 1.0f,
+        .normalMapStrength      = std::clamp( float( *rt_bump ), 0.f, 4.f ),
         .emissionMapBoost       = std::max( 0.f, float( *rt_emis_boost ) ),
         .emissionMaxScreenColor = std::max( 0.f, float( *rt_emis_screen ) ),
         // a floor under every surface's roughness: Duke-RT's maps are glossy almost

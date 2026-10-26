@@ -147,7 +147,7 @@ const MatClass* TableClass( const std::string& texname )
             {
                 MatClass mc{ a, r, m, bu, po, 0 };
                 char     key[ 256 ];
-                snprintf( key, sizeof( key ), "%s %.3f %.3f %.3f %.3f v1", a, r, m, bu, po );
+                snprintf( key, sizeof( key ), "%s %.3f %.3f %.3f %.3f v2", a, r, m, bu, po );
                 uint32_t hsh = 2166136261u;
                 for( const char* k = key; *k; k++ )
                 {
@@ -217,22 +217,42 @@ std::vector< float > Heights( const FTextureBuffer& albedo )
         const uint8_t* a = &albedo.mBuffer[ size_t( i ) * 4 ]; // BGRA
         l[ size_t( i ) ] = ( 0.2126f * a[ 2 ] + 0.7152f * a[ 1 ] + 0.0722f * a[ 0 ] ) / 255.f;
     }
-    for( int y = 0; y < h; y++ )
-    {
-        for( int x = 0; x < w; x++ )
+    // two scales: the fine detail, and the broad shapes (a stone's bulge between its
+    // dark joints) -- a texel-sized blur alone gave only thin lines at the edges
+    auto blur = [ & ]( const std::vector< float >& in, int r ) {
+        std::vector< float > tmp( in.size() ), out( in.size() );
+        for( int y = 0; y < h; y++ )
         {
-            float sum = 0;
-            for( int dy = -1; dy <= 1; dy++ )
+            for( int x = 0; x < w; x++ )
             {
-                for( int dx = -1; dx <= 1; dx++ )
+                float sum = 0;
+                for( int d = -r; d <= r; d++ )
                 {
-                    const int   xx = ( x + dx + w ) % w, yy = ( y + dy + h ) % h;
-                    const float k  = ( dx == 0 ? 2.f : 1.f ) * ( dy == 0 ? 2.f : 1.f );
-                    sum += l[ size_t( yy * w + xx ) ] * k;
+                    sum += in[ size_t( y * w + ( x + d + w * 4 ) % w ) ];
                 }
+                tmp[ size_t( y * w + x ) ] = sum / float( 2 * r + 1 );
             }
-            o[ size_t( y * w + x ) ] = sum / 16.f;
         }
+        for( int y = 0; y < h; y++ )
+        {
+            for( int x = 0; x < w; x++ )
+            {
+                float sum = 0;
+                for( int d = -r; d <= r; d++ )
+                {
+                    sum += tmp[ size_t( ( ( y + d + h * 4 ) % h ) * w + x ) ];
+                }
+                out[ size_t( y * w + x ) ] = sum / float( 2 * r + 1 );
+            }
+        }
+        return out;
+    };
+    const int  big   = std::clamp( std::min( w, h ) / 24, 1, 6 );
+    const auto fine  = blur( l, 1 );
+    const auto broad = blur( blur( l, big ), big );
+    for( size_t i = 0; i < o.size(); i++ )
+    {
+        o[ i ] = 0.45f * fine[ i ] + 0.55f * broad[ i ] * 1.6f;
     }
     return o;
 }
@@ -459,9 +479,8 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
             {
                 const auto             hgt = Heights( albedo );
                 std::vector< uint8_t > rgb( size_t( w ) * h * 3 );
-                // texels are big: the slope per texel, scaled so a 64 texel tile gets
-                // about the same relief as a 256 texel one
-                const float k = 6.f * mc->bump * std::clamp( 64.f / float( std::max( 16, std::min( w, h ) ) ), 0.35f, 2.f );
+                                // (a bigger texture has more texels to the same stone: smaller steps per texel)
+                const float k = 14.f * mc->bump * std::sqrt( std::clamp( float( std::min( w, h ) ) / 64.f, 0.5f, 4.f ) );
                 for( int y = 0; y < h; y++ )
                 {
                     for( int x = 0; x < w; x++ )
