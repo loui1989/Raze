@@ -56,6 +56,9 @@ CVARD( Float, rt_decal_offset, 0.03f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: met
 // under flickering lights and explosions, but lighting changes trail a little
 CVARD( Float, rt_denoise_sens_direct, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, denoiser reaction to direct light changes (lower = fewer splotches, more lag)" )
 CVARD( Float, rt_denoise_sens_indirect, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for bounce light" )
+// more samples per pixel: less noise to clean up, so newly seen places settle faster
+CVARD( Int, rt_samples_direct, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: direct light samples per pixel (1..8; each costs a shadow ray)" )
+CVARD( Int, rt_samples_indirect, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bounce light paths per pixel (1..8; costly)" )
 CVARD( Float, rt_min_roughness, 0.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, no surface is glossier than this (lower = sharper highlights, more noise)" )
 CVARD( Float, rt_denoise_sens_spec, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for reflections" )
 CVARD( Bool, rt_muzzleflash, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: shooting lights the room" )
@@ -373,6 +376,11 @@ void RT_CreateRendererInstance( void* pMetalLayer )
         // a firefly every frame; the real light it casts does that job without noise
         rt_emis_gi->ResetToDefault();
         rt_config_version = 7;
+    }
+    if( *rt_config_version < 8 )
+    {
+        rt_smoke_illum->ResetToDefault();
+        rt_config_version = 8;
     }
 }
 
@@ -716,8 +724,8 @@ void RTFrameBuffer::RT_DrawFrame()
         .debugVisibility                             = 0,
         .restirTemporalJitter                        = 2.0f,
         .rrSpecularHitDistance                       = true,
-        .directSamples                               = 1,
-        .indirectSamples                             = 1,
+        .directSamples                               = uint32_t( std::clamp( int( *rt_samples_direct ), 1, 8 ) ),
+        .indirectSamples                             = uint32_t( std::clamp( int( *rt_samples_indirect ), 1, 8 ) ),
         .restirInitialSamples                        = 8,
         .restirSpatialSamples                        = 8,
         .restirSpatialRadius                         = 30.0f,

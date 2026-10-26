@@ -34,7 +34,10 @@ CVARD( Bool, rt_smoke, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: volumetric s
 CVARD( Float, rt_smoke_density, 2.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how thick the smoke is" )
 CVARD( Float, rt_smoke_amount, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how many puffs the smoke sources make (0..2)" )
 CVARD( Float, rt_smoke_far, 40.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres around the player in which smoke is made" )
-CVARD( Bool, rt_smoke_illum, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: smoke is lit by every light, not only the moon" )
+// Off by default: lit from every light, smoke near Duke's many small, strong lights
+// (screens, grates, lamps) turned into fields of white dots, one per froxel that
+// happened to sample the close light
+CVARD( Bool, rt_smoke_illum, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: smoke is lit by every light, not only the moon (prone to white dots)" )
 CVARD( Bool, rt_smoke_debug, false, 0, "RT: print the smoke pool's state" )
 CVARD( Float, rt_smoke_maxlight, 2.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ceiling on the light inside smoke (against white specks)" )
 CVARD( Float, rt_smoke_light_near, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres within which a light fades out of the smoke it sits in" )
