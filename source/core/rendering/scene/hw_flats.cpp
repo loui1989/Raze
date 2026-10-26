@@ -52,6 +52,33 @@ static RtPrim RT_BloodLiquidOf(FGameTexture* tex)
 	static TMap<int, RtPrim> cache;
 	const int idx = tex->GetID().GetIndex();
 	if (auto c = cache.CheckKey(idx)) return *c;
+	// an animated liquid is judged by its first frame, so all its frames are the same
+	// liquid (frame by frame, a muddy pool flipped between blood and water)
+	FTextureID base = tex->GetID();
+	{
+		const int t = legacyTileNum(base);
+		for (int k = 1; t >= 0 && k <= 64; k++)
+		{
+			const auto b = tileGetTextureID(t - k);
+			if (t - k >= 0 && b.isValid())
+			{
+				const auto& pa = GetExtInfo(b).picanm;
+				if (pa.num >= k && (pa.type() == PICANM_ANIMTYPE_FWD || pa.type() == PICANM_ANIMTYPE_OSC)) { base = b; break; }
+			}
+			const auto f = tileGetTextureID(t + k);
+			if (f.isValid())
+			{
+				const auto& pa = GetExtInfo(f).picanm;
+				if (pa.num >= k && pa.type() == PICANM_ANIMTYPE_BACK) { base = f; break; }
+			}
+		}
+	}
+	if (base != tex->GetID())
+	{
+		const RtPrim r = RT_BloodLiquidOf(TexMan.GetGameTexture(base));
+		cache.Insert(idx, r);
+		return r;
+	}
 	RtPrim r = RtPrim::Identity;
 	const int surf = GetExtInfo(tex->GetID()).surftype;
 	enum { kSurfWater = 5, kSurfGoo = 13, kSurfLava = 14 };
@@ -71,7 +98,9 @@ static RtPrim RT_BloodLiquidOf(FGameTexture* tex)
 			}
 		}
 		const double rr = n ? sum[0] / n : 0, gg = n ? sum[1] / n : 0, bb = n ? sum[2] / n : 0;
-		if (rr > 1.5 * gg && rr > 1.5 * bb) r = RtPrim::BloodPool;
+		// red: blood; green: slime; anything else (blue, grey, the brown of muddy
+		// water) is water
+		if (rr > 2.0 * gg && rr > 2.0 * bb) r = RtPrim::BloodPool;
 		else if (gg > 1.2 * rr && gg > 1.2 * bb) r = RtPrim::Slime;
 		else r = RtPrim::Water;
 	}
