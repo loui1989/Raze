@@ -2213,6 +2213,9 @@ OptionMenu "RTOptions" protected
 	Option "Output resolution (fullscreen)",	"vid_rt_fullscreen_height", "RtOutputHeight"
 	Option "MetalFX upscaling",			"rt_upscale", "RtUpscale"
 	Slider "Render scale (Off / Custom)",	"rt_renderscale", 0.25, 1.0, 0.05, 2
+	Option "Dynamic resolution",			"rt_dynres", "OnOff"
+	Slider "Dynamic: target frame rate",	"rt_dynres_fps", 30, 144, 1, 0
+	Slider "Dynamic: lowest render scale",	"rt_dynres_min", 0.25, 1.0, 0.05, 2
 	Option "Sharpening",				"rt_sharpen", "RtSharpen"
 	Option "Vertical sync",				"rt_vsync", "OnOff"
 	Command "Print resolutions to console",	"rt_resolution"

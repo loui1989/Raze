@@ -33,6 +33,11 @@ RgInterface rt = {};
 // ultra performance; 5 = MetalFX at rt_renderscale
 CVARD( Int, rt_upscale, 3, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: MetalFX upscaling (0 off, 1 quality, 2 balanced, 3 performance, 4 ultra performance, 5 custom rt_renderscale)" )
 CVARD( Float, rt_renderscale, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: render resolution scale, when rt_upscale is 0 or 5" )
+// dynamic resolution: the render size follows the GPU's frame time, toward rt_dynres_fps,
+// from the upscaling setting's size (the largest) down to rt_dynres_min of the screen's
+CVARD( Bool, rt_dynres, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: dynamic resolution: the render size follows the frame rate, up to the upscaling setting's" )
+CVARD( Int, rt_dynres_fps, 60, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: dynamic resolution's target frame rate" )
+CVARD( Float, rt_dynres_min, 0.4f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: dynamic resolution's smallest render size, a fraction of the screen's" )
 CVARD( Bool, rt_metalfx_denoiser, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: MetalFX denoising upscaler instead of RTGL1's denoiser (needs rt_upscale 1..5)" )
 CVARD( Int, rt_sharpen, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0 auto, 1 naive, 2 AMD CAS, 3 none" )
 CVARD( Bool, rt_vsync, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: vertical sync" )
@@ -237,6 +242,48 @@ void RT_FillResolution( RgStartFrameRenderResolutionParams& dst, RgExtent2D wins
         {
             dst.denoiser          = RG_DENOISER_METALFX;
             dst.rayReconstruction = 1;
+        }
+    }
+
+    // dynamic resolution: the size asked for is the largest (the framebuffers are made for
+    // it), the renderer picks each frame's (RTGL1_DYNRES_*: read every frame by the Metal
+    // backend; not with the MetalFX denoiser, which needs a fixed size)
+    {
+        const bool dyn = *rt_dynres && !( *rt_metalfx_denoiser && mode != 0 );
+        if( dyn )
+        {
+            double maxScale;
+            switch( mode )
+            {
+                case 1: maxScale = 1.0 / 1.5; break;
+                case 2: maxScale = 1.0 / 1.7; break;
+                case 3: maxScale = 0.5; break;
+                case 4: maxScale = 1.0 / 3.0; break;
+                default: maxScale = scale; break;
+            }
+            dst.resolutionMode   = RG_RENDER_RESOLUTION_MODE_CUSTOM;
+            dst.customRenderSize = { std::max( 2u, uint32_t( winsize.width * maxScale ) ),
+                                     std::max( 1u, uint32_t( winsize.height * maxScale ) ) };
+        }
+        static std::string s_fps, s_min;
+        const std::string fps = dyn ? std::to_string( std::clamp( int( *rt_dynres_fps ), 20, 240 ) ) : std::string();
+        const std::string mn  = std::to_string( std::clamp( float( *rt_dynres_min ), 0.2f, 1.0f ) );
+        if( fps != s_fps )
+        {
+            s_fps = fps;
+            if( fps.empty() )
+            {
+                unsetenv( "RTGL1_DYNRES_FPS" );
+            }
+            else
+            {
+                setenv( "RTGL1_DYNRES_FPS", fps.c_str(), 1 );
+            }
+        }
+        if( mn != s_min )
+        {
+            s_min = mn;
+            setenv( "RTGL1_DYNRES_MIN", mn.c_str(), 1 );
         }
     }
 
@@ -1062,6 +1109,12 @@ CCMD( rt_resolution )
             unsigned( g_lastOutputSize.width * f ),
             unsigned( g_lastOutputSize.height * f ),
             g_lastUpscaleMode );
+    if( *rt_dynres )
+    {
+        Printf( "Dynamic resolution: that is the largest; down to %d%% of the output's, toward %d fps\n",
+                int( std::clamp( float( *rt_dynres_min ), 0.2f, 1.0f ) * 100.f + 0.5f ),
+                int( *rt_dynres_fps ) );
+    }
     if( argv.argc() <= 1 )
     {
         Printf( "rt_resolution <height>: make the frame that tall in fullscreen (e.g. 1440, 1080); 0 = the screen's\n" );
