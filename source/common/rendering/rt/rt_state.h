@@ -109,6 +109,26 @@ struct RtGameLight
 };
 extern std::vector< RtGameLight > g_rtGameLights;
 
+// Smoke the game itself makes this frame (Blood -- Duke's comes from Duke-RT's
+// LIGHTOVR rules), set before it renders the view. A burst (an explosion, a shot)
+// is made once per id; a fire or a trail smokes for as long as it is listed.
+// Position in game units (z down); a shot's is the view's own.
+enum class RtSmokeKind : uint8_t
+{
+    Explosion,
+    Fire,
+    Trail,
+    Shot,
+};
+struct RtSmokeSource
+{
+    double      pos[ 3 ];
+    uint64_t    id;
+    RtSmokeKind kind;
+    float       scale; // 1 = as usual
+};
+extern std::vector< RtSmokeSource > g_rtSmokeSources;
+
 // where the main view is rendered from (game units, z down) and its sector; -1 = unknown
 extern int    g_rtViewSector;
 extern double g_rtViewPos[ 3 ];

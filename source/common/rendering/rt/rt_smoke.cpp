@@ -41,6 +41,8 @@ CVARD( Bool, rt_smoke_illum, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: smoke
 CVARD( Bool, rt_smoke_debug, false, 0, "RT: print the smoke pool's state" )
 CVARD( Float, rt_smoke_maxlight, 2.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ceiling on the light inside smoke (against white specks)" )
 CVARD( Float, rt_smoke_light_near, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres within which a light fades out of the smoke it sits in" )
+CVARD( Float, rt_fog, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ground fog over open-air ground (0 = none, 1 = some, 2 = thick)" )
+CVARD( Float, rt_fog_height, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how high the ground fog lies (1 = about knee to waist high)" )
 CVARD( Float, rt_smoke_history, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: frames the volume accumulates while there is smoke (more = smoother, slower to let go)" )
 
 namespace
@@ -67,6 +69,7 @@ struct Puff
     float    life    = 1.f;
     float    attack = 0.f, sustain = 0.f, release = 0.f; // envelope, seconds (0 = (1-t)^2 fade)
     bool     ambient = false; // continuous sources give way to events
+    bool     fog     = false; // a bank of ground fog
 };
 
 std::array< Puff, RG_MAX_SMOKE_PUFFS > g_puffs;
@@ -365,6 +368,280 @@ void ShotSource( const ResolvedLightOverlaySet& set, const FVector3& eye, const 
     }
 }
 
+// ---------------------------------------------------------------------------------
+// the game's own smoke (g_rtSmokeSources): Blood. Drawn with Duke-RT's styles.
+
+ParsedLightOverlaySmokeStyle MakeStyle( float density, FVector3 albedo, float radius, float expansion, float life,
+                                        float rise, float velRandom, float buoyancy, float drag, float turb,
+                                        float attack, float sustain, float release, float lobe0, float lobe1 )
+{
+    ParsedLightOverlaySmokeStyle st;
+    st.density                 = density;
+    st.albedo[ 0 ]             = albedo.X;
+    st.albedo[ 1 ]             = albedo.Y;
+    st.albedo[ 2 ]             = albedo.Z;
+    st.radius                  = radius;
+    st.expansionVelocity       = expansion;
+    st.lifetime                = life;
+    st.riseVelocity            = rise;
+    st.velocityRandom          = velRandom;
+    st.buoyancy                = buoyancy;
+    st.drag                    = drag;
+    st.turbulence              = turb;
+    st.densityAttackSeconds    = attack;
+    st.densitySustainSeconds   = sustain;
+    st.densityReleaseSeconds   = release;
+    st.lobeRadiusRandom[ 0 ]   = lobe0;
+    st.lobeRadiusRandom[ 1 ]   = lobe1;
+    return st;
+}
+
+// Duke-RT's duke_explosion_smoke, duke_fire_smoke, duke_trail_smoke, duke_muzzle_smoke
+const ParsedLightOverlaySmokeStyle& GameStyle( RtSmokeKind kind )
+{
+    static const ParsedLightOverlaySmokeStyle styles[] = {
+        MakeStyle( 3.45f, { 0.34f, 0.32f, 0.30f }, 18.f, 12.f, 5.f, 9.f, 12.f, 2.f, 0.45f, 2.5f, 0.04f, 1.55f, 3.45f, 0.42f, 0.68f ),
+        MakeStyle( 3.0f, { 0.30f, 0.29f, 0.28f }, 7.f, 10.f, 18.f, 120.f, 20.f, 7.f, 0.05f, 42.f, 0.2f, 1.5f, 4.f, 0.30f, 0.45f ),
+        MakeStyle( 1.2f, { 0.42f, 0.44f, 0.46f }, 10.f, 2.f, 4.f, 7.f, 2.f, 5.5f, 0.7f, 10.2f, 0.f, 0.18f, 0.57f, 0.75f, 1.25f ),
+        MakeStyle( 6.0f, { 0.44f, 0.43f, 0.42f }, 5.f, 3.f, 1.35f, 0.f, 0.f, 0.f, 1.2f, 1.f, 0.f, 0.30f, 0.50f, 0.75f, 1.25f ),
+    };
+    return styles[ std::min( size_t( kind ), std::size( styles ) - 1 ) ];
+}
+
+std::unordered_set< uint64_t >          g_gameBurst;   // bursts made (their sources still listed)
+std::unordered_map< uint64_t, double >  g_gameNext;    // continuous sources: when they smoke next
+
+void GameSources( double now, const FVector3& eye, const FVector3& fwd, const FVector3& right, const FVector3& up,
+                  float farM )
+{
+    std::unordered_set< uint64_t >         burstNow;
+    std::unordered_map< uint64_t, double > nextNow;
+    for( const RtSmokeSource& src : g_rtSmokeSources )
+    {
+        const uint64_t key   = src.id ^ ( uint64_t( src.kind ) << 60 );
+        const float    scale = std::clamp( src.scale, 0.1f, 4.f );
+        const auto&    st    = GameStyle( src.kind );
+        FVector3       pos   = WorldToRTv( src.pos[ 0 ], src.pos[ 1 ], src.pos[ 2 ] );
+        switch( src.kind )
+        {
+            case RtSmokeKind::Explosion:
+            case RtSmokeKind::Shot:
+            {
+                burstNow.insert( key );
+                if( g_gameBurst.count( key ) )
+                {
+                    break;
+                }
+                if( src.kind == RtSmokeKind::Explosion )
+                {
+                    pos.Z += 48.f * kUnit * scale; // the cloud's middle above the blast
+                    if( ( pos - eye ).LengthSquared() > farM * farM )
+                    {
+                        break;
+                    }
+                    const uint32_t n = Scaled( 72, 6.f );
+                    for( uint32_t i = 0; i < n; i++ )
+                    {
+                        SpawnFromStyle( st, pos, RndUnit(), Rnd( 0.3f, 1.f ), 1.5f * scale, 2.5f * 0.6f * scale,
+                                        18.f * kUnit * scale, false );
+                    }
+                }
+                else
+                {
+                    // off the barrel: right, forward and down of the eye
+                    const FVector3 muzzle = eye + right * ( 6.f * kUnit ) + fwd * ( 20.f * kUnit ) - up * ( 8.f * kUnit );
+                    const uint32_t n      = Scaled( 5, 2.5f );
+                    for( uint32_t i = 0; i < n; i++ )
+                    {
+                        SpawnFromStyle( st, muzzle + up * ( Rnd( -1, 1 ) * 2.f * kUnit ), ConeDir( fwd, 12.f ),
+                                        1.5f * Rnd( 0.4f, 1.f ), 1.f * scale, 0.6f * scale, 2.f * kUnit, false );
+                    }
+                }
+                break;
+            }
+            case RtSmokeKind::Fire:
+            case RtSmokeKind::Trail:
+            {
+                const bool fire = src.kind == RtSmokeKind::Fire;
+                if( fire )
+                {
+                    pos.Z += 32.f * kUnit;
+                }
+                auto        it   = g_gameNext.find( key );
+                double      next = it != g_gameNext.end() ? it->second : 0.0;
+                if( ( pos - eye ).LengthSquared() <= farM * farM && now >= next )
+                {
+                    next = now + ( fire ? 0.5 : 0.05 ) * Rnd( 0.8f, 1.2f );
+                    const uint32_t n = Scaled( fire ? 9 : 14, 6.f );
+                    for( uint32_t i = 0; i < n; i++ )
+                    {
+                        if( fire )
+                        {
+                            SpawnFromStyle( st, pos, { 0, 0, 1 }, 0.f, 3.f * scale, 1.5f * scale, 4.f * kUnit, true );
+                        }
+                        else
+                        {
+                            SpawnFromStyle( st, pos, ConeDir( { 0, 0, 1 }, 22.f ), 0.5f, 1.f * scale, 0.5f * scale,
+                                            2.f * kUnit, false );
+                        }
+                    }
+                }
+                nextNow[ key ] = next;
+                break;
+            }
+        }
+    }
+    g_gameBurst.swap( burstNow );
+    g_gameNext.swap( nextNow );
+}
+
+// ---------------------------------------------------------------------------------
+// ground fog (rt_fog): soft banks lying on open-air ground around the viewer, drifting
+// with a slow wind, made and let go as the viewer moves. Lit by the moon.
+
+struct FogSector
+{
+    int      sect;
+    DVector4 box; // min x, min y, max x, max y (game units)
+};
+std::vector< FogSector > g_fogSectors;
+uint32_t                 g_fogGen = ~0u;
+FVector3                 g_wind{ 0.2f, 0.1f, 0.f };
+
+void FindFogSectors()
+{
+    g_fogSectors.clear();
+    for( unsigned i = 0; i < sector.Size(); i++ )
+    {
+        auto& sec = sector[ i ];
+        // open air: the sky above, or (Blood) a room over a room whose upper part is
+        if( !( ( sec.ceilingstat & CSTAT_SECTOR_SKY ) || sec.portalflags == PORTAL_SECTOR_CEILING ) )
+        {
+            continue;
+        }
+        // not the upper part of a room over a room (its floor is an opening), not sky
+        // underneath, not a shut door
+        if( sec.portalflags == PORTAL_SECTOR_FLOOR || ( sec.floorstat & CSTAT_SECTOR_SKY ) ||
+            sec.floorz - sec.ceilingz < 32.0 || sec.walls.Size() < 3 )
+        {
+            continue;
+        }
+        DVector4 b( 1e30, 1e30, -1e30, -1e30 );
+        for( auto& w : sec.walls )
+        {
+            b.X = std::min( b.X, w.pos.X ), b.Y = std::min( b.Y, w.pos.Y );
+            b.Z = std::max( b.Z, w.pos.X ), b.W = std::max( b.W, w.pos.Y );
+        }
+        g_fogSectors.push_back( { int( i ), b } );
+    }
+    const float a = Rnd( 0.f, 6.2831853f );
+    g_wind        = { std::cos( a ) * 0.1f, std::sin( a ) * 0.1f, 0.f };
+}
+
+const FogSector* FogSectorAt( double x, double y )
+{
+    for( const FogSector& f : g_fogSectors )
+    {
+        if( x >= f.box.X && x <= f.box.Z && y >= f.box.Y && y <= f.box.W && inside( x, y, &sector[ f.sect ] ) == 1 )
+        {
+            return &f;
+        }
+    }
+    return nullptr;
+}
+
+void FogSources( float dt )
+{
+    if( g_fogGen != RT_LevelGeneration() )
+    {
+        g_fogGen = RT_LevelGeneration();
+        FindFogSectors();
+    }
+    const float  amount = std::clamp( float( *rt_fog ), 0.f, 3.f );
+    const float  height = std::clamp( float( *rt_fog_height ), 0.2f, 4.f );
+    const float  reachM = 30.f;
+    const DVector2 view( g_rtViewPos[ 0 ], g_rtViewPos[ 1 ] );
+
+    // banks out of reach (or no fog any more) fade out
+    uint32_t live = 0;
+    for( uint32_t i = 0; i < g_count; i++ )
+    {
+        Puff& p = g_puffs[ i ];
+        if( !p.fog )
+        {
+            continue;
+        }
+        const DVector2 at( p.pos.X / kUnit, -p.pos.Y / kUnit );
+        const bool     away = amount <= 0.f || ( at - view ).Length() * kUnit > reachM + 6.f;
+        if( away )
+        {
+            const float end = p.attack + p.sustain;
+            if( p.age < end )
+            {
+                // straight to the release, from the density it has now
+                p.sustain = std::max( 0.f, p.age - p.attack );
+            }
+            continue;
+        }
+        live++;
+    }
+    if( amount <= 0.f || g_fogSectors.empty() || g_rtViewSector < 0 )
+    {
+        return;
+    }
+
+    const uint32_t target = uint32_t( std::min( 72.f, 26.f * amount ) );
+    // a few a frame: banks fade in over seconds anyway
+    for( int made = 0; made < 3 && live < target && g_count < g_puffs.size(); made++ )
+    {
+        for( int tries = 0; tries < 12; tries++ )
+        {
+            // a point on the ground around the viewer, more of them further out (even cover)
+            const float    r = reachM * std::sqrt( Rnd( 0.f, 1.f ) ) / kUnit;
+            const float    a = Rnd( 0.f, 6.2831853f );
+            const DVector2 q = view + DVector2( std::cos( a ) * r, std::sin( a ) * r );
+            const FogSector* fs = FogSectorAt( q.X, q.Y );
+            if( !fs )
+            {
+                continue;
+            }
+            // open air all around it too: a bank by a wall would show through into the
+            // room behind it (the volume does not stop at walls)
+            const float radius = Rnd( 1.6f, 2.8f ) * height;
+            const double rr    = radius * 0.8f / kUnit;
+            bool         open  = true;
+            for( int k = 0; k < 6 && open; k++ )
+            {
+                const double b = k * 1.0471976;
+                open           = FogSectorAt( q.X + std::cos( b ) * rr, q.Y + std::sin( b ) * rr ) != nullptr;
+            }
+            if( !open )
+            {
+                continue;
+            }
+            const double floorz = getflorzofslopeptr( &sector[ fs->sect ], q.X, q.Y );
+            Puff& p   = g_puffs[ g_count++ ];
+            p         = Puff{};
+            p.fog     = true;
+            p.ambient = true;
+            p.radius0 = p.radius = radius;
+            p.pos     = WorldToRTv( q.X, q.Y, floorz ) + FVector3{ 0.f, 0.f, Rnd( -0.35f, 0.15f ) * p.radius };
+            p.density = 0.16f;
+            p.growth  = 0.015f;
+            p.turb    = 0.04f;
+            p.phase   = Rnd( 0.f, 6.2831853f );
+            p.life    = Rnd( 28.f, 48.f );
+            p.attack  = 6.f;
+            p.release = 7.f;
+            p.sustain = std::max( 0.f, p.life - p.attack - p.release );
+            p.albedo  = { 0.78f, 0.80f, 0.84f };
+            p.vel     = g_wind + FVector3{ Rnd( -0.05f, 0.05f ), Rnd( -0.05f, 0.05f ), 0.f };
+            live++;
+            break;
+        }
+    }
+}
+
 void Simulate( float dt )
 {
     for( uint32_t i = 0; i < g_count; )
@@ -433,6 +710,8 @@ uint32_t RT_UpdateSmoke( const RgFloat3D& eyeIn, const RgFloat3D& fwdIn, const R
         g_seen.clear();
         std::fill( std::begin( g_emitterNext ), std::end( g_emitterNext ), 0.0 );
         g_lastShot = g_rtShotCounter;
+        g_gameBurst.clear();
+        g_gameNext.clear();
     }
 
     if( !*rt_smoke )
@@ -454,6 +733,12 @@ uint32_t RT_UpdateSmoke( const RgFloat3D& eyeIn, const RgFloat3D& fwdIn, const R
         ShotSource( set, eye, fwd, right, up );
         ActorSources( set, now, eye, farM );
         EmitterSources( set, now, eye, farM );
+        // a game without smoke rules (Blood) names its own smoke
+        if( set.smokeActorRules.Size() == 0 && set.smokeEventRules.Size() == 0 )
+        {
+            GameSources( now, eye, fwd, right, up, farM );
+        }
+        FogSources( dt );
         Simulate( dt );
     }
 

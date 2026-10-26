@@ -262,6 +262,7 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
         m_hasEmission = RT_PrepareMaterialOverrides( src, name, texbuffer, mi );
         memcpy( m_emisAvg, mi.emisAvg, sizeof( m_emisAvg ) );
         m_polished = mi.polished;
+        m_glass    = mi.glass;
     }
 
     auto details = RgOriginalTextureDetailsEXT{
@@ -837,6 +838,18 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     const bool additive =
         mRenderStyle.BlendOp == STYLEOP_Add && mRenderStyle.DestAlpha == STYLEALPHA_One;
 
+    // a window: a see-through wall of a glass texture (the material table). Real glass
+    // instead of a blended picture: it refracts what is behind it and reflects the room,
+    // tinted by its texture (stained glass), and lets light through. A glass texture
+    // painted on a solid wall (a window with its frame, no view through) stays as it is.
+    const bool isGlass = !isUI && !isSky && !isSkyVis && !isMirror && *rt_glass && hwtex && hwtex->IsGlass() &&
+                         !additive && alpha < 0.98f && !rtstate.is< RtPrim::Sprite >();
+    if( isGlass )
+    {
+        // opaque, or RTGL1 rasterizes it as a blended surface
+        primColor = rt.rgUtilPackColorFloat4D( 1.f, 1.f, 1.f, 1.f );
+    }
+
     RgMeshPrimitiveFlags primFlags  = 0;
     float                emissive   = 0.f;
     float                emissiveGi = 0.f;
@@ -868,9 +881,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         {
             primFlags |= RG_MESH_PRIMITIVE_MIRROR;
         }
-        else if( rtstate.is< RtPrim::Glass >() )
+        else if( rtstate.is< RtPrim::Glass >() || isGlass )
         {
-            primFlags |= RG_MESH_PRIMITIVE_GLASS;
+            primFlags |= RG_MESH_PRIMITIVE_GLASS | RG_MESH_PRIMITIVE_THIN_MEDIA | RG_MESH_PRIMITIVE_NO_SHADOW;
         }
         else if( rtstate.is< RtPrim::Water >() )
         {
@@ -947,7 +960,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // surface glows faintly with its sector's classic light level, so a room
             // the lights miss is dark rather than black (and it lights its
             // surroundings a little, through the bounce light)
-            if( *rt_ambient > 0.f && !isMirror && !rtstate.is< RtPrim::Glass >() && !rtstate.is< RtPrim::Water >() )
+            if( *rt_ambient > 0.f && !isMirror && !isGlass && !rtstate.is< RtPrim::Glass >() && !rtstate.is< RtPrim::Water >() )
             {
                 // a switched-off room is darker than its half-light shade says
                 const float sw = RT_SectorSwitch( rtstate.get_sector() );

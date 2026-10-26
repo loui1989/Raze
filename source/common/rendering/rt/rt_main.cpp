@@ -47,6 +47,7 @@ CVARD( Float, rt_emis_light_scale, 600.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT:
 CVARD( Bool, rt_emis_follow_shade, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing textures go out with their room's light switch" )
 CVARD( Float, rt_emis_gi, 0.06f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: with rt_emis_lights, how much bounce light a glowing texture still gives itself" )
 CVARD( Float, rt_ambient, 0.04f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: faint glow of every surface by its sector's light level, so unlit places are dark rather than black" )
+CVARD( Bool, rt_glass, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: see-through windows (the material table's glass, drawn translucent) are real glass: they refract and reflect" )
 CVARD( Bool, rt_polish, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: textures with smooth texels (roughness maps) mirror the room" )
 CVARD( Float, rt_world_pbr, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much of the walls' and floors' roughness and metallic maps to use" )
 CVARD( Float, rt_sprite_pbr, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for sprites" )
@@ -767,7 +768,7 @@ void RTFrameBuffer::RT_DrawFrame()
         .typeOfMediaAroundCamera               = g_rtCameraUnderwater ? RG_MEDIA_TYPE_WATER : RG_MEDIA_TYPE_VACUUM,
         .indexOfRefractionGlass                = 1.52f,
         .indexOfRefractionWater                = 1.33f,
-        .thinMediaWidth                        = 0.1f,
+        .thinMediaWidth                        = 0.03f, // a window pane
         .waterWaveSpeed                        = std::max( 0.f, float( *rt_water_wave_speed ) ),
         .waterWaveNormalStrength               = std::clamp( float( *rt_water_waves ), 0.f, 4.f ),
         .waterColor                            = { 1.f, 1.f, 1.f },

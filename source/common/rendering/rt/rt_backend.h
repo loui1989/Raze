@@ -255,6 +255,7 @@ public:
     bool HasEmission() const { return m_hasEmission; }
     const float* EmissionAverage() const { return m_emisAvg; }
     bool IsPolished() const { return m_polished; }
+    bool IsGlass() const { return m_glass; }
 
 private:
     static auto TranslationSuffix( int translation ) -> std::string;
@@ -268,6 +269,7 @@ private:
     bool        m_hasEmission{ false };
     float       m_emisAvg[ 3 ]{};
     bool        m_polished{ false };
+    bool        m_glass{ false };
     std::string m_name{};
     std::string m_nameClamped{};
 };
@@ -279,6 +281,7 @@ struct RtMaterialInfo
     bool  hasEmission = false;
     float emisAvg[ 3 ]{}; // the emission map's average colour, linear
     bool  polished    = false;
+    bool  glass       = false; // the material table calls it glass
 };
 bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, RtMaterialInfo& out );
 

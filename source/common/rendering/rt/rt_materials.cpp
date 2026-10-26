@@ -422,6 +422,12 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         }
     }
 
+    // glass (whatever maps it has): see-through, it refracts (rt_draw.cpp)
+    if( const MatClass* g = TableClass( name ) )
+    {
+        out.glass = g->name == "glass";
+    }
+
     // the game's material table: textures without the overlay's maps
     const MatClass* mc = ( !layers || ( !layers->Roughness.get() && !layers->Metallic.get() ) ) ? TableClass( name ) : nullptr;
     if( mc )

@@ -32,6 +32,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 BEGIN_BLD_NS
 
+int gRtShots;
 void FirePitchfork(int, DBloodPlayer* pPlayer);
 void FireSpray(int, DBloodPlayer* pPlayer);
 void ThrowCan(int, DBloodPlayer* pPlayer);
@@ -1393,6 +1394,7 @@ enum { kMaxShotgunBarrels = 4 };
 
 void FireShotgun(int nTrigger, DBloodPlayer* pPlayer)
 {
+	gRtShots++;	// ray tracing: smoke off the barrel (view.cpp)
 	DBloodActor* actor = pPlayer->GetActor();
 	assert(nTrigger > 0 && nTrigger <= kMaxShotgunBarrels);
 	if (nTrigger == 1)
@@ -1446,6 +1448,7 @@ void EjectShell(int, DBloodPlayer* pPlayer)
 
 void FireTommy(int nTrigger, DBloodPlayer* pPlayer)
 {
+	gRtShots++;	// ray tracing: smoke off the barrel (view.cpp)
 	DBloodActor* actor = pPlayer->GetActor();
 	sfxPlay3DSound(pPlayer->GetActor(), 431, -1, 0);
 	switch (nTrigger)
@@ -1492,6 +1495,7 @@ static constexpr DAngle DAngle20 = DAngle::fromDeg(20);
 
 void FireSpread(int nTrigger, DBloodPlayer* pPlayer)
 {
+	gRtShots++;	// ray tracing: smoke off the barrel (view.cpp)
 	DBloodActor* actor = pPlayer->GetActor();
 	assert(nTrigger > 0 && nTrigger <= kMaxSpread);
 	DVector3 aim = pPlayer->aim;

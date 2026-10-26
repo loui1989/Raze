@@ -565,6 +565,8 @@ void renderCrystalBall()
 //
 //---------------------------------------------------------------------------
 
+extern int gRtShots;
+
 static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 {
 	g_rtMuzzleFlash = (float)clamp(pPlayer->visibility / 20., 0., 1.);
@@ -572,6 +574,23 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 	g_rtViewerActor = nullptr;
 	g_rtSectorSwitch.clear();
 	g_rtGameLights.clear();
+	g_rtSmokeSources.clear();
+
+	// smoke (rt_smoke.cpp makes it with Duke-RT's styles): bursts once per id, the rest
+	// for as long as they are listed
+	auto smoke = [](const DVector3& pos, uint64_t id, RtSmokeKind kind, float scale)
+	{
+		RtSmokeSource s;
+		s.pos[0] = pos.X; s.pos[1] = pos.Y; s.pos[2] = pos.Z;
+		s.id = id; s.kind = kind; s.scale = scale;
+		g_rtSmokeSources.push_back(s);
+	};
+	static int s_lastShots = 0;
+	if (gRtShots != s_lastShots)
+	{
+		s_lastShots = gRtShots;
+		smoke(DVector3(0, 0, 0), uint64_t(gRtShots), RtSmokeKind::Shot, pPlayer->curWeapon == kWeapShotgun ? 1.3f : 0.8f);
+	}
 
 	auto add = [](DBloodActor* a, int kind, float r, float g, float b, float lumens, float radius)
 	{
@@ -607,6 +626,11 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 		const float peak = 150.f * actor->xspr.data3;
 		if (!g) s_glow.Insert(actor->GetIndex(), { actor->spr.pos, actor->sectno(), peak, now, now });
 		else { g->pos = actor->spr.pos; g->seen = now; g->peak = max(g->peak, peak); }
+		{
+			static const float kScale[] = { 0.6f, 1.f, 1.4f, 0.8f, 0.5f, 1.f, 1.f, 1.2f };
+			const unsigned t = unsigned(actor->spr.type);
+			smoke(actor->spr.pos, uint64_t(actor->GetIndex()), RtSmokeKind::Explosion, t < 8 ? kScale[t] : 1.f);
+		}
 	}
 	{
 		TArray<int> gone;
@@ -639,6 +663,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 		case kMissileFlareRegular:
 		case kMissileFlareAlt:
 			add(actor, 1, 1.f, 0.25f, 0.12f, 700.f, 0.05f);
+			smoke(actor->spr.pos, uint64_t(actor->GetIndex()), RtSmokeKind::Trail, 0.4f);
 			break;
 		case kMissileTeslaRegular:
 		case kMissileTeslaAlt:
@@ -652,6 +677,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 		case kMissileFlameSpray:
 		case kMissileFlameHound:
 			add(actor, 1, 1.f, 0.5f, 0.2f, 900.f, 0.1f);
+			smoke(actor->spr.pos, uint64_t(actor->GetIndex()), RtSmokeKind::Trail, 0.7f);
 			break;
 		case kMissileLifeLeechRegular:
 		case kMissileLifeLeechAltNormal:
@@ -677,6 +703,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 	while (auto actor = it.Next())
 	{
 		add(actor, 2, 1.f, 0.25f, 0.12f, 600.f * flicker(actor), 0.05f);
+		smoke(actor->spr.pos, uint64_t(actor->GetIndex()), RtSmokeKind::Trail, 0.3f);
 	}
 	// burning creatures and things
 	for (int stat : { kStatDude, kStatThing })
@@ -687,6 +714,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			if (actor->hasX() && actor->xspr.burnTime > 0)
 			{
 				add(actor, 3, 1.f, 0.5f, 0.2f, 500.f * flicker(actor), 0.2f);
+				smoke(actor->spr.pos, uint64_t(actor->GetIndex()), RtSmokeKind::Fire, 0.7f);
 			}
 		}
 	}
