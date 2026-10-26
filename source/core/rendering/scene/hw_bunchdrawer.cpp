@@ -782,6 +782,8 @@ void BunchDrawer::AddSectorSprites(int sectnum, bool all)
 //
 //==========================================================================
 
+CVARD(Bool, rt_hide_overlaps, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: of rooms that overlap on the map, leave out the ones out of reach")
+
 static std::vector<std::vector<int>> rt_overlaps;
 static const void* rt_ovlLevel = nullptr;
 static const void* rt_ovlData = nullptr;
@@ -836,6 +838,7 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam)
 		rt_ovlLevel = currentLevel; rt_ovlData = sector.Data(); rt_ovlCount = n;
 	}
 	std::vector<char> keep(n, 1);
+	if (!rt_hide_overlaps) return keep;
 	bool any = false;
 	for (unsigned i = 0; i < n && !any; i++) any = !rt_overlaps[i].empty();
 	if (!any || camsect < 0 || unsigned(camsect) >= n) return keep;

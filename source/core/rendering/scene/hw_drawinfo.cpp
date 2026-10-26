@@ -56,6 +56,7 @@ CVAR(Bool, gl_no_skyclear, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // every voxel instance is a big mesh RTGL1 rebuilds each frame. Duke only: its voxel
 // pack is huge; Blood's own voxels are small, and its sprites for them are not made
 // to stand in (gravestones float)
+CVARD(Bool, rt_portal_views, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: draw what room-over-room openings show (Blood)")
 CVARD(Float, rt_voxel_distance, 12.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models further than this many metres are drawn as flat sprites (0 = no voxels)")
 
 CVAR(Bool, gl_texture, true, 0)
@@ -690,7 +691,7 @@ void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 			gp->RT_DrawStencil(state);
 			state.EnableTexture(true);
 		}
-		else if ((gp->GetType() == PORTAL_SECTOR_FLOOR || gp->GetType() == PORTAL_SECTOR_CEILING) && g_rtCopyUsed < RT_MAX_COPIES)
+		else if ((gp->GetType() == PORTAL_SECTOR_FLOOR || gp->GetType() == PORTAL_SECTOR_CEILING) && g_rtCopyUsed < RT_MAX_COPIES && rt_portal_views)
 		{
 			// a room over a room (Blood): the place elsewhere on the map that the opening
 			// shows, as the rasterizer draws it from here -- moved to where it is seen,
