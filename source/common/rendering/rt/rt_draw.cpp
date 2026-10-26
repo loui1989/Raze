@@ -1054,7 +1054,8 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // a light switch darkens its sector (the shade goes up): the fixtures in
             // it go out with it. Lit rooms are shade 0..10 (level 0.7+), "off" is 20+
             // a fixture in a switched room goes out with its lights
-            if( *rt_emis_follow_shade )
+            // (not a fullbright actor's: a fire burns in a dark alcove too)
+            if( *rt_emis_follow_shade && !rtstate.is< RtPrim::Fullbright >() )
             {
                 const float sw = RT_SectorSwitch( rtstate.get_sector() );
                 if( sw >= 0.f )

@@ -796,7 +796,21 @@ void UploadOverlayLights( uint32_t time )
             // offset: Duke-RT path tracing space
             const RgFloat3D base = WorldToRT( actor->spr.pos.X, actor->spr.pos.Y, cz );
             const RgFloat3D off  = PTToRT( rule.offset );
-            const RgFloat3D pos  = { base.data[ 0 ] + off.data[ 0 ], base.data[ 1 ] + off.data[ 1 ], base.data[ 2 ] + off.data[ 2 ] };
+            RgFloat3D       pos  = { base.data[ 0 ] + off.data[ 0 ], base.data[ 1 ] + off.data[ 1 ], base.data[ 2 ] + off.data[ 2 ] };
+            // ...in the actor's room: an offset made for a big fire (Duke-RT's DukeFire is a
+            // dumpster's, 48 up) put the light of a small one in a low alcove above its
+            // ceiling -- the alcove dark, a bright spot on the wall over it
+            if( auto sec = actor->sector() )
+            {
+                const double cz = getceilzofslopeptr( sec, actor->spr.pos.X, actor->spr.pos.Y );
+                const double fz = getflorzofslopeptr( sec, actor->spr.pos.X, actor->spr.pos.Y );
+                const float  ct = float( -cz ) * ONEGAMEUNIT_IN_METERS - 0.08f;
+                const float  fb = float( -fz ) * ONEGAMEUNIT_IN_METERS + 0.05f;
+                if( ct > fb )
+                {
+                    pos.data[ 2 ] = std::clamp( pos.data[ 2 ], fb, ct );
+                }
+            }
 
             float intensity = rule.intensity;
             if( rule.hasRandom )
