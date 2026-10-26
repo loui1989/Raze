@@ -799,10 +799,14 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			// the flame: above a torch, else the picture's upper part
 			DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, torch ? top - 4 : top + (bottom - top) * 0.25);
 			// off the wall it hangs on, into the room: a light on the wall lights the wall
+			// (a sprite torch stands in the wall, often a little behind its face: the light goes
+			// to the room's side of the nearest wall, whichever side the sprite is on)
 			{
+				auto sect = actor->sector();
+				const bool inRoom = inside(p.X, p.Y, sect) == 1;
 				double best = 1e9;
-				DVector2 away(0, 0);
-				for (auto& wal : actor->sector()->walls)
+				DVector2 bestC(0, 0), bestD(1, 0);
+				for (auto& wal : sect->walls)
 				{
 					const DVector2 a2 = wal.pos, b2 = wal.point2Wall()->pos, d = b2 - a2;
 					const double len2 = d.LengthSquared();
@@ -810,11 +814,16 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 					const double t = clamp(((p.XY() - a2) | d) / len2, 0., 1.);
 					const DVector2 c = a2 + d * t;
 					const double dist = (p.XY() - c).Length();
-					if (dist < best) { best = dist; away = dist > 1e-3 ? (p.XY() - c) / dist : DVector2(-d.Y, d.X).Unit(); }
+					if (dist < best) { best = dist; bestC = c; bestD = d; }
 				}
-				if (best < 10) p += DVector3(away * (10 - best), 0);
+				if (best < 1e8 && (!inRoom || best < 10))
+				{
+					DVector2 n = DVector2(-bestD.Y, bestD.X).Unit();
+					if (inside(bestC.X + n.X * 2, bestC.Y + n.Y * 2, sect) != 1) n = -n;
+					p = DVector3(bestC + n * 10, p.Z);
+				}
 			}
-			const float lumens = 450.f * sqrtf(min(glow / 0.2f, 1.5f)) * scale * flicker(actor);
+			const float lumens = 900.f * sqrtf(min(glow / 0.2f, 1.5f)) * scale * flicker(actor);
 			RtGameLight l;
 			l.pos[0] = p.X; l.pos[1] = p.Y; l.pos[2] = p.Z;
 			l.color[0] = 1.f; l.color[1] = 0.6f; l.color[2] = 0.28f;
