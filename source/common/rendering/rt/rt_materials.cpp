@@ -20,6 +20,8 @@
 //    texture is polished only where it has smooth METAL (the stars on the Hollywood
 //    walk) or near-glass texels (window panes); in such a texture the other texels
 //    are written just rough enough not to mirror.
+//  - normal: World Tour's normal maps (setup.sh imports them as materials/normalmaps),
+//    green flipped: they are made Y-down, as Duke-RT reads them, RTGL1 reads Y-up.
 //
 // A file is made once and kept; rt_materials_regen 1 makes them again.
 
@@ -34,6 +36,7 @@
 CVARD( Bool, rt_materials, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: use the material maps (glow, roughness, metallic) of the mounted overlay" )
 CVARD( Bool, rt_materials_brightmaps, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: textures without a glowmap glow where the palette is fullbright" )
 CVARD( Bool, rt_materials_regen, false, 0, "RT: make the material files again (this session)" )
+CVARD( Bool, rt_materials_normals, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: use the normal maps (World Tour's, imported by setup.sh)" )
 
 const std::string& RT_GetOverrideFolder();
 
@@ -117,6 +120,8 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     const auto pathNoE = dir / ( name + "_e.v3none" ); // looked, nothing glows
     const auto pathAvg = dir / ( name + "_e.v3avg" );  // the emission map's average colour (linear)
     const auto pathPol = dir / ( name + "_orm.v4" );   // 1 if polished (see above)
+    const auto pathN   = dir / ( name + "_n.png" );
+    const auto pathNv  = dir / ( name + "_n.v1" );     // made by this version
 
     const bool regen = *rt_materials_regen && g_made.insert( name ).second;
 
@@ -304,6 +309,31 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 if( FILE* f = fopen( pathPol.string().c_str(), "wb" ) )
                 {
                     fprintf( f, "%d\n", polished ? 1 : 0 );
+                    fclose( f );
+                }
+            }
+        }
+    }
+
+    // normal map
+    if( layers && layers->Normal.get() && *rt_materials_normals &&
+        ( regen || !std::filesystem::exists( pathNv, ec ) ) )
+    {
+        Mask nm;
+        if( nm.Load( layers->Normal.get() ) )
+        {
+            std::vector< uint8_t > rgb( size_t( nm.w ) * nm.h * 3 );
+            for( int i = 0; i < nm.w * nm.h; i++ )
+            {
+                const uint8_t* p = &nm.buf[ unsigned( i * 4 ) ]; // BGRA
+                rgb[ size_t( i ) * 3 + 0 ] = p[ 2 ];
+                rgb[ size_t( i ) * 3 + 1 ] = uint8_t( 255 - p[ 1 ] );
+                rgb[ size_t( i ) * 3 + 2 ] = p[ 0 ];
+            }
+            if( WritePNG( pathN, rgb, nm.w, nm.h ) )
+            {
+                if( FILE* f = fopen( pathNv.string().c_str(), "wb" ) )
+                {
                     fclose( f );
                 }
             }

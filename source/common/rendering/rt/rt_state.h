@@ -13,6 +13,7 @@
 #include <cassert>
 #include <cstdint>
 #include <unordered_map>
+#include <vector>
 #include <type_traits>
 
 #include "vectors.h"
@@ -25,6 +26,15 @@ extern bool g_rtActive;
 // 0..1: how bright the player's weapon flash is this frame, set by the game before
 // it renders the view (the path tracer adds a light for it)
 extern float g_rtMuzzleFlash;
+
+// Per sector, set by the game before it renders the view: -1 for a sector without a
+// light switch, else how far its lights are on (0 off .. 1 on). A switched room sits
+// at about half light when off, which the path tracer cannot tell from a dim room.
+extern std::vector< float > g_rtSectorSwitch;
+inline float RT_SectorSwitch( int sectnum )
+{
+    return sectnum >= 0 && size_t( sectnum ) < g_rtSectorSwitch.size() ? g_rtSectorSwitch[ size_t( sectnum ) ] : -1.f;
+}
 inline bool RT_IsActive()
 {
     return g_rtActive;
@@ -149,6 +159,19 @@ struct FRtState
         return push_uniqueid( reinterpret_cast< uint64_t >( obj ), kind );
     }
 
+    // the sector the primitive belongs to (-1: none)
+    [[nodiscard]] auto push_sector( int sectnum )
+    {
+        const int prev = m_sector;
+        m_sector       = sectnum;
+        return rtdetail::AutoPop{
+            prev,
+            []( FRtState& fthis, int p ) { fthis.m_sector = p; },
+            *this,
+        };
+    }
+    int get_sector() const { return m_sector; }
+
     bool has_uniqueid() const { return m_curUniqueID != 0; }
     uint64_t get_uniqueid() const { return m_curUniqueID; }
 
@@ -168,6 +191,7 @@ struct FRtState
 private:
     uint32_t m_state{ 0 };       // RtPrim flags
     uint64_t m_curUniqueID{ 0 }; // to identify an object between frames
+    int      m_sector{ -1 };
 
     std::unordered_map< uint64_t, uint32_t > m_nextPrimIndex{};
 };

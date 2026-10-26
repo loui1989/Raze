@@ -339,6 +339,23 @@ void displayrooms(int snum, double interpfrac, bool sceneonly)
 	// ray tracing: the weapon flash (the visibility dip after a shot) as a light
 	g_rtMuzzleFlash = (!ud.fogactive && PlayClock < lastvisinc && ud.const_visibility > 0) ?
 		(float)clamp(1. - double(p->visibility) / ud.const_visibility, 0., 1.) : 0.f;
+	if (RT_IsActive())
+	{
+		// the light switches (SE12: the sector's map shade is off, the effector's is on)
+		g_rtSectorSwitch.assign(sector.Size(), -1.f);
+		DukeStatIterator it(STAT_EFFECTOR);
+		while (auto act = it.Next())
+		{
+			if (act->spr.lotag != SE_12_LIGHT_SWITCH || !act->insector()) continue;
+			auto sectp = act->sector();
+			const int off = max<int>(act->temp_data[1], act->spr.shade);
+			const int on = min<int>(act->temp_data[1], act->spr.shade);
+			if (off - on < 2) continue;
+			const float r = clamp(float(off - sectp->floorshade) / float(off - on), 0.f, 1.f);
+			auto& slot = g_rtSectorSwitch[sectindex(sectp)];
+			slot = max(slot, r);
+		}
+	}
 	render_drawrooms(viewer, cpos, sect, cangles, interpfrac, fov);
 	viewer->spr.cstat = cstat;
 

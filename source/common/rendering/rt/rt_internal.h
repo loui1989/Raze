@@ -119,3 +119,4 @@ EXTERN_CVAR( Bool, rt_polish )
 EXTERN_CVAR( Float, rt_sector_light_scale )
 
 void RT_UploadSceneLights( uint32_t time ); // rt_lights.cpp
+uint32_t RT_LevelGeneration();              // rt_lights.cpp: changes when a map is (re)loaded

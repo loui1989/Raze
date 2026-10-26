@@ -847,10 +847,14 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             primFlags |= RG_MESH_PRIMITIVE_EMISSIVE_OVERRIDE | RG_MESH_PRIMITIVE_EMISSIVE_SCREEN_SCALED;
             // a light switch darkens its sector (the shade goes up): the fixtures in
             // it go out with it. Lit rooms are shade 0..10 (level 0.7+), "off" is 20+
+            // a fixture in a switched room goes out with its lights
             if( *rt_emis_follow_shade )
             {
-                const float t = std::clamp( ( classic - 0.15f ) / ( 0.5f - 0.15f ), 0.f, 1.f );
-                glowScale     = t * t * ( 3.f - 2.f * t );
+                const float sw = RT_SectorSwitch( rtstate.get_sector() );
+                if( sw >= 0.f )
+                {
+                    glowScale = sw;
+                }
             }
             emissive   = glowScale;
             emissiveGi = glowScale * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );

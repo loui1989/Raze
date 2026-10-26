@@ -121,6 +121,7 @@ float FlickerScale( uint64_t key, uint32_t frames, uint32_t time )
 
 void UploadSectorLights()
 {
+
     if( !*rt_sector_lights || sector.Size() == 0 )
     {
         return;
@@ -185,7 +186,10 @@ void UploadSectorLights()
         }
         const double z = sec.ceilingz + height * std::clamp( float( *rt_sector_light_height ), 0.02f, 0.98f );
 
-        float lumens = *rt_sector_light_scale * level * level *
+        // a switched room: off is about half light, which must still be dark
+        const float sw     = RT_SectorSwitch( int( i ) );
+        const float onness = sw < 0.f ? 1.f : 0.03f + 0.97f * sw;
+        float lumens = *rt_sector_light_scale * level * level * onness *
                        float( std::clamp( std::sqrt( areaM2 ), 1.0, 25.0 ) );
         float& sm = s_smoothed[ i ];
         sm        = sm < 0.f ? lumens : sm + ( lumens - sm ) * std::clamp( float( *rt_sector_light_smooth ), 0.01f, 1.f );
@@ -435,6 +439,22 @@ void UploadOverlayLights( uint32_t time )
 }
 
 } // namespace
+
+uint32_t RT_LevelGeneration()
+{
+    static const void* s_data  = nullptr;
+    static unsigned    s_count = 0;
+    static const void* s_level = nullptr;
+    static uint32_t    s_gen   = 0;
+    if( s_data != sector.Data() || s_count != sector.Size() || s_level != currentLevel )
+    {
+        s_data  = sector.Data();
+        s_count = sector.Size();
+        s_level = currentLevel;
+        s_gen++;
+    }
+    return s_gen;
+}
 
 void RT_UploadSceneLights( uint32_t time )
 {
