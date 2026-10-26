@@ -54,9 +54,9 @@
 EXTERN_CVAR(Float, r_visibility)
 CVAR(Bool, gl_no_skyclear, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // ray tracing: voxel models further than this (metres) are drawn as their sprites --
-// every voxel instance is a big mesh RTGL1 rebuilds each frame. Duke only: its voxel
-// pack is huge; Blood's own voxels are small, and its sprites for them are not made
-// to stand in (gravestones float)
+// every voxel instance is a big mesh RTGL1 rebuilds each frame. Duke's, and in the
+// other games a voxel pack's: the games' own voxels (Blood's) are small, and their
+// sprites are not made to stand in (gravestones float)
 CVARD(Bool, rt_portal_views, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: draw what room-over-room openings show (Blood)")
 CVARD(Float, rt_voxel_distance, 12.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models further than this many metres are drawn as flat sprites (0 = no voxels)")
 
@@ -65,6 +65,14 @@ CVAR(Float, gl_mask_threshold, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, gl_mask_sprite_threshold, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 BitArray gotsector;
+
+bool RT_VoxelTooFar(int vox, const DVector3& pos, const DVector3& view)
+{
+	if (vox < 0 || !RT_IsActive()) return false;
+	if (!isDuke() && !voxdefined[vox]) return false;
+	const double far = double(*rt_voxel_distance) * 32.;
+	return (pos - view).LengthSquared() > far * far;
+}
 
 static void RT_PlanPortalViews(HWDrawInfo* di, unsigned seen);
 
@@ -317,11 +325,9 @@ void HWDrawInfo::DispatchSprites()
 			if (r_voxels)
 			{
 				auto vox = GetExtInfo(texid).tiletovox;
-				if (vox >= 0 && voxmodels[vox] && RT_IsActive() && isDuke())
+				if (vox >= 0 && voxmodels[vox])
 				{
-					const DVector3 d = tspr->pos - DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
-					const double far = double(*rt_voxel_distance) * 32.;
-					if (d.LengthSquared() > far * far) vox = -1;
+					if (RT_VoxelTooFar(vox, tspr->pos, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]))) vox = -1;
 				}
 				if (vox >= 0 && voxmodels[vox])
 				{

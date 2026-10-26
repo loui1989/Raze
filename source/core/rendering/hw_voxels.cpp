@@ -36,12 +36,14 @@ static int voxlumps[MAXVOXELS];
 float voxscale[MAXVOXELS];
 voxmodel_t* voxmodels[MAXVOXELS];
 FixedBitArray<MAXVOXELS> voxrotate;
+FixedBitArray<MAXVOXELS> voxdefined;
 
 
 void voxInit()
 {
 	for (auto& v : voxscale) v = 1.f;
 	voxrotate.Zero();
+	voxdefined.Zero();
 }
 
 void voxClear()
@@ -64,6 +66,7 @@ int voxDefine(int voxindex, const char* filename)
 
 	int i = fileSystem.FindFile(filename);
 	voxlumps[voxindex] = i;
+	if (i >= 0) voxdefined.Set(voxindex);
 	return i < 0 ? -1 : 0;
 }
 

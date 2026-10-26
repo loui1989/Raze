@@ -21,6 +21,10 @@ struct voxmodel_t // : public mdmodel_t
 extern float voxscale[];
 extern voxmodel_t* voxmodels[MAXVOXELS];
 extern FixedBitArray<MAXVOXELS> voxrotate;
+extern FixedBitArray<MAXVOXELS> voxdefined;	// from a definitions file (a voxel pack), not the game's own
+
+// ray tracing: a voxel model this far from the view is drawn as its sprite (rt_voxel_distance)
+bool RT_VoxelTooFar(int vox, const DVector3& pos, const DVector3& view);
 
 void voxInit();
 void voxClear();
