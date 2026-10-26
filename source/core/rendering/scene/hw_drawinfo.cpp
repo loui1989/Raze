@@ -50,6 +50,9 @@
 
 EXTERN_CVAR(Float, r_visibility)
 CVAR(Bool, gl_no_skyclear, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// ray tracing: voxel models further than this (metres) are drawn as their sprites --
+// every voxel instance is a big mesh RTGL1 rebuilds each frame
+CVARD(Float, rt_voxel_distance, 12.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models further than this many metres are drawn as flat sprites (0 = no voxels)")
 
 CVAR(Bool, gl_texture, true, 0)
 CVAR(Float, gl_mask_threshold, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -306,6 +309,12 @@ void HWDrawInfo::DispatchSprites()
 			if (r_voxels)
 			{
 				auto vox = GetExtInfo(texid).tiletovox;
+				if (vox >= 0 && voxmodels[vox] && RT_IsActive())
+				{
+					const DVector3 d = tspr->pos - DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
+					const double far = double(*rt_voxel_distance) * 32.;
+					if (d.LengthSquared() > far * far) vox = -1;
+				}
 				if (vox >= 0 && voxmodels[vox])
 				{
 					HWSprite hwsprite;

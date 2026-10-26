@@ -187,8 +187,10 @@ void GameInput::processMovement(const double turnscale, const bool allowstrafe, 
 	inputBuffer.vel += thisInput.vel;
 	inputBuffer.ang += thisInput.ang;
 
-	// directly update player angles if we can.
-	if (scaleAdjust < 1)
+	// directly update player angles if we can. (Unsynchronised input: the game tic
+	// ignores the packet's angles, so this must happen at any frame rate -- with
+	// "scaleAdjust < 1", below the tic rate (30 fps) the mouse did not turn at all.)
+	if (!SyncInput())
 	{
 		PlayerArray[myconnectindex]->CameraAngles += thisInput.ang;
 	}
@@ -250,8 +252,10 @@ void GameInput::processVehicle(const double baseVel, const double velScale, cons
 		turnheldtime = 0;
 	}
 
-	// directly update player angles if we can.
-	if (scaleAdjust < 1)
+	// directly update player angles if we can. (Unsynchronised input: the game tic
+	// ignores the packet's angles, so this must happen at any frame rate -- with
+	// "scaleAdjust < 1", below the tic rate (30 fps) the mouse did not turn at all.)
+	if (!SyncInput())
 	{
 		PlayerArray[myconnectindex]->CameraAngles += thisInput.ang;
 	}
