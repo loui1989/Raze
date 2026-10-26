@@ -114,6 +114,7 @@ struct MatClass
 {
     std::string name;
     float       rough = 0.85f, metal = 0.f, bump = 0.f, polish = 0.f;
+    float       glow  = 0.f; // optional 6th column: the texture glows (fire), this bright
     uint32_t    hash  = 0;
 };
 struct MatTable
@@ -145,10 +146,10 @@ const MatClass* TableClass( const std::string& texname )
                 *c = 0;
             }
             char  a[ 128 ], b[ 128 ];
-            float r, m, bu, po;
-            if( sscanf( line, " class %127s %f %f %f %f", a, &r, &m, &bu, &po ) == 5 )
+            float r, m, bu, po, gl = 0.f;
+            if( sscanf( line, " class %127s %f %f %f %f %f", a, &r, &m, &bu, &po, &gl ) >= 5 )
             {
-                MatClass mc{ a, r, m, bu, po, 0 };
+                MatClass mc{ a, r, m, bu, po, gl, 0 };
                 char     key[ 256 ];
                 snprintf( key, sizeof( key ), "%s %.3f %.3f %.3f %.3f v2", a, r, m, bu, po );
                 uint32_t hsh = 2166136261u;
@@ -311,6 +312,61 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     const FMaterialLayers* layers = src.GetMaterialLayers();
     const int              w      = albedo.mWidth;
     const int              h      = albedo.mHeight;
+
+    // a glowing class (fire): the texture itself is the glow, as it is
+    if( const MatClass* g = TableClass( name ); g && g->glow > 0.f )
+    {
+        char sfx[ 32 ];
+        snprintf( sfx, sizeof( sfx ), "_e.t%08x", g->hash ^ uint32_t( g->glow * 1000.f ) ^ 0x51u );
+        const auto pathGT = dir / ( name + sfx );
+        if( regen || !Exists( pathGT ) || !Exists( pathE ) )
+        {
+            std::vector< uint8_t > rgb( size_t( w ) * h * 3 );
+            double                 sum[ 3 ] = {};
+            int                    peak     = 1;
+            for( int i = 0; i < w * h; i++ )
+            {
+                const uint8_t* a = &albedo.mBuffer[ size_t( i ) * 4 ]; // BGRA
+                peak             = std::max( { peak, int( a[ 0 ] ), int( a[ 1 ] ), int( a[ 2 ] ) } );
+            }
+            const float gain = std::min( 4.f, 245.f / float( peak ) );
+            for( int i = 0; i < w * h; i++ )
+            {
+                const uint8_t* a = &albedo.mBuffer[ size_t( i ) * 4 ];
+                for( int k = 0; k < 3; k++ )
+                {
+                    const uint8_t c                   = a[ 3 ] < 128 ? 0 : a[ 2 - k ];
+                    rgb[ size_t( i ) * 3 + size_t( k ) ] = uint8_t( std::clamp( c * gain + 0.5f, 0.f, 255.f ) );
+                    const double v                    = rgb[ size_t( i ) * 3 + size_t( k ) ] / 255.0;
+                    sum[ k ] += v * v;
+                }
+            }
+            if( WritePNG( pathE, rgb, w, h ) )
+            {
+                Touch( pathGT );
+                std::filesystem::remove( pathNoE, ec );
+                for( int k = 0; k < 3; k++ )
+                {
+                    outAvg[ k ] = float( sum[ k ] / ( double( w ) * h ) ) * g->glow;
+                }
+                if( FILE* f = fopen( pathAvg.string().c_str(), "wb" ) )
+                {
+                    fprintf( f, "%f %f %f\n", outAvg[ 0 ], outAvg[ 1 ], outAvg[ 2 ] );
+                    fclose( f );
+                }
+            }
+        }
+        if( Exists( pathE ) )
+        {
+            if( FILE* f = fopen( pathAvg.string().c_str(), "rb" ) )
+            {
+                hasE = fscanf( f, "%f %f %f", &outAvg[ 0 ], &outAvg[ 1 ], &outAvg[ 2 ] ) == 3;
+                fclose( f );
+            }
+            noE = !hasE;
+        }
+        out.glow = g->glow;
+    }
 
     // emission
     if( !hasE && !noE )
@@ -524,7 +580,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
 
         // a class without bumps (glass) has no bump or height map -- not one made when the
         // texture was in another class
-        if( !( mc->bump > 0.f ) )
+        if( !( mc->bump > 0.f ) && mc->name != "glass" )
         {
             std::filesystem::remove( dir / ( name + "_h.png" ), ec );
             if( !( layers && layers->Normal.get() ) )
@@ -561,6 +617,82 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 {
                     Touch( pathHT );
                 }
+            }
+        }
+    }
+
+    // glass: a wavy, hand-made pane (a slow ripple across it) with the texture's darker
+    // lines (leading) set in a little -- Raze RT's shaders bend the view through it by
+    // these bumps
+    if( out.glass && *rt_materials_normals && !( layers && layers->Normal.get() ) )
+    {
+        char sfx[ 32 ];
+        snprintf( sfx, sizeof( sfx ), "_n.g%08x", 0x6c617331u );
+        const auto pathNG = dir / ( name + sfx );
+        if( regen || !Exists( pathNG ) || !Exists( pathN ) )
+        {
+            const auto hgt = Heights( albedo );
+            double     avg = 0;
+            for( float v : hgt )
+            {
+                avg += v;
+            }
+            avg /= std::max< size_t >( 1, hgt.size() );
+            // a few waves that tile with the texture, their phases fixed by its name
+            uint32_t seed = 2166136261u;
+            for( char c : name )
+            {
+                seed = ( seed ^ uint8_t( c ) ) * 16777619u;
+            }
+            auto rnd = [ & ]() {
+                seed = seed * 1664525u + 1013904223u;
+                return float( seed >> 8 ) / float( 1u << 24 );
+            };
+            struct Wave
+            {
+                float fx, fy, ph, amp;
+            } waves[ 4 ];
+            for( auto& wv : waves )
+            {
+                wv = { float( 1 + int( rnd() * 3 ) ) * ( rnd() < 0.5f ? -1.f : 1.f ), float( 1 + int( rnd() * 3 ) ),
+                       rnd() * 6.2831853f, 0.5f + 0.5f * rnd() };
+            }
+            std::vector< float > H( size_t( w ) * h );
+            for( int y = 0; y < h; y++ )
+            {
+                for( int x = 0; x < w; x++ )
+                {
+                    const float u = float( x ) / w, v = float( y ) / h;
+                    float       r = 0;
+                    for( auto& wv : waves )
+                    {
+                        r += wv.amp * std::sin( 6.2831853f * ( wv.fx * u + wv.fy * v ) + wv.ph );
+                    }
+                    const float rel = std::clamp( float( hgt[ size_t( y * w + x ) ] / std::max( avg, 0.02 ) ), 0.f, 2.f );
+                    // ripple in texels of height, plus the lines a little lower
+                    H[ size_t( y * w + x ) ] = r * float( std::max( w, h ) ) * 0.012f + rel * 1.5f;
+                }
+            }
+            std::vector< uint8_t > rgb( size_t( w ) * h * 3 );
+            for( int y = 0; y < h; y++ )
+            {
+                for( int x = 0; x < w; x++ )
+                {
+                    auto At = [ & ]( int xx, int yy ) { return H[ size_t( ( ( yy + h ) % h ) * w + ( xx + w ) % w ) ]; };
+                    const float dx = ( At( x + 1, y ) - At( x - 1, y ) ) * 0.5f;
+                    const float dy = ( At( x, y + 1 ) - At( x, y - 1 ) ) * 0.5f;
+                    float       nx = -dx * 0.12f, ny = dy * 0.12f, nz = 1.f;
+                    const float il = 1.f / std::sqrt( nx * nx + ny * ny + nz * nz );
+                    nx *= il, ny *= il, nz *= il;
+                    uint8_t* o = &rgb[ size_t( y * w + x ) * 3 ];
+                    o[ 0 ]     = uint8_t( std::clamp( ( nx * 0.5f + 0.5f ) * 255.f + 0.5f, 0.f, 255.f ) );
+                    o[ 1 ]     = uint8_t( std::clamp( ( ny * 0.5f + 0.5f ) * 255.f + 0.5f, 0.f, 255.f ) );
+                    o[ 2 ]     = uint8_t( std::clamp( ( nz * 0.5f + 0.5f ) * 255.f + 0.5f, 0.f, 255.f ) );
+                }
+            }
+            if( WritePNG( pathN, rgb, w, h ) )
+            {
+                Touch( pathNG );
             }
         }
     }

@@ -256,6 +256,7 @@ public:
     const float* EmissionAverage() const { return m_emisAvg; }
     bool IsPolished() const { return m_polished; }
     bool IsGlass() const { return m_glass; }
+    float Glow() const { return m_glow; }
 
 private:
     static auto TranslationSuffix( int translation ) -> std::string;
@@ -270,6 +271,7 @@ private:
     float       m_emisAvg[ 3 ]{};
     bool        m_polished{ false };
     bool        m_glass{ false };
+    float       m_glow{ 0.f };
     std::string m_name{};
     std::string m_nameClamped{};
 };
@@ -282,6 +284,7 @@ struct RtMaterialInfo
     float emisAvg[ 3 ]{}; // the emission map's average colour, linear
     bool  polished    = false;
     bool  glass       = false; // the material table calls it glass
+    float glow        = 0.f;   // the material table's glow (fire): drawn solid, glowing
 };
 bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, RtMaterialInfo& out );
 

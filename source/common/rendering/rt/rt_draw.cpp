@@ -263,6 +263,7 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
         memcpy( m_emisAvg, mi.emisAvg, sizeof( m_emisAvg ) );
         m_polished = mi.polished;
         m_glass    = mi.glass;
+        m_glow     = mi.glow;
     }
 
     auto details = RgOriginalTextureDetailsEXT{
@@ -847,6 +848,12 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     if( isGlass )
     {
         // opaque, or RTGL1 rasterizes it as a blended surface
+        primColor = rt.rgUtilPackColorFloat4D( 1.f, 1.f, 1.f, 1.f );
+    }
+    // a glowing class (the material table's fire: an oven's flames): solid, so it is
+    // path traced -- its glow lights the room -- even where it is drawn see-through
+    if( !isUI && !isSky && !isSkyVis && !isMirror && hwtex && hwtex->Glow() > 0.f && alpha < 0.98f && !additive )
+    {
         primColor = rt.rgUtilPackColorFloat4D( 1.f, 1.f, 1.f, 1.f );
     }
 
