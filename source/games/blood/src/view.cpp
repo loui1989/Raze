@@ -590,7 +590,9 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			auto& sect = sector[i];
 			if (!sect.hasX() || !(sect.ceilingstat & CSTAT_SECTOR_SKY)) continue;
 			const XSECTOR& x = sect.xs();
-			if (!(x.shadeCeiling || x.shadeFloor || x.shadeWalls)) continue;
+			// (a storm's flashes are triggered -- E4M1's -- not an ever running wave: the
+			// frozen sky of E2M1 flickers all the time, and is no storm)
+			if (!(x.shadeCeiling || x.shadeFloor || x.shadeWalls) || x.shadeAlways) continue;
 			const float bright = -float(x.shade);
 			flash = max(flash, (bright - avg[i]) / 24.f);
 			avg[i] += (bright - avg[i]) * 0.03f;	// about a second
