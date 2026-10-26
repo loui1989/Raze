@@ -212,6 +212,11 @@ float ReachFade( const RgFloat3D& p, int sect )
         const float t = std::clamp( ( reach - d ) / ( reach * 0.33f ), 0.f, 1.f );
         return t * t * ( 3.f - 2.f * t );
     }
+    // a real sector left out for a room-over-room view drawn where it is
+    if( RT_SectorHidden( sect ) )
+    {
+        return 0.f;
+    }
     if( !s_reachOn )
     {
         return 1.f;

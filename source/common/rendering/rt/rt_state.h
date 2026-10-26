@@ -52,6 +52,20 @@ inline bool RT_PortalFiltered( int sectnum )
 {
     return !g_rtPortalFilter.empty() && ( sectnum < 0 || size_t( sectnum ) >= g_rtPortalFilter.size() || !g_rtPortalFilter[ size_t( sectnum ) ] );
 }
+// Real sectors left out this frame: a room-over-room view is drawn where they are
+// (the linked place stacked right over the room, or the crypt over the coffin), and
+// the viewer cannot reach them from here. Their lights are out too.
+extern std::vector< char > g_rtHiddenSector;
+inline bool RT_SectorHidden( int sectnum )
+{
+    return sectnum >= 0 && size_t( sectnum ) < g_rtHiddenSector.size() && g_rtHiddenSector[ size_t( sectnum ) ];
+}
+// what is not drawn: outside the room-over-room view being drawn, or (the real map)
+// left out for one
+inline bool RT_SkipSector( int sectnum )
+{
+    return g_rtPortalFilter.empty() ? RT_SectorHidden( sectnum ) : RT_PortalFiltered( sectnum );
+}
 extern std::vector< uint8_t > g_rtCopySector;
 extern double                 g_rtCopyOffset[ RT_MAX_COPIES ][ 3 ];
 inline int RT_CopySector( int sectnum )

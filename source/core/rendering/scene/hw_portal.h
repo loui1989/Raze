@@ -144,6 +144,7 @@ public:
 	TArray<HWWall> lines;
 	BoundingRect boundingBox;
 	int planesused = 0;
+	bool rtOffscreen = false;	// ray tracing: found only by the off-screen pass (no view of it is drawn)
 
 	HWPortal(FPortalSceneState *s, bool local = false) : mState(s), boundingBox(false)
 	{

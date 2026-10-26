@@ -889,10 +889,17 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam)
 	return keep;
 }
 
-void BunchDrawer::RT_ProcessRemaining()
+void BunchDrawer::RT_ProcessRemaining(bool copyView)
 {
 	const BitArray visiblesectors = gotsector;	// what the game may look at afterwards (Blood)
-	const std::vector<char> rtkeep = RT_OffscreenSectors(g_rtViewSector, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]));
+	std::vector<char> rtkeep;
+	if (copyView) rtkeep.assign(sector.Size(), 1);	// (g_rtPortalFilter decides)
+	else
+	{
+		rtkeep = RT_OffscreenSectors(g_rtViewSector, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]));
+		// where a room-over-room view is drawn in their place
+		for (unsigned i = 0; i < rtkeep.size(); i++) if (RT_SectorHidden(int(i))) rtkeep[i] = 0;
+	}
 
 	for (unsigned s = 0; s < sections.Size(); s++)
 	{

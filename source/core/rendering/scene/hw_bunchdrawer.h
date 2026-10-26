@@ -61,7 +61,8 @@ private:
 
 public:
 	// ray tracing: everything the clipper rejected, so off-screen geometry casts shadows
-	void RT_ProcessRemaining();
+	// (copyView: in a room-over-room view, all of the linked place it may show)
+	void RT_ProcessRemaining(bool copyView = false);
 	// ray tracing: the copied sectors (g_rtCopySector) once more, marked as copies
 	void RT_ProcessCopy();
 	void Init(HWDrawInfo* _di, Clipper* c, const DVector2& view, angle_t a1, angle_t a2);

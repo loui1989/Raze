@@ -66,6 +66,8 @@ CVAR(Float, gl_mask_sprite_threshold, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 BitArray gotsector;
 
+static void RT_PlanPortalViews(HWDrawInfo* di, unsigned seen);
+
 //==========================================================================
 //
 //
@@ -404,12 +406,20 @@ void HWDrawInfo::CreateScene(bool portal)
 	else
 		mDrawer.RenderScene(&vp.SectCount, 1, portal);
 
-	// the path tracer needs what is off screen too
-	if (RT_IsActive() && !portal)
+	// the path tracer needs what is off screen too: in the main view, all of the map;
+	// in a room-over-room view, all of the linked place it may show (the clipper only
+	// gets what is seen through the opening from here)
+	const bool rtMain = RT_IsActive() && mCurrentPortal == nullptr;
+	const bool rtCopyView = RT_IsActive() && mCurrentPortal != nullptr && !g_rtPortalFilter.empty();
+	if (rtMain || rtCopyView)
 	{
+		const unsigned seen = Portals.Size();
+		if (rtMain) RT_PlanPortalViews(this, seen);
 		rtHiddenSpriteStart = tsprites.Size();
-		mDrawer.RT_ProcessRemaining();
-		mDrawer.RT_ProcessCopy();
+		mDrawer.RT_ProcessRemaining(rtCopyView);
+		// openings found there are not seen: no views through them
+		for (unsigned i = seen; i < Portals.Size(); i++) Portals[i]->rtOffscreen = true;
+		if (rtMain) mDrawer.RT_ProcessCopy();
 	}
 
 	SetupSprite.Clock();
@@ -417,7 +427,7 @@ void HWDrawInfo::CreateScene(bool portal)
 	gi->processSprites(tsprites, DVector3(vp.Pos.X, -vp.Pos.Y, -vp.Pos.Z), DAngle::fromBam(vp.RotAngle), vp.TicFrac);
 	// ray tracing: the copied sprites go where their copied area is (after the game
 	// has animated them where they really are)
-	if (RT_IsActive() && !portal && !g_rtCopySector.empty())
+	if (rtMain && !g_rtCopySector.empty())
 	{
 		for (unsigned i = 0; i < tsprites.Size(); i++)
 		{
@@ -656,8 +666,27 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 //
 //-----------------------------------------------------------------------------
 
-// ray tracing: per sector, its bounding box (min x, min y, max x, max y) and some
-// points inside it -- for telling where sectors overlap. Made once per level.
+//==========================================================================
+//
+// Ray tracing: rooms over rooms (Blood). The rasterizer draws what an opening
+// shows as a view of the linked place, stencilled to the opening. The path tracer
+// has no stencil: the linked place is drawn moved to where it is seen (a copy,
+// g_rtCopyOffset), and only where it fills space that is empty around the viewer.
+// Where the moved place would overlap real sectors in 3D:
+//  - real sectors in the viewer's surroundings, or reachable and not beyond the
+//    opening: that part of the copy is left out (the courtyard copied over itself:
+//    enemies knee deep in it, a second mortuary door)
+//  - otherwise the real sectors are left out instead and the copy drawn there (the
+//    crypt over the coffin sits partly on the real crypt, which the coffin cannot
+//    reach; the mortuary's upper storey is stacked right over the courtyard, a
+//    little off from where the opening shows it)
+//
+//==========================================================================
+
+CVARD(Float, rt_portal_near, 24.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: room-over-room views: real rooms within this many metres' walk count as the viewer's surroundings")
+
+// per sector, its bounding box (min x, min y, max x, max y) and some points inside it
+// -- for telling where sectors overlap. Made once per level.
 static std::vector<DVector4> rt_sectorBox;
 static std::vector<std::vector<DVector2>> rt_sectorPoints;
 static void RT_SectorShapes()
@@ -685,11 +714,224 @@ static void RT_SectorShapes()
 		c /= double(sec.walls.Size());
 		if (inside(c.X, c.Y, &sec) == 1) rt_sectorPoints[i].push_back(c);
 		for (auto& w : sec.walls)
+		{
 			for (double t : { 0.1, 0.4 })
 			{
 				const DVector2 pt = w.pos * (1.0 - t) + c * t;
 				if (inside(pt.X, pt.Y, &sec) == 1) rt_sectorPoints[i].push_back(pt);
 			}
+			// just inside the middle of each wall (thin sectors: door frames, ledges)
+			const DVector2 a = w.pos, e = w.point2Wall()->pos, d = e - a;
+			const double len = d.Length();
+			if (len < 1.0) continue;
+			for (double side : { 1.0, -1.0 })
+			{
+				const DVector2 pt = (a + e) * 0.5 + DVector2(-d.Y, d.X) * (side * 1.0 / len);
+				if (inside(pt.X, pt.Y, &sec) == 1) { rt_sectorPoints[i].push_back(pt); break; }
+			}
+		}
+	}
+}
+
+// the linked place near the opening: the sectors within ~30 m of the portal's
+// targets, through any openings (shut doors too: they open)
+static std::vector<char> RT_PortalCandidates(const PortalDesc* pd)
+{
+	const unsigned n = sector.Size();
+	std::vector<char> cand(n, 0);
+	std::vector<double> dist(n, 1e30);
+	std::vector<DVector2> entry(n);
+	using Item = std::pair<double, int>;
+	std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
+	for (int t : pd->targets)
+	{
+		if (unsigned(t) >= n) continue;
+		DVector2 c(0, 0);
+		for (auto& w : sector[t].walls) c += w.pos;
+		entry[t] = c / max(1u, sector[t].walls.Size());
+		dist[t] = 0;
+		q.push({ 0., t });
+	}
+	while (!q.empty())
+	{
+		auto [d, si] = q.top();
+		q.pop();
+		if (d > dist[si]) continue;
+		cand[si] = 1;
+		for (auto& w : sector[si].walls)
+		{
+			if (!w.twoSided()) continue;
+			const int ni = w.nextsector;
+			if (unsigned(ni) >= n) continue;
+			const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
+			const double nd = d + (mid - entry[si]).Length();
+			if (nd > 960 || nd >= dist[ni]) continue;
+			dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni });
+		}
+	}
+	return cand;
+}
+
+// the real sectors that sector 'ci', moved by 'shift', would overlap in 3D
+static void RT_CopyClashes(unsigned ci, const DVector3& shift, std::vector<int>& out)
+{
+	out.clear();
+	const unsigned n = sector.Size();
+	auto& ls = sector[ci];
+	const auto& lb = rt_sectorBox[ci];
+	const double z0 = ls.ceilingz + shift.Z, z1 = ls.floorz + shift.Z;
+	for (unsigned ri = 0; ri < n; ri++)
+	{
+		const auto& rb = rt_sectorBox[ri];
+		if (lb.X + shift.X >= rb.Z || rb.X >= lb.Z + shift.X || lb.Y + shift.Y >= rb.W || rb.Y >= lb.W + shift.Y) continue;
+		auto& rs = sector[ri];
+		if (!(z0 < rs.floorz - 1.0 && rs.ceilingz < z1 - 1.0)) continue;	// heights apart
+		bool clash = false;
+		for (auto& p : rt_sectorPoints[ci])
+			if (inside(p.X + shift.X, p.Y + shift.Y, &rs) == 1) { clash = true; break; }
+		if (!clash)
+			for (auto& p : rt_sectorPoints[ri])
+				if (inside(p.X - shift.X, p.Y - shift.Y, &ls) == 1) { clash = true; break; }
+		if (clash) out.push_back(int(ri));
+	}
+}
+
+// walking distance from the view to each sector, through any openings (map units)
+static std::vector<double> RT_ViewDistance()
+{
+	const unsigned n = sector.Size();
+	std::vector<double> dist(n, 1e30);
+	const int cs = g_rtViewSector;
+	if (unsigned(cs) >= n) return dist;
+	std::vector<DVector2> entry(n);
+	using Item = std::pair<double, int>;
+	std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
+	dist[cs] = 0; entry[cs] = DVector2(g_rtViewPos[0], g_rtViewPos[1]);
+	q.push({ 0., cs });
+	while (!q.empty())
+	{
+		auto [d, si] = q.top();
+		q.pop();
+		if (d > dist[si]) continue;
+		for (auto& w : sector[si].walls)
+		{
+			if (!w.twoSided()) continue;
+			const int ni = w.nextsector;
+			if (unsigned(ni) >= n) continue;
+			const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
+			const double nd = d + (mid - entry[si]).Length();
+			if (nd >= dist[ni]) continue;
+			dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni });
+		}
+	}
+	return dist;
+}
+
+// whether the opening can be seen from 'cam' (the camera, in the frame of the place
+// the opening is in): a floor's from above it, a ceiling's from below
+static bool RT_OpeningFaces(const PortalDesc* pd, int type, const DVector3& cam)
+{
+	const int pnum = int(pd - allPortals.Data());
+	bool found = false;
+	for (auto& os : sector)
+	{
+		if (os.portalnum != pnum || os.portalflags != type) continue;
+		found = true;
+		if (type == PORTAL_SECTOR_FLOOR ? cam.Z < os.floorz + 1.0 : cam.Z > os.ceilingz - 1.0) return true;
+	}
+	return !found;
+}
+
+struct RtPortalPlan
+{
+	const PortalDesc* pd;
+	std::vector<char> allow;	// empty: no view
+	unsigned candidates, nearClash, hidden;
+};
+static std::vector<RtPortalPlan> rt_portalPlans;
+
+// the openings the view sees (found by the clipper): which part of each linked place
+// is drawn, and which real sectors are left out for it (g_rtHiddenSector). Before the
+// draw lists are drawn: that is where the real sectors are left out.
+static void RT_PlanPortalViews(HWDrawInfo* di, unsigned seen)
+{
+	const unsigned n = sector.Size();
+	g_rtHiddenSector.assign(n, 0);
+	rt_portalPlans.clear();
+	if (!rt_portal_views) return;
+
+	std::vector<double> near;
+	std::vector<int> clashes;
+	const DVector3 cam(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
+	const double nearDist = max(0.f, *rt_portal_near) * 32.0;	// 32 map units a metre
+	for (unsigned i = 0; i < seen && i < di->Portals.Size(); i++)
+	{
+		HWPortal* gp = di->Portals[i];
+		const int type = gp->GetType();
+		if (type != PORTAL_SECTOR_FLOOR && type != PORTAL_SECTOR_CEILING) continue;
+		const PortalDesc* pd = static_cast<HWSectorStackPortal*>(gp)->GetPortalDesc();
+		if (!pd) continue;
+		bool dup = false;
+		for (auto& pl : rt_portalPlans) dup |= pl.pd == pd;
+		if (dup) continue;
+
+		RtPortalPlan plan{ pd, {}, 0, 0, 0 };
+		if (RT_OpeningFaces(pd, type, cam))
+		{
+			if (near.empty()) { RT_SectorShapes(); near = RT_ViewDistance(); }
+			const std::vector<char> cand = RT_PortalCandidates(pd);
+			const DVector3 shift = -pd->delta;
+			// the opening's plane
+			const int pnum = int(pd - allPortals.Data());
+			const bool isFloor = type == PORTAL_SECTOR_FLOOR;
+			double zOpen = isFloor ? 1e30 : -1e30;
+			for (auto& os : sector)
+				if (os.portalnum == pnum && os.portalflags == type)
+					zOpen = isFloor ? min(zOpen, double(os.floorz)) : max(zOpen, double(os.ceilingz));
+			// a real sector the copy may stand in for: not in the viewer's surroundings,
+			// and either out of the viewer's reach altogether (the crypt, from the coffin)
+			// or wholly beyond the opening (the mortuary's upper storey, from the
+			// courtyard -- not the crypt hall up the hill, which is seen as it is)
+			auto mayHide = [&](int r)
+			{
+				if (near[r] < nearDist) return false;
+				if (near[r] >= 1e30) return true;
+				return isFloor ? sector[r].ceilingz >= zOpen - 1.0 : sector[r].floorz <= zOpen + 1.0;
+			};
+			plan.allow.assign(n, 0);
+			std::vector<int> hide;
+			for (unsigned c = 0; c < n; c++)
+			{
+				if (!cand[c]) continue;
+				plan.candidates++;
+				RT_CopyClashes(c, shift, clashes);
+				bool keepReal = false;
+				for (int r : clashes) keepReal |= !mayHide(r);
+				if (keepReal) { plan.nearClash++; continue; }
+				plan.allow[c] = 1;
+				hide.insert(hide.end(), clashes.begin(), clashes.end());
+			}
+			for (int r : hide)
+			{
+				if (!g_rtHiddenSector[r]) plan.hidden++;
+				g_rtHiddenSector[r] = 1;
+			}
+		}
+		rt_portalPlans.push_back(std::move(plan));
+	}
+}
+
+CCMD(rt_portal_info)
+{
+	Printf("room-over-room views: %u (view in sector %d)\n", unsigned(rt_portalPlans.size()), g_rtViewSector);
+	for (auto& pl : rt_portalPlans)
+	{
+		const int pnum = int(pl.pd - allPortals.Data());
+		if (pl.allow.empty()) { Printf("  portal %d: not seen from this side\n", pnum); continue; }
+		FString list;
+		for (unsigned i = 0; i < pl.allow.size(); i++) if (pl.allow[i]) list.AppendFormat(" %u", i);
+		Printf("  portal %d: delta (%.0f %.0f %.0f), %u nearby sectors, %u left out (overlap rooms seen as they are), %u real ones hidden; drawn:%s\n",
+			pnum, pl.pd->delta.X, pl.pd->delta.Y, pl.pd->delta.Z, pl.candidates, pl.nearClash, pl.hidden, list.GetChars());
 	}
 }
 
@@ -729,58 +971,56 @@ void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 			gp->RT_DrawStencil(state);
 			state.EnableTexture(true);
 		}
-		else if ((gp->GetType() == PORTAL_SECTOR_FLOOR || gp->GetType() == PORTAL_SECTOR_CEILING) && g_rtCopyUsed < RT_MAX_COPIES && rt_portal_views)
+		else if ((gp->GetType() == PORTAL_SECTOR_FLOOR || gp->GetType() == PORTAL_SECTOR_CEILING) && !gp->rtOffscreen && g_rtCopyUsed < RT_MAX_COPIES && rt_portal_views)
 		{
 			// a room over a room (Blood): the place elsewhere on the map that the opening
-			// shows, as the rasterizer draws it from here -- moved to where it is seen,
-			// with its own ids (and its sectors' lights moved too: g_rtCopySector)
+			// shows, moved to where it is seen, with its own ids (and its sectors' lights
+			// moved too: g_rtCopySector). Only openings the view sees: one found off screen
+			// would put a copy where nothing is meant to show one.
 			auto sp = static_cast<HWSectorStackPortal*>(gp);
 			const PortalDesc* pd = sp->GetPortalDesc();
+			const unsigned n = sector.Size();
+			std::vector<char> allow;
+			const RtPortalPlan* plan = nullptr;
+			if (mCurrentPortal == nullptr)
+				for (auto& pl : rt_portalPlans) if (pl.pd == pd) plan = &pl;
+			if (plan) allow = plan->allow;
+			else
+			{
+				// seen inside another view (or not planned): the part that overlaps nothing
+				// that is drawn
+				const double* outer = rtstate.get_copyoffset();
+				const DVector3 shift(outer[0] - pd->delta.X, outer[1] - pd->delta.Y, outer[2] - pd->delta.Z);
+				const DVector3 cam(g_rtViewPos[0] - outer[0], g_rtViewPos[1] - outer[1], g_rtViewPos[2] - outer[2]);
+				if (pd && RT_OpeningFaces(pd, gp->GetType(), cam))
+				{
+					RT_SectorShapes();
+					const std::vector<char> cand = RT_PortalCandidates(pd);
+					allow.assign(n, 0);
+					std::vector<int> clashes;
+					for (unsigned c = 0; c < n; c++)
+					{
+						if (!cand[c]) continue;
+						RT_CopyClashes(c, shift, clashes);
+						bool drawn = false;
+						for (int r : clashes) drawn |= !RT_SectorHidden(r);
+						allow[c] = !drawn;
+					}
+				}
+			}
+			bool any = false;
+			for (char a : allow) any |= a != 0;
+			if (!any) return;
+
 			const int copy = ++g_rtCopyUsed;
 			const double ofs[3] = { -pd->delta.X, -pd->delta.Y, -pd->delta.Z };
 			for (int i = 0; i < 3; i++) g_rtCopyOffset[copy - 1][i] = ofs[i] + rtstate.get_copyoffset()[i];
 			g_rtCopySkipWater[copy - 1] = false;
+			// its sectors, for their lights
+			if (g_rtCopySector.size() != n) g_rtCopySector.assign(n, 0);
+			for (unsigned i = 0; i < n; i++)
+				if (allow[i] && g_rtCopySector[i] == 0) g_rtCopySector[i] = uint8_t(copy);
 
-			// the linked place near the opening only: the sectors within ~30 m of the
-			// portal's targets, through openings (shut doors too: they open)...
-			const unsigned n = sector.Size();
-			std::vector<char> allow(n, 0);
-			// ...and nothing that, moved into place, would overlap the real map in 3D: a
-			// room over a room fills space the map leaves empty; what is not like that
-			// (the courtyard reached from the linked side, copied over itself) is out
-			{
-				std::vector<char> cand = std::move(allow);
-				allow.assign(n, 0);
-				RT_SectorShapes();
-				const DVector2 dxy = pd->delta.XY();
-				for (unsigned ci = 0; ci < n; ci++)
-				{
-					if (!cand[ci]) continue;
-					auto& ls = sector[ci];
-					const auto& lb = rt_sectorBox[ci];
-					const double z0 = ls.ceilingz - pd->delta.Z, z1 = ls.floorz - pd->delta.Z;
-					bool clash = false;
-					for (unsigned ri = 0; ri < n && !clash; ri++)
-					{
-						const auto& rb = rt_sectorBox[ri];
-						if (lb.X - dxy.X >= rb.Z || rb.X >= lb.Z - dxy.X || lb.Y - dxy.Y >= rb.W || rb.Y >= lb.W - dxy.Y) continue;
-						auto& rs = sector[ri];
-						if (!(z0 < rs.floorz - 1.0 && rs.ceilingz < z1 - 1.0)) continue;	// heights apart
-						for (auto& p : rt_sectorPoints[ci])
-						{
-							const DVector2 q = p - dxy;
-							if (inside(q.X, q.Y, &rs) == 1) { clash = true; break; }
-						}
-						if (!clash)
-							for (auto& p : rt_sectorPoints[ri])
-							{
-								const DVector2 q = p + dxy;
-								if (inside(q.X, q.Y, &ls) == 1) { clash = true; break; }
-							}
-					}
-					allow[ci] = !clash;
-				}
-			}
 			std::vector<char> outerFilter = std::move(g_rtPortalFilter);
 			g_rtPortalFilter = std::move(allow);
 
@@ -794,11 +1034,6 @@ void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 				auto rtcg = rtstate.push_copygroup(copy, ofs, true);
 				gp->DrawContents(new_di, state);
 			}
-			// the sectors it showed, for their lights
-			if (g_rtCopySector.size() != sector.Size()) g_rtCopySector.assign(sector.Size(), 0);
-			const BitArray& got = new_di->mDrawer.GotSector();
-			for (unsigned i = 0; i < sector.Size(); i++)
-				if (got[i] && !RT_PortalFiltered(int(i)) && g_rtCopySector[i] == 0) g_rtCopySector[i] = uint8_t(copy);
 			g_rtPortalFilter = std::move(outerFilter);
 			new_di->EndDrawInfo();
 			state.SetVertexBuffer(screen->mVertexData);
