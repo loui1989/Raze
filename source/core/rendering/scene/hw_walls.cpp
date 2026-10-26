@@ -271,7 +271,9 @@ void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 	{
 		return;	// the mirror is the portal's opening, fog is not a surface
 	}
-	auto rtid = rtstate.push_uniqueid(Sprite ? (const void*)Sprite->ownerActor : (const void*)seg, Sprite ? RtIdKind::WallSprite : RtIdKind::Wall);
+	// ray tracing: the wall's part (upper, lower, middle...) is part of its id, for the
+	// same reason as the flats' sections
+	auto rtid = rtstate.push_uniqueid(Sprite ? reinterpret_cast<uint64_t>(Sprite->ownerActor) : reinterpret_cast<uint64_t>(seg) ^ (uint64_t(type) << 56), Sprite ? RtIdKind::WallSprite : RtIdKind::Wall);
 	auto rtsec = rtstate.push_sector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : frontsector ? sectindex(frontsector) : -1);
 	const int rtflags = RT_IsActive() && Sprite ? RT_ActorRuleFlags(Sprite->ownerActor) : 0;
 	RT_PUSH_TYPE(rtfb, (Sprite && Sprite->shade <= -numshades) || (rtflags & 2) ? RtPrim::Fullbright : RtPrim::Identity);

@@ -232,7 +232,11 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 	}
 #endif
 
-	auto rtid = rtstate.push_uniqueid(Sprite ? (const void*)Sprite->ownerActor : (const void*)sec, Sprite ? RtIdKind::FlatSprite : plane ? RtIdKind::CeilingFlat : RtIdKind::FloorFlat);
+	// ray tracing: one id per SECTION, not per sector. A sector's sections are drawn in
+	// the order they come into view, so with one id for all of them their primitive
+	// numbers swap as the view turns -- and RTGL1 then pairs each with another part's
+	// last-frame position: wrong motion, smeared edges
+	auto rtid = rtstate.push_uniqueid(Sprite ? (const void*)Sprite->ownerActor : (const void*)&sections[section], Sprite ? RtIdKind::FlatSprite : plane ? RtIdKind::CeilingFlat : RtIdKind::FloorFlat);
 	RT_PUSH_TYPE(rtfb, Sprite && Sprite->shade <= -numshades ? RtPrim::Fullbright : RtPrim::Identity);
 	RT_PUSH_TYPE(rtdecal, Sprite ? RtPrim::Decal : RtPrim::Identity);
 	auto rtsec = rtstate.push_sector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : sec ? sectindex(sec) : -1);
