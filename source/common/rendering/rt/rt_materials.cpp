@@ -32,6 +32,7 @@
 
 #include <filesystem>
 #include <unordered_set>
+#include <unordered_map>
 
 CVARD( Bool, rt_materials, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: use the material maps (glow, roughness, metallic) of the mounted overlay" )
 CVARD( Bool, rt_materials_brightmaps, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: textures without a glowmap glow where the palette is fullbright" )
@@ -99,6 +100,142 @@ bool WritePNG( const std::filesystem::path& path, const std::vector< uint8_t >& 
 }
 
 std::unordered_set< std::string > g_made; // this session
+
+// A game's material table, <rt>/materials.txt (Blood: its textures sorted by what
+// they are made of). For textures without the overlay's maps, each listed tile gets
+// roughness / metallic / mirror polish of its class and a bump map from its own
+// light and dark texels:
+//   class <name> <roughness 0..1> <metallic 0..1> <bump strength> <polish 0..1.5>
+//   <tile>[-<tile>] <class name>
+struct MatClass
+{
+    std::string name;
+    float       rough = 0.85f, metal = 0.f, bump = 0.f, polish = 0.f;
+    uint32_t    hash  = 0;
+};
+struct MatTable
+{
+    std::vector< MatClass >             classes;
+    std::unordered_map< int, unsigned > tiles; // tile -> class index
+    bool                                loaded = false;
+};
+MatTable g_table;
+
+const MatClass* TableClass( const std::string& texname )
+{
+    if( !g_table.loaded )
+    {
+        g_table.loaded = true;
+        const auto path = std::filesystem::path( RT_GetOverrideFolder() ) / "materials.txt";
+        FILE*      f    = fopen( path.string().c_str(), "rb" );
+        if( !f )
+        {
+            return nullptr;
+        }
+        std::unordered_map< std::string, unsigned > byName;
+        char line[ 512 ];
+        int  nt = 0;
+        while( fgets( line, sizeof( line ), f ) )
+        {
+            if( char* c = strchr( line, '#' ) )
+            {
+                *c = 0;
+            }
+            char  a[ 128 ], b[ 128 ];
+            float r, m, bu, po;
+            if( sscanf( line, " class %127s %f %f %f %f", a, &r, &m, &bu, &po ) == 5 )
+            {
+                MatClass mc{ a, r, m, bu, po, 0 };
+                char     key[ 256 ];
+                snprintf( key, sizeof( key ), "%s %.3f %.3f %.3f %.3f v1", a, r, m, bu, po );
+                uint32_t hsh = 2166136261u;
+                for( const char* k = key; *k; k++ )
+                {
+                    hsh = ( hsh ^ uint8_t( *k ) ) * 16777619u;
+                }
+                mc.hash      = hsh;
+                byName[ a ] = unsigned( g_table.classes.size() );
+                g_table.classes.push_back( mc );
+                continue;
+            }
+            int t0 = -1, t1 = -1;
+            if( sscanf( line, " %d-%d %127s", &t0, &t1, b ) == 3 || ( t1 = -1, sscanf( line, " %d %127s", &t0, b ) == 2 ) )
+            {
+                if( t1 < t0 )
+                {
+                    t1 = t0;
+                }
+                auto it = byName.find( b );
+                if( it == byName.end() )
+                {
+                    continue;
+                }
+                for( int t = t0; t <= t1 && t - t0 < 10000; t++ )
+                {
+                    g_table.tiles[ t ] = it->second;
+                    nt++;
+                }
+            }
+        }
+        fclose( f );
+        Printf( "RT: material table: %d classes, %d textures\n", int( g_table.classes.size() ), nt );
+    }
+    if( texname.size() < 2 || texname[ 0 ] != '#' )
+    {
+        return nullptr;
+    }
+    const int  tile = atoi( texname.c_str() + 1 );
+    const auto it   = g_table.tiles.find( tile );
+    return it == g_table.tiles.end() ? nullptr : &g_table.classes[ it->second ];
+}
+
+bool Exists( const std::filesystem::path& p )
+{
+    std::error_code ec;
+    return std::filesystem::exists( p, ec );
+}
+
+void Touch( const std::filesystem::path& p, const char* text = nullptr )
+{
+    if( FILE* f = fopen( p.string().c_str(), "wb" ) )
+    {
+        if( text )
+        {
+            fputs( text, f );
+        }
+        fclose( f );
+    }
+}
+
+// the albedo's luminance 0..1, softened a little (the art is dithered), wrapping
+std::vector< float > Heights( const FTextureBuffer& albedo )
+{
+    const int            w = albedo.mWidth, h = albedo.mHeight;
+    std::vector< float > l( size_t( w ) * h ), o( size_t( w ) * h );
+    for( int i = 0; i < w * h; i++ )
+    {
+        const uint8_t* a = &albedo.mBuffer[ size_t( i ) * 4 ]; // BGRA
+        l[ size_t( i ) ] = ( 0.2126f * a[ 2 ] + 0.7152f * a[ 1 ] + 0.0722f * a[ 0 ] ) / 255.f;
+    }
+    for( int y = 0; y < h; y++ )
+    {
+        for( int x = 0; x < w; x++ )
+        {
+            float sum = 0;
+            for( int dy = -1; dy <= 1; dy++ )
+            {
+                for( int dx = -1; dx <= 1; dx++ )
+                {
+                    const int   xx = ( x + dx + w ) % w, yy = ( y + dy + h ) % h;
+                    const float k  = ( dx == 0 ? 2.f : 1.f ) * ( dy == 0 ? 2.f : 1.f );
+                    sum += l[ size_t( yy * w + xx ) ] * k;
+                }
+            }
+            o[ size_t( y * w + x ) ] = sum / 16.f;
+        }
+    }
+    return o;
+}
 
 } // namespace
 
@@ -259,6 +396,95 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         else
         {
             std::filesystem::remove( pathNoE, ec );
+        }
+    }
+
+    // the game's material table: textures without the overlay's maps
+    const MatClass* mc = ( !layers || ( !layers->Roughness.get() && !layers->Metallic.get() ) ) ? TableClass( name ) : nullptr;
+    if( mc )
+    {
+        char sfx[ 32 ];
+        snprintf( sfx, sizeof( sfx ), "_orm.t%08x", mc->hash );
+        const auto pathT = dir / ( name + sfx );
+        if( regen || !Exists( pathT ) || !Exists( pathORM ) )
+        {
+            const auto           hgt = Heights( albedo );
+            double               avg = 0;
+            for( float v : hgt )
+            {
+                avg += v;
+            }
+            avg /= std::max< size_t >( 1, hgt.size() );
+            std::vector< uint8_t > rgb( size_t( w ) * h * 3 );
+            for( int i = 0; i < w * h; i++ )
+            {
+                const uint8_t* a     = &albedo.mBuffer[ size_t( i ) * 4 ];
+                const float    rel   = std::clamp( float( hgt[ size_t( i ) ] / std::max( avg, 0.02 ) ), 0.f, 2.f );
+                float          r;
+                if( mc->polish > 0.f && a[ 3 ] >= 128 )
+                {
+                    // the mirror: stronger on the lit, raised parts than in the cracks
+                    const float pol = std::clamp( mc->polish * ( 0.5f + 0.5f * rel ), 0.f, 1.5f );
+                    r               = 0.7f - pol / 4.5f;
+                }
+                else
+                {
+                    // rough enough never to mirror; the cracks and mortar rougher
+                    r = std::max( mc->rough + ( 1.f - rel ) * 0.1f, 0.71f );
+                }
+                rgb[ size_t( i ) * 3 + 0 ] = 255;
+                rgb[ size_t( i ) * 3 + 1 ] = uint8_t( std::clamp( r * 255.f + 0.5f, 0.f, 255.f ) );
+                rgb[ size_t( i ) * 3 + 2 ] = uint8_t( std::clamp( mc->metal * ( 0.75f + 0.25f * rel ) * 255.f + 0.5f, 0.f, 255.f ) );
+            }
+            if( WritePNG( pathORM, rgb, w, h ) )
+            {
+                Touch( pathPol, mc->polish > 0.f ? "1\n" : "0\n" );
+                Touch( pathT );
+            }
+        }
+        if( FILE* f = fopen( pathPol.string().c_str(), "rb" ) )
+        {
+            float smooth = 0;
+            hasORM       = fscanf( f, "%f", &smooth ) == 1;
+            out.polished = smooth > 0.5f;
+            fclose( f );
+        }
+
+        // the bump map, from the texture's own light and dark texels (RTGL1: Y up)
+        if( mc->bump > 0.f && !( layers && layers->Normal.get() ) && *rt_materials_normals )
+        {
+            snprintf( sfx, sizeof( sfx ), "_n.t%08x", mc->hash );
+            const auto pathNT = dir / ( name + sfx );
+            if( regen || !Exists( pathNT ) || !Exists( pathN ) )
+            {
+                const auto             hgt = Heights( albedo );
+                std::vector< uint8_t > rgb( size_t( w ) * h * 3 );
+                // texels are big: the slope per texel, scaled so a 64 texel tile gets
+                // about the same relief as a 256 texel one
+                const float k = 6.f * mc->bump * std::clamp( 64.f / float( std::max( 16, std::min( w, h ) ) ), 0.35f, 2.f );
+                for( int y = 0; y < h; y++ )
+                {
+                    for( int x = 0; x < w; x++ )
+                    {
+                        auto H = [ & ]( int xx, int yy ) {
+                            return hgt[ size_t( ( ( yy + h ) % h ) * w + ( xx + w ) % w ) ];
+                        };
+                        const float dx = ( H( x + 1, y ) - H( x - 1, y ) ) * 0.5f;
+                        const float dy = ( H( x, y + 1 ) - H( x, y - 1 ) ) * 0.5f;
+                        float       nx = -dx * k, ny = dy * k, nz = 1.f;
+                        const float il = 1.f / std::sqrt( nx * nx + ny * ny + nz * nz );
+                        nx *= il, ny *= il, nz *= il;
+                        uint8_t* o = &rgb[ size_t( y * w + x ) * 3 ];
+                        o[ 0 ]     = uint8_t( std::clamp( ( nx * 0.5f + 0.5f ) * 255.f + 0.5f, 0.f, 255.f ) );
+                        o[ 1 ]     = uint8_t( std::clamp( ( ny * 0.5f + 0.5f ) * 255.f + 0.5f, 0.f, 255.f ) );
+                        o[ 2 ]     = uint8_t( std::clamp( ( nz * 0.5f + 0.5f ) * 255.f + 0.5f, 0.f, 255.f ) );
+                    }
+                }
+                if( WritePNG( pathN, rgb, w, h ) )
+                {
+                    Touch( pathNT );
+                }
+            }
         }
     }
 
