@@ -6,6 +6,8 @@
 // Doom 64 specific parts.
 
 #include "rt_backend.h"
+
+#include <chrono>
 #include "texturemanager.h"
 #include "tiletexture.h"
 
@@ -186,6 +188,9 @@ auto RTHardwareTexture::TranslationSuffix( int translation ) -> std::string
     return "_tr" + std::to_string( remap->Index );
 }
 
+uint32_t g_rtTexCreates = 0;   // rt_debug_stats: textures given to the path tracer...
+double   g_rtTexSeconds = 0;   // ...and the time it took (material files included)
+
 auto RTHardwareTexture::MakeTextureName( FGameTexture& gametex, int translation ) -> std::string
 {
     const std::string suffix = TranslationSuffix( translation );
@@ -347,10 +352,13 @@ void RTHardwareTexture::CreateIfWasnt( FGameTexture&       src,
         m_dynamic = true;
     }
 
+    const auto t0 = std::chrono::steady_clock::now();
     if( !Upload( src, translation, flags, renderStyle, m_name, false, !m_dynamic ) )
     {
         m_name.clear();
     }
+    g_rtTexCreates++;
+    g_rtTexSeconds += std::chrono::duration< double >( std::chrono::steady_clock::now() - t0 ).count();
 }
 
 void RTHardwareTexture::CreateClampedIfWasnt( FGameTexture&       src,
@@ -1119,7 +1127,15 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         }
     }
 
-    RgResult r = rt.rgUploadMeshPrimitive( &mesh, &prim );
+    const auto t0 = std::chrono::steady_clock::now();
+    RgResult   r  = rt.rgUploadMeshPrimitive( &mesh, &prim );
+    m_uploadSeconds += std::chrono::duration< double >( std::chrono::steady_clock::now() - t0 ).count();
+    m_vertsThisFrame += verts.size();
+    if( isModel )
+    {
+        m_modelDraws++;
+        m_modelVerts += verts.size();
+    }
     if( r != RG_RESULT_SUCCESS )
     {
         m_droppedThisFrame++;

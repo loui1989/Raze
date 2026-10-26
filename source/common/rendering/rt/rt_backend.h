@@ -358,6 +358,10 @@ public:
         rtstate.reset();
         m_drawsThisFrame    = 0;
         m_droppedThisFrame  = 0;
+        m_vertsThisFrame    = 0;
+        m_modelDraws        = 0;
+        m_modelVerts        = 0;
+        m_uploadSeconds     = 0;
     }
 
     bool IsCurrentDrawIgnored() const
@@ -413,6 +417,11 @@ public:
 
     uint32_t m_drawsThisFrame{ 0 };
     uint32_t m_droppedThisFrame{ 0 };
+    // rt_debug_stats: what this frame gave the path tracer
+    uint64_t m_vertsThisFrame{ 0 };
+    uint32_t m_modelDraws{ 0 };
+    uint64_t m_modelVerts{ 0 };
+    double   m_uploadSeconds{ 0 };
 
 private:
     void InternalDraw( std::span< const RgPrimitiveVertex > verts,

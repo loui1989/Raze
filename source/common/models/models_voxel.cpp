@@ -38,6 +38,12 @@
 #include "palettecontainer.h"
 #include "textures.h"
 #include "imagehelpers.h"
+#include "c_cvars.h"
+
+#include <algorithm>
+#include <vector>
+
+CVARD(Bool, r_voxel_merge, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "voxel models: only the faces that can be seen, neighbours of one colour merged (next start)")
 
 #ifdef _MSC_VER
 #pragma warning(disable:4244) // warning C4244: conversion from 'double' to 'float', possible loss of data
@@ -296,10 +302,155 @@ void FVoxelModel::MakeSlabPolys(int x, int y, kvxslab_t *voxptr, FVoxelMap &chec
 //
 //===========================================================================
 
+//===========================================================================
+//
+// The voxel's faces, as few as can show it.
+//
+// MakeSlabPolys gives each voxel of a column's slab the side faces the slab's
+// backface bits ask for -- the bits are the slab's, so every voxel of a long slab
+// gets a face where one of them shows. High resolution voxels (Duke's voxel pack)
+// came out at up to two million faces, and a path tracer rebuilds a moving mesh
+// each frame: a single big voxel model on screen cost most of the frame.
+//
+// Here a face is only made where the voxel's neighbour is empty, and the faces in
+// one plane are merged into rectangles of one colour: a tenth of the triangles or
+// less, the same picture.
+//
+//===========================================================================
+
+bool FVoxelModel::MakeMergedPolys(FVoxelMipLevel *mip, FVoxelMap &check)
+{
+	const int sx = mip->SizeX, sy = mip->SizeY, sz = mip->SizeZ;
+	if (sx <= 0 || sy <= 0 || sz <= 0 || sx > 1024 || sy > 1024 || sz > 1024) return false;
+
+	const uint8_t *slabs = mip->GetSlabData(false);
+	auto forEachSlab = [&](auto &&fn)
+	{
+		for (int x = 0; x < sx; x++)
+		{
+			const uint8_t *slabxoffs = &slabs[mip->OffsetX[x]];
+			const short *xyoffs = &mip->OffsetXY[x * (sy + 1)];
+			for (int y = 0; y < sy; y++)
+			{
+				auto voxptr = (const kvxslab_t *)(slabxoffs + xyoffs[y]);
+				auto voxend = (const kvxslab_t *)(slabxoffs + xyoffs[y + 1]);
+				for (; voxptr < voxend; voxptr = (const kvxslab_t *)((const uint8_t *)voxptr + voxptr->zleng + 3))
+				{
+					fn(x, y, voxptr);
+				}
+			}
+		}
+	};
+
+	// which cells hold a voxel (one bit each)
+	std::vector<uint8_t> solid((size_t(sx) * sy * sz + 7) / 8, 0);
+	auto cell = [&](int x, int y, int z) { return (size_t(x) * sy + y) * sz + z; };
+	auto isSolid = [&](int x, int y, int z)
+	{
+		if (x < 0 || y < 0 || z < 0 || x >= sx || y >= sy || z >= sz) return false;
+		const size_t i = cell(x, y, z);
+		return ((solid[i >> 3] >> (i & 7)) & 1) != 0;
+	};
+	forEachSlab([&](int x, int y, const kvxslab_t *s)
+	{
+		for (int k = 0; k < s->zleng && s->ztop + k < sz; k++)
+		{
+			const size_t i = cell(x, y, s->ztop + k);
+			solid[i >> 3] |= uint8_t(1 << (i & 7));
+		}
+	});
+
+	// the faces that show, per direction: plane, row, column, colour
+	// (directions as the backface bits: -x, +x, -y, +y, top (-z), bottom (+z))
+	static const int dirs[6][3] = { { -1, 0, 0 }, { 1, 0, 0 }, { 0, -1, 0 }, { 0, 1, 0 }, { 0, 0, -1 }, { 0, 0, 1 } };
+	std::vector<uint64_t> faces[6];
+	auto key = [](int plane, int v, int u, int col) { return (uint64_t(plane) << 48) | (uint64_t(v) << 32) | (uint64_t(u) << 16) | uint64_t(col); };
+	forEachSlab([&](int x, int y, const kvxslab_t *s)
+	{
+		for (int k = 0; k < s->zleng && s->ztop + k < sz; k++)
+		{
+			const int z = s->ztop + k;
+			const int col = s->col[k];
+			for (int d = 0; d < 6; d++)
+			{
+				if (!(s->backfacecull & (1 << d))) continue;
+				if (d == 4 && k != 0) continue;
+				if (d == 5 && k != s->zleng - 1) continue;
+				if (isSolid(x + dirs[d][0], y + dirs[d][1], z + dirs[d][2])) continue;
+				switch (d)
+				{
+				case 0: case 1: faces[d].push_back(key(x, z, y, col)); break;
+				case 2: case 3: faces[d].push_back(key(y, z, x, col)); break;
+				default:        faces[d].push_back(key(z, y, x, col)); break;
+				}
+			}
+		}
+	});
+
+	// greedy rectangles of one colour in each plane
+	std::vector<uint16_t> mask(std::max({ size_t(sy) * sz, size_t(sx) * sz, size_t(sx) * sy }), 0);
+	for (int d = 0; d < 6; d++)
+	{
+		auto &list = faces[d];
+		std::sort(list.begin(), list.end());
+		const int W = d < 2 ? sy : sx;
+		const int H = d < 4 ? sz : sy;
+		size_t first = 0;
+		while (first < list.size())
+		{
+			const int plane = int(list[first] >> 48);
+			size_t last = first;
+			while (last < list.size() && int(list[last] >> 48) == plane)
+			{
+				const int v = int((list[last] >> 32) & 0xffff), u = int((list[last] >> 16) & 0xffff);
+				mask[size_t(v) * W + u] = uint16_t((list[last] & 0xffff) + 1);
+				last++;
+			}
+			for (size_t f = first; f < last; f++)
+			{
+				const int v0 = int((list[f] >> 32) & 0xffff), u0 = int((list[f] >> 16) & 0xffff);
+				const uint16_t c = mask[size_t(v0) * W + u0];
+				if (c == 0) continue;
+				int w = 1, h = 1;
+				while (u0 + w < W && mask[size_t(v0) * W + u0 + w] == c) w++;
+				for (; v0 + h < H; h++)
+				{
+					const size_t row = size_t(v0 + h) * W;
+					int i = 0;
+					while (i < w && mask[row + u0 + i] == c) i++;
+					if (i < w) break;
+				}
+				for (int j = 0; j < h; j++)
+				{
+					for (int i = 0; i < w; i++) mask[size_t(v0 + j) * W + u0 + i] = 0;
+				}
+
+				const int u1 = u0 + w, v1 = v0 + h;
+				const uint8_t col = uint8_t(c - 1);
+				switch (d)
+				{
+				case 0: AddFace(plane, u0, v0, plane, u1, v0, plane, u0, v1, plane, u1, v1, col, check); break;
+				case 1: AddFace(plane + 1, u1, v0, plane + 1, u0, v0, plane + 1, u1, v1, plane + 1, u0, v1, col, check); break;
+				case 2: AddFace(u1, plane, v0, u0, plane, v0, u1, plane, v1, u0, plane, v1, col, check); break;
+				case 3: AddFace(u0, plane + 1, v0, u1, plane + 1, v0, u0, plane + 1, v1, u1, plane + 1, v1, col, check); break;
+				case 4: AddFace(u0, v0, plane, u1, v0, plane, u0, v1, plane, u1, v1, plane, col, check); break;
+				default: AddFace(u1, v0, plane + 1, u0, v0, plane + 1, u1, v1, plane + 1, u0, v1, plane + 1, col, check); break;
+				}
+			}
+			first = last;
+		}
+	}
+	return true;
+}
+
 void FVoxelModel::Initialize()
 {
 	FVoxelMap check;
 	FVoxelMipLevel *mip = &mVoxel->Mips[0];
+	if (r_voxel_merge && MakeMergedPolys(mip, check))
+	{
+		return;
+	}
 	for (int x = 0; x < mip->SizeX; x++)
 	{
 		uint8_t *slabxoffs = &mip->GetSlabData(false)[mip->OffsetX[x]];

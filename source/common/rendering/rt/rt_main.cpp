@@ -104,7 +104,7 @@ CVARD( Bool, rt_precache, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: give RTGL
 CVARD( Int, rt_precache_budget, 2000, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: at most this many textures precached per session (RTGL1 holds 4096)" )
 CVARD( Int, rt_config_version, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: settings version (old defaults are updated once)" )
 CVARD( Int, rt_debug_uniqueid, 0, 0, "RT: print draws the scene code did not give an id" )
-CVARD( Bool, rt_debug_stats, false, 0, "RT: print upload counts every few seconds" )
+CVARD( Bool, rt_debug_stats, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: print the slowest frame of every few seconds and what went into it (and, from the next start, the GPU's timeline)" )
 
 namespace rtx
 {
@@ -323,6 +323,12 @@ void RT_CreateRendererInstance( void* pMetalLayer )
     };
 
     Printf( "RT: loading the renderer from %s/bin\n", g_overrideFolder.c_str() );
+
+    // the Metal backend's GPU timeline (every 2 seconds, in the log), for rt_debug_stats
+    if( *rt_debug_stats )
+    {
+        setenv( "RTGL1_METAL_PROFILE", "1", 0 );
+    }
 
     RgResult r = rgLoadLibraryAndCreate( &info, false, nullptr, &rt, nullptr );
     if( r != RG_RESULT_SUCCESS )
@@ -965,23 +971,44 @@ void RTFrameBuffer::RT_DrawFrame()
         .currentTime              = RT_GetCurrentTime(),
     };
 
+    const auto tDraw0 = std::chrono::steady_clock::now();
     RG_CHECK( rt.rgDrawFrame( &info ) );
+    const double drawSeconds = std::chrono::duration< double >( std::chrono::steady_clock::now() - tDraw0 ).count();
     m_frameStarted = false;
 
     if( *rt_debug_stats )
     {
-        static double last = 0;
-        const double  now  = RT_GetCurrentTime();
+        // the worst frame of the last few seconds, and what went into it
+        extern uint32_t g_rtTexCreates;
+        extern double   g_rtTexSeconds;
+        struct Worst
+        {
+            double   frame = 0, draw = 0, upload = 0, tex = 0;
+            uint32_t prims = 0, models = 0, texn = 0, lights = 0;
+            uint64_t verts = 0, mverts = 0;
+        };
+        static Worst  worst;
+        static double last = 0, prevNow = 0;
+        const double  now   = RT_GetCurrentTime();
+        const double  frame = prevNow > 0 ? now - prevNow : 0;
+        prevNow             = now;
+        if( frame >= worst.frame )
+        {
+            worst = { frame, drawSeconds, m_state->m_uploadSeconds, g_rtTexSeconds, m_state->m_drawsThisFrame,
+                      m_state->m_modelDraws, g_rtTexCreates, g_rtLightsThisFrame, m_state->m_vertsThisFrame,
+                      m_state->m_modelVerts };
+        }
+        g_rtTexCreates = 0;
+        g_rtTexSeconds = 0;
         if( now - last > 3.0 )
         {
             last = now;
-            Printf( "RT: %u primitives uploaded, %u dropped, %u lights (%u failed), camera uploads %u, sky %d\n",
-                    m_state->m_drawsThisFrame,
-                    m_state->m_droppedThisFrame,
-                    g_rtLightsThisFrame,
-                    g_rtLightsFailed,
-                    g_cameraUploads,
-                    int( m_wassky ) );
+            Printf( "RT: slowest frame %.0f ms: rgDrawFrame %.1f ms, uploads %.1f ms (%u primitives, %llu vertices; "
+                    "voxel models %u, %llu vertices), %u textures made %.1f ms, %u lights\n",
+                    worst.frame * 1000.0, worst.draw * 1000.0, worst.upload * 1000.0, worst.prims,
+                    (unsigned long long)worst.verts, worst.models, (unsigned long long)worst.mverts, worst.texn,
+                    worst.tex * 1000.0, worst.lights );
+            worst = {};
         }
     }
 }
