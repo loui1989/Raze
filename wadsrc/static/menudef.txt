@@ -492,6 +492,7 @@ OptionMenu "OptionsMenu" protected
 	Submenu "$OPTMNU_SOUND",			"SoundOptions"
 	Submenu "$OPTMNU_DISPLAY",			"VideoOptions"
 	Submenu "$OPTMNU_VIDEO",			"VideoModeMenu"
+	Submenu "Ray Tracing",				"RTOptions"
 	Submenu "$OPTMNU_GAMEPLAY",			"GameplayOptions"
 	Submenu "$OPTMNU_MISCELLANEOUS",	"MiscOptions"
 	StaticText " "
@@ -2166,3 +2167,105 @@ OptionMenu "EngineCredits3"
 	StaticText "Pär \"Parkar\" Karlsson", 0
 }
 
+
+//-------------------------------------------------------------------------------------------
+//
+// Ray tracing (RTGL1 path tracer)
+//
+//-------------------------------------------------------------------------------------------
+
+OptionValue "RtOutputHeight"
+{
+	0, "Native (the screen's)"
+	2160, "2160p"
+	1800, "1800p"
+	1600, "1600p"
+	1440, "1440p"
+	1260, "1260p"
+	1080, "1080p"
+	900, "900p"
+	720, "720p"
+}
+
+OptionValue "RtUpscale"
+{
+	0, "Off (Render scale below)"
+	1, "Quality (67%)"
+	2, "Balanced (59%)"
+	3, "Performance (50%)"
+	4, "Ultra Performance (33%)"
+	5, "Custom (Render scale below)"
+}
+
+OptionValue "RtSharpen"
+{
+	0, "Auto"
+	1, "Simple"
+	2, "AMD CAS"
+	3, "Off"
+}
+
+OptionMenu "RTOptions" protected
+{
+	Title "Ray Tracing"
+
+	StaticText "Resolution", 1
+	Option "Output resolution (fullscreen)",	"vid_rt_fullscreen_height", "RtOutputHeight"
+	Option "MetalFX upscaling",			"rt_upscale", "RtUpscale"
+	Slider "Render scale (Off / Custom)",	"rt_renderscale", 0.25, 1.0, 0.05, 2
+	Option "Sharpening",				"rt_sharpen", "RtSharpen"
+	Option "Vertical sync",				"rt_vsync", "OnOff"
+	Command "Print resolutions to console",	"rt_resolution"
+	StaticText " "
+
+	StaticText "Ray tracing quality", 1
+	Slider "Light candidates per pixel",	"rt_restir_initial", 4, 48, 2, 0
+	Slider "Light reuse from neighbours",	"rt_restir_spatial", 1, 16, 1, 0
+	Slider "Light reach (metres, 0 = all)",	"rt_light_reach", 0, 100, 5, 0
+	Slider "Bounce light paths per pixel",	"rt_samples_indirect", 1, 4, 1, 0
+	Slider "Light bounces",				"rt_bounces", 1, 4, 1, 0
+	Slider "Minimum roughness",			"rt_min_roughness", 0, 1, 0.05, 2
+	Option "Mirror-like polished surfaces",	"rt_polish", "OnOff"
+	StaticText " "
+
+	StaticText "Denoiser (lower = smoother, more lag)", 1
+	Slider "Direct light",				"rt_denoise_sens_direct", 0, 1, 0.05, 2
+	Slider "Bounce light",				"rt_denoise_sens_indirect", 0, 1, 0.05, 2
+	Slider "Reflections",				"rt_denoise_sens_spec", 0, 1, 0.05, 2
+	StaticText " "
+
+	StaticText "Lighting", 1
+	Slider "Room lights",				"rt_sector_light_scale", 0, 100, 5, 0
+	Slider "Placed lights (Duke-RT)",	"rt_lightovr_scale", 0, 30, 1, 0
+	Option "Glowing surfaces cast light",	"rt_emis_lights", "OnOff"
+	Slider "Glowing surface light",		"rt_emis_light_scale", 0, 2000, 50, 0
+	Slider "Ambient floor",				"rt_ambient", 0, 0.2, 0.01, 2
+	Slider "Sky light",					"rt_sky", 0, 100, 5, 0
+	Option "Muzzle flash light",		"rt_muzzleflash", "OnOff"
+	Option "Flashlight",				"rt_flashlight", "OnOff"
+	StaticText " "
+
+	StaticText "Atmosphere", 1
+	Option "Volumetric light",			"rt_volumetrics", "OnOff"
+	Option "Every light in the haze (costly)",	"rt_volume_all_lights", "OnOff"
+	Slider "Haze thickness",			"rt_volume_scatter", 0, 4, 0.1, 1
+	Option "Smoke",						"rt_smoke", "OnOff"
+	Slider "Smoke density",				"rt_smoke_density", 0, 6, 0.25, 2
+	StaticText " "
+
+	StaticText "Water", 1
+	Option "Stylized water",			"rt_water_style", "OnOff"
+	Slider "Ripple strength",			"rt_water_waves", 0, 3, 0.1, 1
+	Slider "Ripple speed",				"rt_water_wave_speed", 0, 2, 0.05, 2
+	Slider "Ripple size",				"rt_water_wave_size", 0.05, 1, 0.05, 2
+	StaticText " "
+
+	StaticText "Exposure", 1
+	Slider "Darkest exposure (EV)",		"rt_ev100_min", -2, 8, 0.25, 2
+	Slider "Brightest exposure (EV)",	"rt_ev100_max", 2, 14, 0.25, 2
+	Slider "White point",				"rt_white_point", 0.5, 10, 0.25, 2
+	Slider "Contrast",					"rt_contrast", -0.5, 0.5, 0.05, 2
+	StaticText " "
+
+	SafeCommand "Reset ray tracing settings to defaults",	"rt_defaults"
+}

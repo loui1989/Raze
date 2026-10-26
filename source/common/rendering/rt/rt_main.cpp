@@ -1037,6 +1037,26 @@ CCMD( rt_resolution )
     }
 }
 
+// every archived ray tracing setting back to its default
+CCMD( rt_defaults )
+{
+    decltype( cvarMap )::Iterator it( cvarMap );
+    decltype( cvarMap )::Pair*    pair;
+    int                           n = 0;
+    while( it.NextPair( pair ) )
+    {
+        FBaseCVar* var = pair->Value;
+        if( !var || strnicmp( var->GetName(), "rt_", 3 ) != 0 || !( var->GetFlags() & CVAR_ARCHIVE ) ||
+            !stricmp( var->GetName(), "rt_config_version" ) )
+        {
+            continue;
+        }
+        var->ResetToDefault();
+        n++;
+    }
+    Printf( "RT: %d settings back to their defaults\n", n );
+}
+
 CCMD( rt_info )
 {
     if( !g_rtActive )
