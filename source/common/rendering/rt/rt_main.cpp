@@ -52,6 +52,11 @@ CVARD( Float, rt_world_pbr, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, ho
 CVARD( Float, rt_sprite_pbr, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for sprites" )
 CVARD( Float, rt_metallic_max, 0.75f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ceiling on metalness (a metal has no diffuse light of its own)" )
 CVARD( Float, rt_decal_offset, 0.03f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres a wall or floor sprite is moved off the surface it is on" )
+// how fast the denoiser drops its history when the lighting changes: lower = calmer
+// under flickering lights and explosions, but lighting changes trail a little
+CVARD( Float, rt_denoise_sens_direct, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, denoiser reaction to direct light changes (lower = fewer splotches, more lag)" )
+CVARD( Float, rt_denoise_sens_indirect, 0.15f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for bounce light" )
+CVARD( Float, rt_denoise_sens_spec, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for reflections" )
 CVARD( Bool, rt_muzzleflash, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: shooting lights the room" )
 CVARD( Float, rt_muzzleflash_intensity, 250.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash brightness" )
 CVARD( Color, rt_muzzleflash_color, 0xffa860, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash colour" )
@@ -675,9 +680,9 @@ void RTFrameBuffer::RT_DrawFrame()
         .indirectBounces                             = uint32_t( std::clamp( int( *rt_bounces ), 1, 4 ) ),
         .indirectLegacyBounceWeight                  = true,
         .cellWorldSize                               = 1.0f,
-        .directDiffuseSensitivityToChange            = 0.5f,
-        .indirectDiffuseSensitivityToChange          = 0.2f,
-        .specularSensitivityToChange                 = 0.5f,
+        .directDiffuseSensitivityToChange            = std::clamp( float( *rt_denoise_sens_direct ), 0.f, 1.f ),
+        .indirectDiffuseSensitivityToChange          = std::clamp( float( *rt_denoise_sens_indirect ), 0.f, 1.f ),
+        .specularSensitivityToChange                 = std::clamp( float( *rt_denoise_sens_spec ), 0.f, 1.f ),
         .polygonalLightSpotlightFactor               = 2.0f,
         .lightUniqueIdIgnoreFirstPersonViewerShadows = nullptr,
         .enableRrTemporalPrefilter                   = false,

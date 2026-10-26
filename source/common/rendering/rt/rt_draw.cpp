@@ -918,7 +918,11 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             {
                 // a switched-off room is darker than its half-light shade says
                 const float sw = RT_SectorSwitch( rtstate.get_sector() );
-                emissive = std::max( emissive, float( *rt_ambient ) * classic * ( sw < 0.f ? 1.f : 0.35f + 0.65f * sw ) );
+                // and a flickering sector's glow follows its flicker softly: the glow feeds
+                // the bounce light of the whole room, and a jumping one makes it crawl
+                const float soft = RT_SectorFlickerSmoothing( rtstate.get_sector() );
+                emissive = std::max( emissive, float( *rt_ambient ) * std::min( classic * soft, 1.f ) *
+                                                   ( sw < 0.f ? 1.f : 0.35f + 0.65f * sw ) );
             }
         }
 

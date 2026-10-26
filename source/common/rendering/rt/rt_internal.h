@@ -123,6 +123,9 @@ void RT_UploadSceneLights( uint32_t time ); // rt_lights.cpp
 uint32_t RT_LevelGeneration();              // rt_lights.cpp: changes when a map is (re)loaded
 // rt_lights.cpp: is the point (RTGL1 space) inside the sector (true if the sector is unknown)
 bool RT_PointInSector( int sectnum, float x, float y );
+// rt_lights.cpp: smoothed / current light level of a sector (a flickering sector's
+// surfaces glow with the smoothed one)
+float RT_SectorFlickerSmoothing( int sectnum );
 // rt_lights.cpp: LIGHTOVR emissiveoverride for a glowing surface: returns the light's scale
 // and sets glow (the switch response of its signal sector, if it has one)
 float RT_EmissiveOverride( int sectnum, int tile, float& glow );

@@ -36,6 +36,7 @@ CVARD( Float, rt_sector_light_min, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT:
 CVARD( Float, rt_sector_light_height, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector light height, 0 = at the ceiling, 1 = on the floor" )
 CVARD( Float, rt_sector_light_smooth, 0.15f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how fast sector lights follow shade changes (1 = at once)" )
 CVARD( Float, rt_switch_light_boost, 2.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much brighter a switched-on room's light is than an ordinary room's" )
+CVARD( Float, rt_flicker_amount, 0.6f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how deep flickering LIGHTOVR lights flicker" )
 CVARD( Bool, rt_sector_light_tint, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights take the colour of the sector's palette" )
 CVARD( Bool, rt_lightovr_fixtures, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: draw the lamp panels of LIGHTOVR surface lights" )
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
@@ -117,13 +118,24 @@ float FlickerScale( uint64_t key, uint32_t frames, uint32_t time )
     {
         return 1.f;
     }
-    // a new random level every 'frames' tics
-    return 0.55f + 0.45f * Rand01( key * 31 + time / frames );
+    // a new random level every 'frames' tics -- reached smoothly: a level that jumps
+    // throws away the denoiser's history every time (crawling splotches)
+    const uint32_t k = time / frames;
+    float          t = float( time % frames ) / float( frames );
+    t                = t * t * ( 3.f - 2.f * t );
+    const float a    = Rand01( key * 31 + k );
+    const float b    = Rand01( key * 31 + k + 1 );
+    const float r    = a + ( b - a ) * t;
+    const float amp  = 0.45f * std::clamp( float( *rt_flicker_amount ), 0.f, 1.f );
+    return 1.f - amp + amp * r;
 }
 
 //
 // sector lights
 //
+
+std::vector< float > g_levelSmoothed;
+uint32_t             g_levelGen = ~0u;
 
 // the colour a sector palette (Duke's pal 1 blue, 2 red, ...) gives the light
 FVector3 PaletteTint( int pal )
@@ -197,6 +209,20 @@ void UploadSectorLights()
     {
         s_smoothed.assign( sector.Size(), -1.f );
         s_level = currentLevel;
+    }
+
+    // every sector's light level, followed softly (for the surfaces' faint glow)
+    if( g_levelSmoothed.size() != sector.Size() || g_levelGen != RT_LevelGeneration() )
+    {
+        g_levelSmoothed.assign( sector.Size(), -1.f );
+        g_levelGen = RT_LevelGeneration();
+    }
+    for( unsigned i = 0; i < sector.Size(); i++ )
+    {
+        const int   sh  = ( int( sector[ i ].ceilingshade ) + int( sector[ i ].floorshade ) ) / 2;
+        const float lv  = std::clamp( 1.f - float( sh ) / ns, 0.f, 1.f );
+        float&      sm  = g_levelSmoothed[ i ];
+        sm              = sm < 0.f ? lv : sm + ( lv - sm ) * std::clamp( float( *rt_sector_light_smooth ), 0.01f, 1.f );
     }
 
     for( unsigned i = 0; i < sector.Size(); i++ )
@@ -567,6 +593,19 @@ uint32_t RT_LevelGeneration()
         s_gen++;
     }
     return s_gen;
+}
+
+float RT_SectorFlickerSmoothing( int sectnum )
+{
+    if( sectnum < 0 || size_t( sectnum ) >= g_levelSmoothed.size() || unsigned( sectnum ) >= sector.Size() ||
+        g_levelSmoothed[ size_t( sectnum ) ] < 0.f )
+    {
+        return 1.f;
+    }
+    const float ns  = float( std::max( numshades, 2 ) );
+    const int   sh  = ( int( sector[ sectnum ].ceilingshade ) + int( sector[ sectnum ].floorshade ) ) / 2;
+    const float lv  = std::clamp( 1.f - float( sh ) / ns, 0.02f, 1.f );
+    return std::clamp( g_levelSmoothed[ size_t( sectnum ) ] / lv, 0.25f, 4.f );
 }
 
 bool RT_PointInSector( int sectnum, float x, float y )
