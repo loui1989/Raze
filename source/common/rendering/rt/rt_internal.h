@@ -121,3 +121,10 @@ EXTERN_CVAR( Float, rt_sector_light_scale )
 
 void RT_UploadSceneLights( uint32_t time ); // rt_lights.cpp
 uint32_t RT_LevelGeneration();              // rt_lights.cpp: changes when a map is (re)loaded
+// rt_lights.cpp: is the point (RTGL1 space) inside the sector (true if the sector is unknown)
+bool RT_PointInSector( int sectnum, float x, float y );
+// rt_lights.cpp: LIGHTOVR emissiveoverride for a glowing surface: returns the light's scale
+// and sets glow (the switch response of its signal sector, if it has one)
+float RT_EmissiveOverride( int sectnum, int tile, float& glow );
+// rt_draw.cpp: a quad with a tile's texture, glowing (a LIGHTOVR surface light's fixture)
+void RT_UploadFixtureQuad( uint64_t id, const float corners[ 4 ][ 3 ], const float normal[ 3 ], const char* tileName, float glow );

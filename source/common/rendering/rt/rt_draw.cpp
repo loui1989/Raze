@@ -6,6 +6,7 @@
 // Doom 64 specific parts.
 
 #include "rt_backend.h"
+#include "texturemanager.h"
 
 
 namespace rtx
@@ -808,6 +809,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     float                emissive   = 0.f;
     float                emissiveGi = 0.f;
     float                glowScale  = 1.f; // a glowing texture's brightness, by its shade
+    float                emisLightScale = 1.f; // and of the light it casts (LIGHTOVR)
 
     // classic (non path traced) brightness: the soft light level from the shade
     float classic = 1.0f;
@@ -886,6 +888,17 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                 if( sw >= 0.f )
                 {
                     glowScale = sw;
+                }
+            }
+            // the RT author's tuning of this surface (LIGHTOVR emissiveoverride)
+            {
+                const char* nm   = hwtex->GetRTName();
+                const int   tile = ( nm && nm[ 0 ] == '#' ) ? atoi( nm + 1 ) : -1;
+                float       glow = -1.f;
+                emisLightScale   = RT_EmissiveOverride( rtstate.get_sector(), tile, glow );
+                if( glow >= 0.f )
+                {
+                    glowScale = glow;
                 }
             }
             emissive   = glowScale;
@@ -1002,7 +1015,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     // samples directly (its emission alone only shows up in the bounce light, grainy)
     if( emissionMap && *rt_emis_lights && !rtstate.is< RtPrim::Sprite >() && !isUI && !isSky && glowScale > 0.01f )
     {
-        AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(), glowScale,
+        AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(), glowScale * emisLightScale,
                           FRtState::MixId( uniqueId * 31 + prim.primitiveIndexInMesh, RtIdKind::Other ) );
     }
 }
@@ -1065,11 +1078,26 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
     }
     n.MakeUnit();
     {
-        const RgFloat3D& cam = m_fb->RT_CameraPosition();
-        const FVector3   toCam{ cam.data[ 0 ] - centre.X, cam.data[ 1 ] - centre.Y, cam.data[ 2 ] - centre.Z };
-        if( ( n | toCam ) < 0.f )
+        // The side of the surface the light goes on: the one inside the surface's own
+        // sector. (Not the camera's side: walls are drawn from behind too, and a screen
+        // in the next room would put its light on this side of the wall.)
+        const int   sec   = rtstate.get_sector();
+        const float probe = 0.3f;
+        const bool  front = RT_PointInSector( sec, centre.X + n.X * probe, centre.Y + n.Y * probe );
+        const bool  back  = RT_PointInSector( sec, centre.X - n.X * probe, centre.Y - n.Y * probe );
+        if( !front && back )
         {
             n = -n;
+        }
+        else if( front == back && rtstate.is< RtPrim::Decal >() )
+        {
+            // a free-standing two-sided sprite: the side it is seen from
+            const RgFloat3D& cam = m_fb->RT_CameraPosition();
+            const FVector3   toCam{ cam.data[ 0 ] - centre.X, cam.data[ 1 ] - centre.Y, cam.data[ 2 ] - centre.Z };
+            if( ( n | toCam ) < 0.f )
+            {
+                n = -n;
+            }
         }
     }
 
@@ -1138,3 +1166,67 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
 }
 
 } // namespace rtx
+
+void RT_UploadFixtureQuad( uint64_t id, const float corners[ 4 ][ 3 ], const float normal[ 3 ], const char* tileName, float glow )
+{
+    using namespace rtx;
+    FTextureID texid = TexMan.CheckForTexture( tileName, ETextureType::Any );
+    FGameTexture* gametex = texid.isValid() ? TexMan.GetGameTexture( texid ) : nullptr;
+    FTexture*     base    = gametex ? gametex->GetTexture() : nullptr;
+    if( !base )
+    {
+        return;
+    }
+    auto hwtex = static_cast< RTHardwareTexture* >( base->GetHardwareTexture( 0, 0 ) );
+    if( !hwtex )
+    {
+        return;
+    }
+    hwtex->CreateIfWasnt( *gametex, 0, 0, LegacyRenderStyles[ STYLE_Normal ] );
+
+    const RgNormalPacked32 np = rt.rgUtilPackNormal( normal[ 0 ], normal[ 1 ], normal[ 2 ] );
+    static const float     uv[ 4 ][ 2 ] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+    RgPrimitiveVertex      v[ 4 ];
+    for( int i = 0; i < 4; i++ )
+    {
+        v[ i ] = RgPrimitiveVertex{
+            .position     = { corners[ i ][ 0 ], corners[ i ][ 1 ], corners[ i ][ 2 ] },
+            .normalPacked = np,
+            .texCoord     = { uv[ i ][ 0 ], uv[ i ][ 1 ] },
+            .color        = RG_PACKED_COLOR_WHITE,
+        };
+    }
+    static const uint32_t idx[ 6 ] = { 0, 1, 2, 0, 2, 3 };
+
+    const bool emis  = hwtex->HasEmission();
+    auto       mesh  = RgMeshInfo{
+        .sType                = RG_STRUCTURE_TYPE_MESH_INFO,
+        .pNext                = nullptr,
+        .flags                = 0,
+        .uniqueObjectID       = FRtState::MixId( id, RtIdKind::Other ),
+        .pMeshName            = nullptr,
+        .transform            = RT_TRANSFORM_IDENTITY,
+        .isExportable         = false,
+        .animationTime        = 0.0f,
+        .localLightsIntensity = 1.0f,
+    };
+    auto prim = RgMeshPrimitiveInfo{
+        .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+        .pNext                = nullptr,
+        .flags                = RgMeshPrimitiveFlags( RG_MESH_PRIMITIVE_NO_SHADOW | RG_MESH_PRIMITIVE_FORCE_EXACT_NORMALS |
+                                                      RG_MESH_PRIMITIVE_ALPHA_TESTED |
+                                                      ( emis ? RG_MESH_PRIMITIVE_EMISSIVE_OVERRIDE | RG_MESH_PRIMITIVE_EMISSIVE_SCREEN_SCALED : 0 ) ),
+        .primitiveIndexInMesh = 0,
+        .pVertices            = v,
+        .vertexCount          = 4,
+        .pIndices             = idx,
+        .indexCount           = 6,
+        .pTextureName         = hwtex->GetRTName(),
+        .textureFrame         = 0,
+        .color                = RG_PACKED_COLOR_WHITE,
+        .emissive             = glow,
+        .classicLight         = 1.f,
+        .emissiveGi           = glow * 0.25f,
+    };
+    rt.rgUploadMeshPrimitive( &mesh, &prim );
+}

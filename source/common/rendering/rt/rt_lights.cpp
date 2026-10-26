@@ -22,6 +22,9 @@
 #include "buildtiles.h"
 
 #include <unordered_map>
+#include <array>
+#include "palette.h"
+#include "palettecontainer.h"
 
 CVARD( Bool, rt_lightovr, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lights from Duke-RT's LIGHTOVR" )
 CVARD( Float, rt_lightovr_scale, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of LIGHTOVR point lights" )
@@ -33,6 +36,8 @@ CVARD( Float, rt_sector_light_min, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT:
 CVARD( Float, rt_sector_light_height, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector light height, 0 = at the ceiling, 1 = on the floor" )
 CVARD( Float, rt_sector_light_smooth, 0.15f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how fast sector lights follow shade changes (1 = at once)" )
 CVARD( Float, rt_switch_light_boost, 2.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much brighter a switched-on room's light is than an ordinary room's" )
+CVARD( Bool, rt_sector_light_tint, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights take the colour of the sector's palette" )
+CVARD( Bool, rt_lightovr_fixtures, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: draw the lamp panels of LIGHTOVR surface lights" )
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
 
 namespace
@@ -120,6 +125,59 @@ float FlickerScale( uint64_t key, uint32_t frames, uint32_t time )
 // sector lights
 //
 
+// the colour a sector palette (Duke's pal 1 blue, 2 red, ...) gives the light
+FVector3 PaletteTint( int pal )
+{
+    static std::array< FVector3, MAXPALOOKUPS > s_tint;
+    static std::array< bool, MAXPALOOKUPS >     s_done{};
+    static uint32_t                             s_gen = ~0u;
+    if( s_gen != RT_LevelGeneration() )
+    {
+        s_done.fill( false );
+        s_gen = RT_LevelGeneration();
+    }
+    if( pal <= 0 || pal >= MAXPALOOKUPS || !lookups.checkTable( pal ) )
+    {
+        return { 1, 1, 1 };
+    }
+    if( !s_done[ pal ] )
+    {
+        const uint8_t* t = lookups.getTable( pal );
+        double         orig[ 3 ] = {}, mapped[ 3 ] = {};
+        for( int i = 0; i < 255; i++ )
+        {
+            const PalEntry a = GPalette.BaseColors[ i ];
+            const PalEntry b = GPalette.BaseColors[ t[ i ] ];
+            orig[ 0 ] += a.r, orig[ 1 ] += a.g, orig[ 2 ] += a.b;
+            mapped[ 0 ] += b.r, mapped[ 1 ] += b.g, mapped[ 2 ] += b.b;
+        }
+        FVector3 c{ float( mapped[ 0 ] / std::max( orig[ 0 ], 1.0 ) ),
+                    float( mapped[ 1 ] / std::max( orig[ 1 ], 1.0 ) ),
+                    float( mapped[ 2 ] / std::max( orig[ 2 ], 1.0 ) ) };
+        const float mx = std::max( { c.X, c.Y, c.Z, 1e-3f } );
+        c /= mx;
+        // a palette that only darkens or is near grey stays white
+        if( std::min( { c.X, c.Y, c.Z } ) > 0.8f )
+        {
+            c = { 1, 1, 1 };
+        }
+        s_tint[ pal ] = c;
+        s_done[ pal ] = true;
+    }
+    return s_tint[ pal ];
+}
+
+// LIGHTOVR "signal sector" response: a switch's state, or 1 without one
+float SignalResponse( bool enabled, int signalSector )
+{
+    if( !enabled || signalSector < 0 )
+    {
+        return 1.f;
+    }
+    const float sw = RT_SectorSwitch( signalSector );
+    return sw < 0.f ? 1.f : 0.03f + 0.97f * sw;
+}
+
 void UploadSectorLights()
 {
 
@@ -197,7 +255,11 @@ void UploadSectorLights()
         sm        = sm < 0.f ? lumens : sm + ( lumens - sm ) * std::clamp( float( *rt_sector_light_smooth ), 0.01f, 1.f );
         lumens    = sm;
 
-        UploadSphere( SectorLightBase + i, WorldToRT( cx, cy, z ), RG_PACKED_COLOR_WHITE, lumens, 0.25f );
+        // the sector's palette tints its light (the club's red and blue flashes)
+        const int   pal  = sec.floorpal ? sec.floorpal : sec.ceilingpal;
+        const auto  tint = *rt_sector_light_tint ? PaletteTint( pal ) : FVector3{ 1, 1, 1 };
+        UploadSphere( SectorLightBase + i, WorldToRT( cx, cy, z ),
+                      rt.rgUtilPackColorFloat4D( tint.X, tint.Y, tint.Z, 1.f ), lumens, 0.25f );
     }
 }
 
@@ -361,15 +423,64 @@ void UploadOverlayLights( uint32_t time )
         {
             continue;
         }
-        const float offset = r.hasOffset ? r.offset : 0.5f;
+        const float offset   = r.hasOffset ? r.offset : 0.5f;
+        const float response = SignalResponse( r.sectorResponse, r.hasSignalSector ? r.signalSector : -1 );
+        const float sw       = r.hasSize ? r.size[ 0 ] : 32.f;
+        const float sh       = r.hasSize ? r.size[ 1 ] : 32.f;
+
+        // the light: a little in front of its fixture, small enough to stay off the surface
+        const float lightOut = offset + 4.f;
         const float p[ 3 ] = {
-            r.position[ 0 ] + r.normal[ 0 ] * offset,
-            r.position[ 1 ] + r.normal[ 1 ] * offset,
-            r.position[ 2 ] + r.normal[ 2 ] * offset,
+            r.position[ 0 ] + r.normal[ 0 ] * lightOut,
+            r.position[ 1 ] + r.normal[ 1 ] * lightOut,
+            r.position[ 2 ] + r.normal[ 2 ] * lightOut,
         };
-        const float size = r.hasSize ? std::max( r.size[ 0 ], r.size[ 1 ] ) : 16.f;
-        UploadSphere( SurfaceLightBase + i, PTToRT( p ), PackColor( r.color ), OverlayToLumens( r.intensity, r.radius ),
-                      std::clamp( size * 0.5f * ONEGAMEUNIT_IN_METERS, 0.02f, 1.f ) );
+        UploadSphere( SurfaceLightBase + i, PTToRT( p ), PackColor( r.color ),
+                      OverlayToLumens( r.intensity, r.radius ) * response,
+                      std::clamp( std::min( sw, sh ) * 0.5f * ONEGAMEUNIT_IN_METERS, 0.02f, 0.1f ) );
+
+        // the fixture: the author's lamp panel, drawn on the surface
+        if( *rt_lightovr_fixtures )
+        {
+            const RgFloat3D c  = PTToRT( r.position );
+            const float     pn[ 3 ] = { r.normal[ 0 ], r.normal[ 1 ], r.normal[ 2 ] };
+            const RgFloat3D nn = PTToRT( pn );
+            FVector3        n{ nn.data[ 0 ], nn.data[ 1 ], nn.data[ 2 ] };
+            if( n.LengthSquared() < 1e-8f )
+            {
+                continue;
+            }
+            n.MakeUnit(); // PTToRT scaled it; only the direction is used
+            FVector3 u, v;
+            if( std::abs( n.Z ) > 0.9f )
+            {
+                u = { 1, 0, 0 };
+            }
+            else
+            {
+                u = FVector3{ 0, 0, 1 } ^ n;
+            }
+            u.MakeUnit();
+            v = n ^ u;
+            if( r.hasRotation && r.rotation != 0.f )
+            {
+                const float a  = r.rotation * float( 3.14159265358979 / 180.0 );
+                const FVector3 ru = u * std::cos( a ) + v * std::sin( a );
+                const FVector3 rv = v * std::cos( a ) - u * std::sin( a );
+                u = ru, v = rv;
+            }
+            const float    hw = sw * 0.5f * ONEGAMEUNIT_IN_METERS, hh = sh * 0.5f * ONEGAMEUNIT_IN_METERS;
+            const FVector3 ctr = FVector3{ c.data[ 0 ], c.data[ 1 ], c.data[ 2 ] } + n * ( offset * ONEGAMEUNIT_IN_METERS );
+            const FVector3 q[ 4 ] = { ctr - u * hw - v * hh, ctr + u * hw - v * hh, ctr + u * hw + v * hh, ctr - u * hw + v * hh };
+            float corners[ 4 ][ 3 ];
+            for( int k = 0; k < 4; k++ )
+            {
+                corners[ k ][ 0 ] = q[ k ].X, corners[ k ][ 1 ] = q[ k ].Y, corners[ k ][ 2 ] = q[ k ].Z;
+            }
+            const float nrm[ 3 ] = { n.X, n.Y, n.Z };
+            FString     tex      = r.hasFixtureTexture && r.fixtureTexture.IsNotEmpty() ? r.fixtureTexture : FString( "#00707" );
+            RT_UploadFixtureQuad( SurfaceLightBase + i, corners, nrm, tex.GetChars(), response );
+        }
     }
 
     // actor lights
@@ -456,6 +567,44 @@ uint32_t RT_LevelGeneration()
         s_gen++;
     }
     return s_gen;
+}
+
+bool RT_PointInSector( int sectnum, float x, float y )
+{
+    if( sectnum < 0 || unsigned( sectnum ) >= sector.Size() )
+    {
+        return true;
+    }
+    return inside( double( x ) / ONEGAMEUNIT_IN_METERS, double( -y ) / ONEGAMEUNIT_IN_METERS, &sector[ sectnum ] ) == 1;
+}
+
+float RT_EmissiveOverride( int sectnum, int tile, float& glow )
+{
+    const ResolvedLightOverlaySet& set = GetResolvedLightOverlaySet();
+    float scale = 1.f;
+    for( unsigned i = 0; i < set.emissiveOverrideRules.Size(); i++ )
+    {
+        const auto& r = set.emissiveOverrideRules[ i ];
+        if( !r.hasSectorFilter && !r.hasTileFilter )
+        {
+            continue;
+        }
+        if( ( r.hasSectorFilter && r.sectorFilter != sectnum ) || ( r.hasTileFilter && r.tileFilter != tile ) )
+        {
+            continue;
+        }
+        scale = std::clamp( r.intensityScale * r.reachScale, 0.f, 8.f );
+        if( r.sectorResponse && r.hasSignalSector )
+        {
+            const float sw = RT_SectorSwitch( r.signalSector );
+            if( sw >= 0.f )
+            {
+                glow = sw;
+            }
+        }
+        break;
+    }
+    return scale;
 }
 
 void RT_UploadSceneLights( uint32_t time )
