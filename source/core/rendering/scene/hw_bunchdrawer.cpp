@@ -31,6 +31,7 @@
 **
 */ 
 
+#include <queue>
 #include "hw_drawinfo.h"
 #include "rt_state.h"
 #include "hw_bunchdrawer.h"
@@ -770,9 +771,124 @@ void BunchDrawer::AddSectorSprites(int sectnum, bool all)
 //
 //==========================================================================
 
+//==========================================================================
+//
+// Ray tracing: Build maps overlap sectors that are never seen together (the
+// mortuary's hallway above the street outside it, at heights that cross). The
+// rasterizer only draws what it reaches through openings; the path tracer would
+// have both -- the hallway's floor hung over the street like an awning. Of sectors
+// that overlap with crossing heights, only the one nearest the view through open
+// passages is given to it off screen; what is on screen is drawn as always.
+//
+//==========================================================================
+
+static std::vector<std::vector<int>> rt_overlaps;
+static const void* rt_ovlLevel = nullptr;
+static const void* rt_ovlData = nullptr;
+static unsigned rt_ovlCount = 0;
+
+static void RT_FindOverlaps()
+{
+	const unsigned n = sector.Size();
+	rt_overlaps.assign(n, {});
+	std::vector<DVector4> bb(n);
+	std::vector<std::vector<DVector2>> pts(n);
+	for (unsigned i = 0; i < n; i++)
+	{
+		auto& sec = sector[i];
+		DVector4 b(1e30, 1e30, -1e30, -1e30);
+		DVector2 c(0, 0);
+		for (auto& w : sec.walls)
+		{
+			b.X = min(b.X, w.pos.X); b.Y = min(b.Y, w.pos.Y);
+			b.Z = max(b.Z, w.pos.X); b.W = max(b.W, w.pos.Y);
+			c += w.pos;
+		}
+		bb[i] = b;
+		if (sec.walls.Size() == 0) continue;
+		c /= double(sec.walls.Size());
+		if (inside(c.X, c.Y, &sec) == 1) pts[i].push_back(c);
+		for (auto& w : sec.walls)
+			for (double t : { 0.1, 0.4 })
+			{
+				const DVector2 p = w.pos * (1.0 - t) + c * t;
+				if (inside(p.X, p.Y, &sec) == 1) pts[i].push_back(p);
+			}
+	}
+	for (unsigned a = 0; a < n; a++)
+		for (unsigned b = a + 1; b < n; b++)
+		{
+			if (bb[a].X >= bb[b].Z || bb[b].X >= bb[a].Z || bb[a].Y >= bb[b].W || bb[b].Y >= bb[a].W) continue;
+			bool o = false;
+			for (auto& p : pts[a]) if (inside(p.X, p.Y, &sector[b]) == 1) { o = true; break; }
+			if (!o) for (auto& p : pts[b]) if (inside(p.X, p.Y, &sector[a]) == 1) { o = true; break; }
+			if (o) { rt_overlaps[a].push_back(int(b)); rt_overlaps[b].push_back(int(a)); }
+		}
+}
+
+// per sector: given to the path tracer off screen
+static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam)
+{
+	const unsigned n = sector.Size();
+	if (rt_ovlLevel != currentLevel || rt_ovlData != sector.Data() || rt_ovlCount != n)
+	{
+		RT_FindOverlaps();
+		rt_ovlLevel = currentLevel; rt_ovlData = sector.Data(); rt_ovlCount = n;
+	}
+	std::vector<char> keep(n, 1);
+	bool any = false;
+	for (unsigned i = 0; i < n && !any; i++) any = !rt_overlaps[i].empty();
+	if (!any || camsect < 0 || unsigned(camsect) >= n) return keep;
+
+	// path distance from the view through open passages (a shut door is no passage)
+	std::vector<double> dist(n, 1e30);
+	std::vector<DVector2> entry(n);
+	using Item = std::pair<double, int>;
+	std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
+	dist[camsect] = 0; entry[camsect] = cam.XY();
+	q.push({ 0., camsect });
+	while (!q.empty())
+	{
+		auto [d, si] = q.top();
+		q.pop();
+		if (d > dist[si]) continue;
+		auto& s = sector[si];
+		for (auto& w : s.walls)
+		{
+			if (!w.twoSided()) continue;
+			auto ns = w.nextSector();
+			if (!ns) continue;
+			const double top = max(s.ceilingz, ns->ceilingz), bottom = min(s.floorz, ns->floorz);
+			if (bottom - top <= 0.5) continue;
+			const int ni = sectindex(ns);
+			const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
+			const double nd = d + (mid - entry[si]).Length();
+			if (nd > 6400) continue;
+			if (nd < dist[ni]) { dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni }); }
+		}
+	}
+	for (unsigned i = 0; i < n; i++)
+	{
+		auto& s = sector[i];
+		for (int j : rt_overlaps[i])
+		{
+			auto& t = sector[j];
+			// heights that cross (a room over a room is fine)
+			if (!(s.ceilingz < t.floorz - 0.5 && t.ceilingz < s.floorz - 0.5)) continue;
+			if (dist[j] < dist[i] || (dist[i] >= 1e30 && dist[j] >= 1e30 && j < int(i)))
+			{
+				keep[i] = 0;
+				break;
+			}
+		}
+	}
+	return keep;
+}
+
 void BunchDrawer::RT_ProcessRemaining()
 {
 	const BitArray visiblesectors = gotsector;	// what the game may look at afterwards (Blood)
+	const std::vector<char> rtkeep = RT_OffscreenSectors(g_rtViewSector, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]));
 
 	for (unsigned s = 0; s < sections.Size(); s++)
 	{
@@ -781,6 +897,7 @@ void BunchDrawer::RT_ProcessRemaining()
 
 		int sectnum = sections[s].sector;
 		if (sectnum < 0 || sectnum >= (int)sector.Size()) continue;
+		if (!rtkeep[sectnum]) continue;
 		if (!gotsector[sectnum])
 		{
 			gotsector.Set(sectnum);
@@ -805,6 +922,7 @@ void BunchDrawer::RT_ProcessRemaining()
 		if (section < 0 || section >= (int)sections.Size()) continue;
 		int sectnum = sections[section].sector;
 		if (sectnum < 0 || sectnum >= (int)sector.Size()) continue;
+		if (!rtkeep[sectnum]) continue;
 		gotwall.Set(i);
 
 		HWWall hwwall;
@@ -836,7 +954,12 @@ void BunchDrawer::RT_ProcessCopy()
 		const auto seen = sect->exflags & SECTOREX_SEEN;
 		HWFlat flat;
 		flat.rtCopy = uint8_t(copy);
-		flat.ProcessSector(di, sect, s, sect->lotag == 1 ? SSRF_RENDERCEILING : SSRF_RENDERALL);
+		// the openings are not surfaces: a sector portal's flat, and (Duke's water) the
+		// surface the room under it already draws
+		int which = SSRF_RENDERALL;
+		if (sect->portalflags == PORTAL_SECTOR_FLOOR || (g_rtCopySkipWater[copy - 1] && sect->lotag == 1)) which &= ~SSRF_RENDERFLOOR;
+		if (sect->portalflags == PORTAL_SECTOR_CEILING) which &= ~SSRF_RENDERCEILING;
+		flat.ProcessSector(di, sect, s, which);
 		sect->exflags = (sect->exflags & ~SECTOREX_SEEN) | seen;
 	}
 

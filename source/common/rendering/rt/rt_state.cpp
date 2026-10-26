@@ -13,6 +13,8 @@ const void* g_rtViewerActor = nullptr;
 int         g_rtViewSector  = -1;
 std::vector< uint8_t > g_rtCopySector;
 std::vector< RtGameLight > g_rtGameLights;
+std::vector< RtCopyLink >  g_rtCopyLinks;
+bool                       g_rtCopySkipWater[ RT_MAX_COPIES ] = {};
 double      g_rtCopyOffset[ RT_MAX_COPIES ][ 3 ] = {};
 double      g_rtViewPos[ 3 ] = {};
 std::vector< float > g_rtSectorSwitch;

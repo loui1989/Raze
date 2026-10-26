@@ -230,7 +230,6 @@ static int getdrugmode(DDukePlayer *p, int oyrepeat)
 
 static void RT_SetupWaterCopy(sectortype* sect, const DVector3& cpos)
 {
-	g_rtCopySector.clear();
 	updatesector(cpos.XY(), &sect);
 	if (!sect || sect->lotag != ST_2_UNDERWATER) return;
 
@@ -240,23 +239,9 @@ static void RT_SetupWaterCopy(sectortype* sect, const DVector3& cpos)
 		DVector3 delta;          // below + delta = above
 		sectortype* above;
 		double dist;
-		TArray<DVector2> holes;  // points inside its surfaces (below)
 		TArray<int> seeds;       // the sectors of its transporters (below)
 	};
 	TArray<WaterCopy> copies;
-
-	auto addHolePoints = [](TArray<DVector2>& pts, sectortype* hs)
-	{
-		DVector2 c(0, 0);
-		for (auto& w : hs->walls) c += w.pos;
-		c /= max(1u, hs->walls.Size());
-		if (inside(c.X, c.Y, hs) == 1) pts.Push(c);
-		for (auto& w : hs->walls)
-		{
-			const DVector2 p = w.pos * 0.9 + c * 0.1;
-			if (inside(p.X, p.Y, hs) == 1) pts.Push(p);
-		}
-	};
 
 	DukeStatIterator it(STAT_TRANSPORT);
 	while (auto act = it.Next())
@@ -285,108 +270,47 @@ static void RT_SetupWaterCopy(sectortype* sect, const DVector3& cpos)
 		c->seeds.Push(act->sectno());
 	}
 	if (copies.Size() == 0) return;
-	std::sort(copies.begin(), copies.end(), [](const WaterCopy& a, const WaterCopy& b) { return a.dist < b.dist; });
-	if (copies.Size() > (unsigned)RT_MAX_COPIES) copies.Resize(RT_MAX_COPIES);
-
-	const unsigned n = sector.Size();
 
 	// each copy's surfaces: the under-water sectors with a water ceiling around its
 	// transporters, each going to the nearest transporter's copy
+	const unsigned n = sector.Size();
+	auto waterCeiling = [](sectortype* s)
 	{
-		auto waterCeiling = [](sectortype* s)
-		{
-			if (s->lotag != ST_2_UNDERWATER) return false;
-			const int t = legacyTileNum(s->ceilingtexture);
-			return (t >= 336 && t <= 338) || (t >= 200 && t <= 202);
-		};
-		std::vector<int> owner(n, -1);
-		TArray<int> front, next;
-		for (unsigned k = 0; k < copies.Size(); k++)
-			for (int si : copies[k].seeds)
-				if (owner[si] < 0) { owner[si] = k; front.Push(si); }
-		while (front.Size())
-		{
-			next.Clear();
-			for (int si : front)
-				for (auto& w : sector[si].walls)
-				{
-					if (!w.twoSided()) continue;
-					auto ns = w.nextSector();
-					const int ni = sectindex(ns);
-					if (owner[ni] >= 0 || !waterCeiling(ns)) continue;
-					owner[ni] = owner[si];
-					next.Push(ni);
-				}
-			std::swap(front, next);
-		}
-		for (unsigned i = 0; i < n; i++)
-			if (owner[i] >= 0) addHolePoints(copies[owner[i]].holes, &sector[i]);
-	}
-	g_rtCopySector.assign(n, 0);
-
+		if (s->lotag != ST_2_UNDERWATER) return false;
+		const int t = legacyTileNum(s->ceilingtexture);
+		return (t >= 336 && t <= 338) || (t >= 200 && t <= 202);
+	};
+	std::vector<int> owner(n, -1);
+	TArray<int> front, next;
 	for (unsigned k = 0; k < copies.Size(); k++)
+		for (int si : copies[k].seeds)
+			if (owner[si] < 0) { owner[si] = k; front.Push(si); }
+	while (front.Size())
 	{
-		const auto& c = copies[k];
-		g_rtCopyOffset[k][0] = -c.delta.X;
-		g_rtCopyOffset[k][1] = -c.delta.Y;
-		g_rtCopyOffset[k][2] = -c.delta.Z;
-
-		// is any of these (below) points under sector 'ss' (above) in this copy?
-		auto over = [&](const TArray<DVector2>& pts, sectortype* ss)
-		{
-			for (auto& p : pts)
-			{
-				const DVector2 q = p + c.delta.XY();
-				if (inside(q.X, q.Y, ss) == 1) return true;
-			}
-			return false;
-		};
-		// nothing solid of this copy over another copy's surface (its own surface wins)
-		auto keep = [&](sectortype* ss)
-		{
-			if (ss->lotag == ST_1_ABOVE_WATER) return true; // its floor is left out anyway
-			for (unsigned j = 0; j < copies.Size(); j++)
-				if (j != k && over(copies[j].holes, ss)) return over(c.holes, ss);
-			return true;
-		};
-
-		// the sectors up there within reach of the camera's place, through openings
-		sectortype* start = c.above;
-		updatesector(cpos.XY() + c.delta.XY(), &start);
-		if (!start || start->lotag == ST_2_UNDERWATER) start = c.above;
-
-		std::vector<double> dist(n, -1.);
-		std::vector<DVector2> entry(n);
-		using Item = std::pair<double, int>;
-		std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
-		const int si0 = sectindex(start);
-		dist[si0] = 0;
-		entry[si0] = cpos.XY() + c.delta.XY();
-		q.push({ 0., si0 });
-		while (!q.empty())
-		{
-			auto [d, si] = q.top();
-			q.pop();
-			if (d > dist[si]) continue;
+		next.Clear();
+		for (int si : front)
 			for (auto& w : sector[si].walls)
 			{
 				if (!w.twoSided()) continue;
 				auto ns = w.nextSector();
-				if (!ns || ns->lotag == ST_2_UNDERWATER) continue;
 				const int ni = sectindex(ns);
-				const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
-				const double nd = d + (mid - entry[si]).Length();
-				if (nd > reach) continue;
-				if (dist[ni] < 0 || nd < dist[ni])
-				{
-					dist[ni] = nd;
-					entry[ni] = mid;
-					q.push({ nd, ni });
-				}
+				if (owner[ni] >= 0 || !waterCeiling(ns)) continue;
+				owner[ni] = owner[si];
+				next.Push(ni);
 			}
-		}
+		std::swap(front, next);
+	}
+
+	// the renderer makes the copies (with the room-over-room portals of the map)
+	for (unsigned k = 0; k < copies.Size(); k++)
+	{
+		RtCopyLink l;
+		l.delta = copies[k].delta;
+		l.start = sectindex(copies[k].above);
+		l.skipWaterFloors = true;
 		for (unsigned i = 0; i < n; i++)
-			if (dist[i] >= 0 && g_rtCopySector[i] == 0 && keep(&sector[i])) g_rtCopySector[i] = uint8_t(k + 1);
+			if (owner[i] == int(k)) l.holes.push_back(int(i));
+		g_rtCopyLinks.push_back(std::move(l));
 	}
 }
 

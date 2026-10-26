@@ -25,6 +25,8 @@
 **
 */
 
+#include <queue>
+#include <algorithm>
 #include "gi.h"
 #include "build.h"
 #include "v_draw.h"
@@ -326,12 +328,167 @@ static void CheckTimer(FRenderState &state, uint64_t ShaderStartTime)
 void animatecamsprite(double s);
 
 
+//---------------------------------------------------------------------------
+//
+// Ray tracing: copies of places linked to openings near the view, moved into
+// place (g_rtCopySector). The path tracer has the whole map at once, so what the
+// rasterizer shows through a portal must physically be there:
+//  - the game's links (g_rtCopyLinks): Duke's water surfaces, the world above them
+//  - the map's sector portals: Blood's and Redneck Rampage's rooms over rooms --
+//    the ceiling over Blood's opening coffin is the crypt elsewhere on the map
+// Each copy keeps out anything that would cover another copy's openings.
+//
+//---------------------------------------------------------------------------
+
+static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
+{
+	std::vector<RtCopyLink> links = std::move(g_rtCopyLinks);
+	g_rtCopyLinks.clear();
+	g_rtCopySector.clear();
+
+	constexpr double reach = 1600; // 50 m
+	const unsigned n = sector.Size();
+
+	auto centre = [](const sectortype* s)
+	{
+		DVector2 c(0, 0);
+		for (auto& w : s->walls) c += w.pos;
+		return c / max(1u, s->walls.Size());
+	};
+
+	// the map's sector portals near the view, one link per portal
+	{
+		TMap<int, unsigned> byPortal;
+		for (unsigned i = 0; i < n; i++)
+		{
+			auto s = &sector[i];
+			if (s->portalflags != PORTAL_SECTOR_FLOOR && s->portalflags != PORTAL_SECTOR_CEILING) continue;
+			if (s->portalnum < 0 || unsigned(s->portalnum) >= allPortals.Size()) continue;
+			const PortalDesc& pd = allPortals[s->portalnum];
+			if (pd.targets.Size() == 0 || unsigned(pd.targets[0]) >= n) continue;
+			if ((centre(s) - cpos.XY()).Length() > reach) continue;
+			if (auto k = byPortal.CheckKey(s->portalnum))
+			{
+				links[*k].holes.push_back(int(i));
+				continue;
+			}
+			RtCopyLink l;
+			l.delta = pd.delta;
+			l.start = pd.targets[0];
+			l.holes.push_back(int(i));
+			byPortal.Insert(s->portalnum, unsigned(links.size()));
+			links.push_back(std::move(l));
+		}
+	}
+	if (links.empty()) return;
+
+	// nearest openings first
+	std::vector<double> ldist(links.size(), 1e30);
+	for (size_t k = 0; k < links.size(); k++)
+		for (int h : links[k].holes)
+		{
+			const double d = &sector[h] == camsect ? 0. : (centre(&sector[h]) - cpos.XY()).Length();
+			ldist[k] = min(ldist[k], d);
+		}
+	std::vector<size_t> order(links.size());
+	for (size_t k = 0; k < order.size(); k++) order[k] = k;
+	std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return ldist[a] < ldist[b]; });
+	if (order.size() > size_t(RT_MAX_COPIES)) order.resize(RT_MAX_COPIES);
+
+	// points inside each copy's openings
+	std::vector<TArray<DVector2>> holes(order.size());
+	for (size_t k = 0; k < order.size(); k++)
+		for (int h : links[order[k]].holes)
+		{
+			auto hs = &sector[h];
+			const DVector2 c = centre(hs);
+			if (inside(c.X, c.Y, hs) == 1) holes[k].Push(c);
+			for (auto& w : hs->walls)
+			{
+				const DVector2 p = w.pos * 0.9 + c * 0.1;
+				if (inside(p.X, p.Y, hs) == 1) holes[k].Push(p);
+			}
+		}
+
+	g_rtCopySector.assign(n, 0);
+	for (size_t k = 0; k < order.size(); k++)
+	{
+		const RtCopyLink& c = links[order[k]];
+		g_rtCopyOffset[k][0] = -c.delta.X;
+		g_rtCopyOffset[k][1] = -c.delta.Y;
+		g_rtCopyOffset[k][2] = -c.delta.Z;
+		g_rtCopySkipWater[k] = c.skipWaterFloors;
+
+		// is any of these (opening side) points under sector 'ss' (linked side) in this copy?
+		auto over = [&](const TArray<DVector2>& pts, sectortype* ss)
+		{
+			for (auto& p : pts)
+			{
+				const DVector2 q = p + c.delta.XY();
+				if (inside(q.X, q.Y, ss) == 1) return true;
+			}
+			return false;
+		};
+		// nothing solid of this copy over another copy's openings (its own win)
+		auto keep = [&](sectortype* ss)
+		{
+			if (c.skipWaterFloors && ss->lotag == 1) return true; // its floor is left out anyway
+			for (size_t j = 0; j < order.size(); j++)
+				if (j != k && over(holes[j], ss)) return over(holes[k], ss);
+			return true;
+		};
+		std::vector<char> isHole(n, 0);
+		for (int h : c.holes) isHole[h] = 1;
+
+		// the linked side within reach of the camera's place there, through openings
+		sectortype* start = &sector[c.start];
+		updatesector(cpos.XY() + c.delta.XY(), &start);
+		if (!start || isHole[sectindex(start)] || (c.skipWaterFloors && start->lotag == 2)) start = &sector[c.start];
+
+		std::vector<double> dist(n, -1.);
+		std::vector<DVector2> entry(n);
+		using Item = std::pair<double, int>;
+		std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
+		const int si0 = sectindex(start);
+		dist[si0] = 0;
+		entry[si0] = cpos.XY() + c.delta.XY();
+		q.push({ 0., si0 });
+		while (!q.empty())
+		{
+			auto [d, si] = q.top();
+			q.pop();
+			if (d > dist[si]) continue;
+			for (auto& w : sector[si].walls)
+			{
+				if (!w.twoSided()) continue;
+				auto ns = w.nextSector();
+				if (!ns) continue;
+				const int ni = sectindex(ns);
+				// not back onto the opening side
+				if (isHole[ni] || (c.skipWaterFloors && ns->lotag == 2)) continue;
+				const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
+				const double nd = d + (mid - entry[si]).Length();
+				if (nd > reach) continue;
+				if (dist[ni] < 0 || nd < dist[ni])
+				{
+					dist[ni] = nd;
+					entry[ni] = mid;
+					q.push({ nd, ni });
+				}
+			}
+		}
+		for (unsigned i = 0; i < n; i++)
+			if (dist[i] >= 0 && g_rtCopySector[i] == 0 && !isHole[i] && keep(&sector[i])) g_rtCopySector[i] = uint8_t(k + 1);
+	}
+}
+
 void render_drawrooms(DCoreActor* playersprite, const DVector3& position, sectortype* sect, const DRotator& angles, double interpfrac, float fov)
 {
 	updatesector(position.XY(), &sect);
 	if (sect == nullptr) return;
 	g_rtViewSector = sectindex(sect);
 	g_rtViewPos[0] = position.X; g_rtViewPos[1] = position.Y; g_rtViewPos[2] = position.Z;
+	if (RT_IsActive()) RT_BuildCopies(position, sect);
 
 	iter_dlightf = iter_dlight = draw_dlight = draw_dlightf = 0;
 	checkBenchActive();

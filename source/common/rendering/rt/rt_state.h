@@ -49,6 +49,23 @@ inline int RT_CopySector( int sectnum )
 {
     return sectnum >= 0 && size_t( sectnum ) < g_rtCopySector.size() ? g_rtCopySector[ size_t( sectnum ) ] : 0;
 }
+// per copy: the linked side's above-water floors (Duke's lotag 1) are the water
+// surface itself, already drawn by the room under it: left out of the copy
+extern bool g_rtCopySkipWater[ RT_MAX_COPIES ];
+
+// What a game links this frame, for the copies (set before it renders the view; the
+// renderer turns them into g_rtCopySector and empties the list). An opening ("hole")
+// on this side shows the place at hole + delta: Duke's water surfaces. Raze's sector
+// portals (Blood's and Redneck Rampage's rooms over rooms) are added by the renderer.
+struct RtCopyLink
+{
+    DVector3           delta;                   // hole side + delta = linked side (game units)
+    int                start           = -1;    // a sector of the linked side
+    std::vector< int > holes;                   // the openings' sectors (this side)
+    bool               skipWaterFloors = false; // see g_rtCopySkipWater
+};
+extern std::vector< RtCopyLink > g_rtCopyLinks;
+
 inline const double* RT_CopyOffset( int copy )
 {
     static const double none[ 3 ] = {};
