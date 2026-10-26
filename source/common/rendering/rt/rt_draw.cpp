@@ -878,6 +878,28 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         }
     }
 
+    // A sprite's picture is not tiled, but its texture repeats: filtered at its edges, the
+    // opposite edge bleeds in -- a line along the top of a flame (its bright bottom row).
+    // Its texture coordinates stop half a texel in from the edges. (The HUD's pictures
+    // have clamped textures; a sprite's carries its material maps, so it keeps its own.)
+    if( !isUI && !isModel && ( rtstate.is< RtPrim::Sprite >() || rtstate.is< RtPrim::Decal >() ) && mMaterial.mMaterial &&
+        mMaterial.mMaterial->Source() )
+    {
+        const float tw = float( std::max( 1, int( mMaterial.mMaterial->Source()->GetTexelWidth() ) ) );
+        const float th = float( std::max( 1, int( mMaterial.mMaterial->Source()->GetTexelHeight() ) ) );
+        if( verts.data() != m_tempverts.data() )
+        {
+            m_tempverts.assign( verts.begin(), verts.end() );
+        }
+        const float u0 = 0.5f / tw, v0 = 0.5f / th;
+        for( auto& v : m_tempverts )
+        {
+            v.texCoord[ 0 ] = std::clamp( v.texCoord[ 0 ], u0, 1.f - u0 );
+            v.texCoord[ 1 ] = std::clamp( v.texCoord[ 1 ], v0, 1.f - v0 );
+        }
+        verts = m_tempverts;
+    }
+
     RgTransform transform = isUI ? RT_TRANSFORM_IDENTITY : MakeTransform( isSky, isModel );
     // a voxel model drawn twice at the same place (two passes reach its sprite) is the
     // same mesh twice: twice the triangles, all of them overlapping

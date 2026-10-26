@@ -32,6 +32,7 @@
 #include "m_png.h"
 #include "files.h"
 #include "colormatcher.h"
+#include "texinfo.h"
 
 #include <filesystem>
 #include <unordered_set>
@@ -196,8 +197,22 @@ const MatClass* TableClass( const std::string& texname )
     {
         return nullptr;
     }
-    const int  tile = atoi( texname.c_str() + 1 );
-    const auto it   = g_table.tiles.find( tile );
+    const int tile = atoi( texname.c_str() + 1 );
+    auto      it   = g_table.tiles.find( tile );
+    if( it == g_table.tiles.end() )
+    {
+        // a frame of an animation: its first frame's class (the table lists the first
+        // frames; one frame of the water with a stone's bumps made it flip as it ran)
+        for( int k = 1; k <= 63 && tile - k >= 0; k++ )
+        {
+            const auto& pa = GetExtInfo( tileGetTextureID( tile - k ) ).picanm;
+            if( pa.num >= k && ( pa.type() == PICANM_ANIMTYPE_FWD || pa.type() == PICANM_ANIMTYPE_OSC ) )
+            {
+                it = g_table.tiles.find( tile - k );
+                break;
+            }
+        }
+    }
     return it == g_table.tiles.end() ? nullptr : &g_table.classes[ it->second ];
 }
 

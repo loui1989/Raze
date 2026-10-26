@@ -328,6 +328,18 @@ void HWDrawInfo::DispatchSprites()
 
 		if (actor == nullptr || tspr->scale.X == 0 || tspr->scale.Y == 0 || !texid.isValid()) continue;
 
+		// ray tracing: a sprite entirely under its sector's floor is out of sight in the game
+		// (Build clips sprites at the floors they are seen over: E4M1 keeps its lightning bolts
+		// down there), but to the path tracer it is real geometry, seen through water above it
+		if (RT_IsActive() && tspr->sectp && !tspr->rtcopy && (tspr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_FLOOR &&
+			!(tspr->sectp->floorstat & CSTAT_SECTOR_SKY))
+		{
+			auto tex = TexMan.GetGameTexture(texid);
+			const double h = tex ? tex->GetDisplayHeight() * tspr->scale.Y : 0;
+			const double top = (tspr->cstat & CSTAT_SPRITE_YCENTER) ? tspr->pos.Z - h * 0.5 : tspr->pos.Z - h;
+			if (h > 0 && top > getflorzofslopeptr(tspr->sectp, tspr->pos.X, tspr->pos.Y) + 1) continue;
+		}
+
 		if (i < rtHiddenSpriteStart) actor->spr.cstat2 |= CSTAT2_SPRITE_MAPPED;	// not for what only the path tracer sees
 
 		if (!(tspr->cstat2 & CSTAT2_SPRITE_NOANIMATE))
