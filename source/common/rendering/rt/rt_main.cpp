@@ -56,7 +56,8 @@ CVARD( Float, rt_decal_offset, 0.03f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: met
 // under flickering lights and explosions, but lighting changes trail a little
 CVARD( Float, rt_denoise_sens_direct, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, denoiser reaction to direct light changes (lower = fewer splotches, more lag)" )
 CVARD( Float, rt_denoise_sens_indirect, 0.15f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for bounce light" )
-CVARD( Float, rt_denoise_sens_spec, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for reflections" )
+CVARD( Float, rt_min_roughness, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, no surface is glossier than this (lower = sharper highlights, more noise)" )
+CVARD( Float, rt_denoise_sens_spec, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for reflections" )
 CVARD( Bool, rt_muzzleflash, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: shooting lights the room" )
 CVARD( Float, rt_muzzleflash_intensity, 250.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash brightness" )
 CVARD( Color, rt_muzzleflash_color, 0xffa860, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash colour" )
@@ -732,7 +733,11 @@ void RTFrameBuffer::RT_DrawFrame()
         .normalMapStrength      = 1.0f,
         .emissionMapBoost       = std::max( 0.f, float( *rt_emis_boost ) ),
         .emissionMaxScreenColor = std::max( 0.f, float( *rt_emis_screen ) ),
-        .minRoughness           = 0.0f,
+        // a floor under every surface's roughness: Duke-RT's maps are glossy almost
+        // everywhere (0.3 on average), and a glossy surface's reflection is one noisy
+        // sample per pixel -- the crawling on shiny ceilings and floors. The mirrors of
+        // polished surfaces are separate (masked by the map, before this floor)
+        .minRoughness           = std::clamp( float( *rt_min_roughness ), 0.f, 1.f ),
         .heightMapDepth         = 0.02f,
         // the material pass: RTGL1's own defaults for these leave every surface a
         // plain matte dielectric (worldPbr 0), so they must be given
