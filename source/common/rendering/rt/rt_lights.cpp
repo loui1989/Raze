@@ -22,6 +22,7 @@
 #include "buildtiles.h"
 
 #include <unordered_map>
+#include <queue>
 #include <array>
 #include "palette.h"
 #include "palettecontainer.h"
@@ -40,6 +41,7 @@ CVARD( Float, rt_flicker_amount, 0.6f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0.
 CVARD( Bool, rt_sector_light_tint, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights take the colour of the sector's palette" )
 CVARD( Bool, rt_lightovr_fixtures, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: draw the lamp panels of LIGHTOVR surface lights" )
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
+CVARD( Float, rt_light_reach, 40.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lights further than this (metres, walking through openings) from the view are left out; 0 = all lights" )
 
 namespace
 {
@@ -87,6 +89,126 @@ float Rand01( uint64_t seed )
 float OverlayToLumens( float intensity, float radius )
 {
     return std::max( 0.f, *rt_lightovr_scale * intensity * radius * radius * 5.0e-4f );
+}
+
+//
+// light reach: only the lights near the view, measured through the openings
+// between sectors, go to RTGL1. Each pixel tries a handful of lights picked at
+// random from all uploaded ones; with every lit sector of a big level uploaded
+// (hundreds), most picks are lights far away and a pixel with no history (just
+// turned into view) finds its own lamp only after a few frames: black, jagged
+// patches that smear in while turning, worst under strong lights.
+//
+
+std::vector< float >     s_reachDist;  // path distance to the sector, metres; <0 = not reached
+std::vector< FVector3 >  s_reachEntry; // where the path enters the sector (RT metres)
+bool                     s_reachOn = false;
+
+void ComputeReach()
+{
+    s_reachOn = false;
+    const float reach = *rt_light_reach;
+    if( reach <= 0.f || g_rtViewSector < 0 || unsigned( g_rtViewSector ) >= sector.Size() )
+    {
+        return;
+    }
+    s_reachDist.assign( sector.Size(), -1.f );
+    s_reachEntry.resize( sector.Size() );
+
+    const RgFloat3D cam = WorldToRT( g_rtViewPos[ 0 ], g_rtViewPos[ 1 ], g_rtViewPos[ 2 ] );
+    using Item = std::pair< float, int >;
+    std::priority_queue< Item, std::vector< Item >, std::greater< Item > > q;
+    s_reachDist[ g_rtViewSector ]  = 0.f;
+    s_reachEntry[ g_rtViewSector ] = { cam.data[ 0 ], cam.data[ 1 ], cam.data[ 2 ] };
+    q.push( { 0.f, g_rtViewSector } );
+    while( !q.empty() )
+    {
+        const auto [ d, si ] = q.top();
+        q.pop();
+        if( d > s_reachDist[ si ] )
+        {
+            continue;
+        }
+        const FVector3 from = s_reachEntry[ si ];
+        for( auto& w : sector[ si ].walls )
+        {
+            if( !w.twoSided() )
+            {
+                continue;
+            }
+            const int ni = sectindex( w.nextSector() );
+            if( ni < 0 || unsigned( ni ) >= sector.Size() )
+            {
+                continue;
+            }
+            const auto& p2 = w.point2Wall()->pos;
+            const auto  ns = w.nextSector();
+            // the middle of the opening, at the height the path arrives at, kept
+            // between the floors and ceilings on both sides
+            const double zlo  = std::max( sector[ si ].ceilingz, ns->ceilingz );
+            const double zhi  = std::min( sector[ si ].floorz, ns->floorz );
+            const double fz   = -double( from.Z ) / ONEGAMEUNIT_IN_METERS;
+            const double z    = zlo <= zhi ? std::clamp( fz, zlo, zhi ) : ( zlo + zhi ) * 0.5;
+            const RgFloat3D m = WorldToRT( ( w.pos.X + p2.X ) * 0.5, ( w.pos.Y + p2.Y ) * 0.5, z );
+            const FVector3 mid{ m.data[ 0 ], m.data[ 1 ], m.data[ 2 ] };
+            const float    nd = d + ( mid - from ).Length();
+            if( nd > reach * 1.5f )
+            {
+                continue;
+            }
+            if( s_reachDist[ ni ] < 0.f || nd < s_reachDist[ ni ] )
+            {
+                s_reachDist[ ni ]  = nd;
+                s_reachEntry[ ni ] = mid;
+                q.push( { nd, ni } );
+            }
+        }
+    }
+    s_reachOn = true;
+}
+
+// 0..1: how much of a light at 'p' (RT metres) in sector 'sect' to keep
+float ReachFade( const RgFloat3D& p, int sect )
+{
+    if( !s_reachOn )
+    {
+        return 1.f;
+    }
+    const float    reach = *rt_light_reach;
+    const FVector3 pp{ p.data[ 0 ], p.data[ 1 ], p.data[ 2 ] };
+    float          d;
+    if( sect >= 0 && size_t( sect ) < s_reachDist.size() )
+    {
+        if( s_reachDist[ sect ] < 0.f )
+        {
+            return 0.f;
+        }
+        d = s_reachDist[ sect ] + ( pp - s_reachEntry[ sect ] ).Length();
+    }
+    else
+    {
+        const RgFloat3D cam = WorldToRT( g_rtViewPos[ 0 ], g_rtViewPos[ 1 ], g_rtViewPos[ 2 ] );
+        d = ( pp - FVector3{ cam.data[ 0 ], cam.data[ 1 ], cam.data[ 2 ] } ).Length();
+    }
+    // fade out over the last third, so nothing pops
+    const float t = std::clamp( ( reach - d ) / ( reach * 0.33f ), 0.f, 1.f );
+    return t * t * ( 3.f - 2.f * t );
+}
+
+// the sector a fixed map position is in, found once per level
+int CachedSector( std::vector< int >& cache, unsigned index, double x, double y )
+{
+    if( cache.size() <= index )
+    {
+        cache.resize( index + 1, -2 );
+    }
+    if( cache[ index ] == -2 )
+    {
+        sectortype* s = nullptr;
+        updatesector( DVector2( x, y ), &s );
+        cache[ index ] = s ? sectindex( s ) : -1;
+    }
+    return cache[ index ];
 }
 
 void UploadSphere( uint64_t id, const RgFloat3D& pos, RgColor4DPacked32 color, float lumens, float sourceRadiusM )
@@ -281,6 +403,12 @@ void UploadSectorLights()
         sm        = sm < 0.f ? lumens : sm + ( lumens - sm ) * std::clamp( float( *rt_sector_light_smooth ), 0.01f, 1.f );
         lumens    = sm;
 
+        lumens *= ReachFade( WorldToRT( cx, cy, z ), int( i ) );
+        if( lumens <= 0.01f )
+        {
+            continue;
+        }
+
         // the sector's palette tints its light (the club's red and blue flashes)
         const int   pal  = sec.floorpal ? sec.floorpal : sec.ceilingpal;
         const auto  tint = *rt_sector_light_tint ? PaletteTint( pal ) : FVector3{ 1, 1, 1 };
@@ -359,6 +487,15 @@ void UploadOverlayLights( uint32_t time )
 
     const ResolvedLightOverlaySet& set = GetResolvedLightOverlaySet();
 
+    static std::vector< int > s_mapLightSector, s_surfLightSector;
+    static uint32_t           s_cacheGen = ~0u;
+    if( s_cacheGen != RT_LevelGeneration() )
+    {
+        s_mapLightSector.clear();
+        s_surfLightSector.clear();
+        s_cacheGen = RT_LevelGeneration();
+    }
+
     // the map's directional light: RTGL1 allows one
     if( set.directionalRules.Size() > 0 )
     {
@@ -436,9 +573,13 @@ void UploadOverlayLights( uint32_t time )
             z += r.offset[ 2 ];
         }
 
-        const uint64_t id     = MapLightBase + i;
-        const float    lumens = OverlayToLumens( r.intensity, r.radius ) * FlickerScale( id, r.flickerFrames, time );
-        UploadSphere( id, WorldToRT( x, y, z ), PackColor( r.color ), lumens, 0.05f );
+        const uint64_t  id     = MapLightBase + i;
+        const RgFloat3D lp     = WorldToRT( x, y, z );
+        const int       lsec   = r.anchorType == LightOverlayAnchorType::Sector ? r.anchorIndex
+                                                                                 : CachedSector( s_mapLightSector, i, x, y );
+        const float     lumens = OverlayToLumens( r.intensity, r.radius ) * FlickerScale( id, r.flickerFrames, time ) *
+                             ReachFade( lp, lsec );
+        UploadSphere( id, lp, PackColor( r.color ), lumens, 0.05f );
     }
 
     // surface lights: a light just off an authored spot on a surface
@@ -461,8 +602,10 @@ void UploadOverlayLights( uint32_t time )
             r.position[ 1 ] + r.normal[ 1 ] * lightOut,
             r.position[ 2 ] + r.normal[ 2 ] * lightOut,
         };
+        // path tracing space: x, -z, -y of the world
+        const float fade = ReachFade( PTToRT( p ), CachedSector( s_surfLightSector, i, p[ 0 ], -p[ 2 ] ) );
         UploadSphere( SurfaceLightBase + i, PTToRT( p ), PackColor( r.color ),
-                      OverlayToLumens( r.intensity, r.radius ) * response,
+                      OverlayToLumens( r.intensity, r.radius ) * response * fade,
                       std::clamp( std::min( sw, sh ) * 0.5f * ONEGAMEUNIT_IN_METERS, 0.02f, 0.1f ) );
 
         // the fixture: the author's lamp panel, drawn on the surface
@@ -572,7 +715,8 @@ void UploadOverlayLights( uint32_t time )
             }
             intensity *= FlickerScale( id, rule.flickerFrames, time );
 
-            UploadSphere( id, pos, PackColor( rule.color ), OverlayToLumens( intensity, rule.radius ), 0.05f );
+            const float fade = ReachFade( pos, actor->sector() ? sectindex( actor->sector() ) : -1 );
+            UploadSphere( id, pos, PackColor( rule.color ), OverlayToLumens( intensity, rule.radius ) * fade, 0.05f );
         }
     }
 }
@@ -648,6 +792,7 @@ float RT_EmissiveOverride( int sectnum, int tile, float& glow )
 
 void RT_UploadSceneLights( uint32_t time )
 {
+    ComputeReach();
     UploadSectorLights();
     UploadOverlayLights( time );
 }

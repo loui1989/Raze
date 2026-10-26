@@ -330,6 +330,8 @@ void render_drawrooms(DCoreActor* playersprite, const DVector3& position, sector
 {
 	updatesector(position.XY(), &sect);
 	if (sect == nullptr) return;
+	g_rtViewSector = sectindex(sect);
+	g_rtViewPos[0] = position.X; g_rtViewPos[1] = position.Y; g_rtViewPos[2] = position.Z;
 
 	iter_dlightf = iter_dlight = draw_dlight = draw_dlightf = 0;
 	checkBenchActive();

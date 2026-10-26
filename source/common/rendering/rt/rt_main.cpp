@@ -59,6 +59,8 @@ CVARD( Float, rt_denoise_sens_indirect, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, 
 // more samples per pixel: less noise to clean up, so newly seen places settle faster
 CVARD( Int, rt_samples_direct, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: direct light samples per pixel (1..8; each costs a shadow ray)" )
 CVARD( Int, rt_samples_indirect, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bounce light paths per pixel (1..8; costly)" )
+CVARD( Int, rt_restir_initial, 32, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: candidate lights tried per pixel each frame (1..64); more = less black/smeary areas when turning" )
+CVARD( Int, rt_restir_spatial, 8, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: neighbouring pixels whose light choice is reused (1..16)" )
 CVARD( Float, rt_min_roughness, 0.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, no surface is glossier than this (lower = sharper highlights, more noise)" )
 CVARD( Float, rt_denoise_sens_spec, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for reflections" )
 CVARD( Bool, rt_world_motion, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: track walls and floors as moving geometry (off: only the camera moves them)" )
@@ -737,8 +739,8 @@ void RTFrameBuffer::RT_DrawFrame()
         .rrSpecularHitDistance                       = true,
         .directSamples                               = uint32_t( std::clamp( int( *rt_samples_direct ), 1, 8 ) ),
         .indirectSamples                             = uint32_t( std::clamp( int( *rt_samples_indirect ), 1, 8 ) ),
-        .restirInitialSamples                        = 8,
-        .restirSpatialSamples                        = 8,
+        .restirInitialSamples                        = uint32_t( std::clamp( int( *rt_restir_initial ), 1, 64 ) ),
+        .restirSpatialSamples                        = uint32_t( std::clamp( int( *rt_restir_spatial ), 1, 16 ) ),
         .restirSpatialRadius                         = 30.0f,
         .restirTemporalMCap                          = 20,
         .rrGuideMin                                  = 0.01f,

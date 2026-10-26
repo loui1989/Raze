@@ -38,6 +38,9 @@ extern const char* g_rtShotEvent;
 // The player's own actor: drawn only where the player cannot see it himself
 // (mirrors, reflections, shadows)
 extern const void* g_rtViewerActor;
+// where the main view is rendered from (game units, z down) and its sector; -1 = unknown
+extern int    g_rtViewSector;
+extern double g_rtViewPos[ 3 ];
 
 // Per sector, set by the game before it renders the view: -1 for a sector without a
 // light switch, else how far its lights are on (0 off .. 1 on). A switched room sits
