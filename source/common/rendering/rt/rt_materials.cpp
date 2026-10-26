@@ -123,6 +123,7 @@ struct MatTable
     std::vector< MatClass >             classes;
     std::unordered_map< int, unsigned > tiles; // tile -> class index
     bool                                loaded = false;
+    float                               autoBump = 0.f; // "autobump N": bumps for textures with none
 };
 MatTable g_table;
 
@@ -148,6 +149,11 @@ const MatClass* TableClass( const std::string& texname )
             }
             char  a[ 128 ], b[ 128 ];
             float r, m, bu, po, gl = 0.f;
+            if( float ab; sscanf( line, " autobump %f", &ab ) == 1 )
+            {
+                g_table.autoBump = std::max( 0.f, ab );
+                continue;
+            }
             if( sscanf( line, " class %127s %f %f %f %f %f", a, &r, &m, &bu, &po, &gl ) >= 5 )
             {
                 MatClass mc{ a, r, m, bu, po, gl, strncmp( a, "lamp", 4 ) == 0, 0 };
@@ -260,6 +266,61 @@ std::vector< float > Heights( const FTextureBuffer& albedo )
         o[ i ] = 0.45f * fine[ i ] + 0.55f * broad[ i ] * 1.6f;
     }
     return o;
+}
+
+// The heights a normal map (as given: BGRA, Y down -- World Tour's) is the slope of:
+// its gradient field integrated (a Poisson solve, wrapping: the textures tile), on a
+// grid of at most 256 texels a side; 0..1, white = raised. For parallax mapping.
+std::vector< float > HeightsFromNormals( const Mask& nm, int& W, int& H )
+{
+    const int big = std::max( nm.w, nm.h );
+    const float s = std::max( 1.f, float( big ) / 256.f );
+    W             = std::max( 4, int( nm.w / s ) );
+    H             = std::max( 4, int( nm.h / s ) );
+    std::vector< float > p( size_t( W ) * H ), q( size_t( W ) * H ), div( size_t( W ) * H ), h( size_t( W ) * H, 0.f );
+    for( int y = 0; y < H; y++ )
+    {
+        for( int x = 0; x < W; x++ )
+        {
+            const uint8_t* t  = nm.Texel( x, y, W, H ); // BGRA
+            const float    nx = t[ 2 ] / 127.5f - 1.f;
+            const float    ny = t[ 1 ] / 127.5f - 1.f; // Y down: + is towards +y (image)
+            const float    nz = std::max( 0.2f, t[ 0 ] / 127.5f - 1.f );
+            // slope of the height along x and (image) y, per grid cell
+            p[ size_t( y * W + x ) ] = -nx / nz * s;
+            q[ size_t( y * W + x ) ] = -ny / nz * s;
+        }
+    }
+    auto I = [ & ]( int x, int y ) { return size_t( ( ( y + H ) % H ) * W + ( x + W ) % W ); };
+    for( int y = 0; y < H; y++ )
+    {
+        for( int x = 0; x < W; x++ )
+        {
+            div[ I( x, y ) ] = ( p[ I( x + 1, y ) ] - p[ I( x - 1, y ) ] ) * 0.5f + ( q[ I( x, y + 1 ) ] - q[ I( x, y - 1 ) ] ) * 0.5f;
+        }
+    }
+    // Gauss-Seidel with over-relaxation: the large shapes come in slowly, but parallax
+    // only needs the depth of a stone against its joints
+    for( int it = 0; it < 300; it++ )
+    {
+        for( int y = 0; y < H; y++ )
+        {
+            for( int x = 0; x < W; x++ )
+            {
+                const float g = ( h[ I( x - 1, y ) ] + h[ I( x + 1, y ) ] + h[ I( x, y - 1 ) ] + h[ I( x, y + 1 ) ] - div[ I( x, y ) ] ) * 0.25f;
+                h[ I( x, y ) ] += 1.85f * ( g - h[ I( x, y ) ] );
+            }
+        }
+    }
+    std::vector< float > sorted = h;
+    std::sort( sorted.begin(), sorted.end() );
+    const float lo = sorted[ sorted.size() * 2 / 100 ], hi = sorted[ sorted.size() * 98 / 100 ];
+    const float span = std::max( hi - lo, 1e-4f );
+    for( float& v : h )
+    {
+        v = std::clamp( ( v - lo ) / span, 0.f, 1.f );
+    }
+    return h;
 }
 
 } // namespace
@@ -787,6 +848,84 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 if( FILE* f = fopen( pathNv.string().c_str(), "wb" ) )
                 {
                     fclose( f );
+                }
+            }
+        }
+    }
+
+    // parallax for the textures with World Tour's normal maps: heights made from them
+    if( layers && layers->Normal.get() && *rt_materials_normals )
+    {
+        const auto pathH  = dir / ( name + "_h.png" );
+        const auto pathHv = dir / ( name + "_h.n1" );
+        if( regen || !Exists( pathHv ) || !Exists( pathH ) )
+        {
+            Mask nm;
+            if( nm.Load( layers->Normal.get() ) )
+            {
+                int        W = 0, H = 0;
+                const auto hgt = HeightsFromNormals( nm, W, H );
+                std::vector< uint8_t > rgb( size_t( W ) * H * 3 );
+                for( size_t i = 0; i < hgt.size(); i++ )
+                {
+                    rgb[ i * 3 + 0 ] = rgb[ i * 3 + 1 ] = rgb[ i * 3 + 2 ] = uint8_t( hgt[ i ] * 255.f + 0.5f );
+                }
+                if( WritePNG( pathH, rgb, W, H ) )
+                {
+                    Touch( pathHv );
+                }
+            }
+        }
+    }
+    // the rest (Duke: the textures World Tour made no normal map for): bumps and heights
+    // from the texture's own light and dark texels, if the table says so (autobump) --
+    // not for see-through ones (sprites, grates) nor glowing ones (signs, screens)
+    else if( !mc && !out.glass && !hasE && *rt_materials_normals && TableClass( "" ) == nullptr && g_table.autoBump > 0.f )
+    {
+        size_t holes = 0;
+        for( int i = 0; i < w * h; i++ )
+        {
+            holes += albedo.mBuffer[ size_t( i ) * 4 + 3 ] < 128;
+        }
+        if( holes <= size_t( w ) * h / 100 && w >= 16 && h >= 16 )
+        {
+            char sfx[ 32 ];
+            snprintf( sfx, sizeof( sfx ), "_n.a%08x", uint32_t( g_table.autoBump * 1000.f ) ^ 0xa0u );
+            const auto pathNA = dir / ( name + sfx );
+            const auto pathH  = dir / ( name + "_h.png" );
+            if( regen || !Exists( pathNA ) || !Exists( pathN ) || !Exists( pathH ) )
+            {
+                const auto hgt = Heights( albedo );
+                const float k  = 14.f * g_table.autoBump * std::sqrt( std::clamp( float( std::min( w, h ) ) / 64.f, 0.5f, 4.f ) );
+                std::vector< uint8_t > rgb( size_t( w ) * h * 3 ), hr( size_t( w ) * h * 3 );
+                float lo = 1e9f, hi = -1e9f;
+                for( float v : hgt )
+                {
+                    lo = std::min( lo, v ), hi = std::max( hi, v );
+                }
+                const float span = std::max( hi - lo, 1e-3f );
+                for( int y = 0; y < h; y++ )
+                {
+                    for( int x = 0; x < w; x++ )
+                    {
+                        auto At = [ & ]( int xx, int yy ) { return hgt[ size_t( ( ( yy + h ) % h ) * w + ( xx + w ) % w ) ]; };
+                        const float dx = ( At( x + 1, y ) - At( x - 1, y ) ) * 0.5f;
+                        const float dy = ( At( x, y + 1 ) - At( x, y - 1 ) ) * 0.5f;
+                        float       nx = -dx * k, ny = dy * k, nz = 1.f;
+                        const float il = 1.f / std::sqrt( nx * nx + ny * ny + nz * nz );
+                        nx *= il, ny *= il, nz *= il;
+                        uint8_t* o = &rgb[ size_t( y * w + x ) * 3 ];
+                        o[ 0 ]     = uint8_t( std::clamp( ( nx * 0.5f + 0.5f ) * 255.f + 0.5f, 0.f, 255.f ) );
+                        o[ 1 ]     = uint8_t( std::clamp( ( ny * 0.5f + 0.5f ) * 255.f + 0.5f, 0.f, 255.f ) );
+                        o[ 2 ]     = uint8_t( std::clamp( ( nz * 0.5f + 0.5f ) * 255.f + 0.5f, 0.f, 255.f ) );
+                        const float v = 1.f - std::min( 1.f, g_table.autoBump ) * ( 1.f - ( At( x, y ) - lo ) / span );
+                        uint8_t*    ho = &hr[ size_t( y * w + x ) * 3 ];
+                        ho[ 0 ] = ho[ 1 ] = ho[ 2 ] = uint8_t( std::clamp( v * 255.f + 0.5f, 0.f, 255.f ) );
+                    }
+                }
+                if( WritePNG( pathN, rgb, w, h ) && WritePNG( pathH, hr, w, h ) )
+                {
+                    Touch( pathNA );
                 }
             }
         }
