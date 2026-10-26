@@ -45,7 +45,7 @@ CVARD( Float, rt_emis_mult, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much
 CVARD( Bool, rt_emis_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing surfaces cast real light" )
 CVARD( Float, rt_emis_light_scale, 600.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the light glowing surfaces cast" )
 CVARD( Bool, rt_emis_follow_shade, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing textures go out with their room's light switch" )
-CVARD( Float, rt_emis_gi, 0.25f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: with rt_emis_lights, how much bounce light a glowing texture still gives itself" )
+CVARD( Float, rt_emis_gi, 0.06f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: with rt_emis_lights, how much bounce light a glowing texture still gives itself" )
 CVARD( Float, rt_ambient, 0.04f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: faint glow of every surface by its sector's light level, so unlit places are dark rather than black" )
 CVARD( Bool, rt_polish, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: textures with smooth texels (roughness maps) mirror the room" )
 CVARD( Float, rt_world_pbr, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much of the walls' and floors' roughness and metallic maps to use" )
@@ -366,6 +366,13 @@ void RT_CreateRendererInstance( void* pMetalLayer )
         rt_min_roughness->ResetToDefault();
         rt_volumetrics->ResetToDefault();
         rt_config_version = 6;
+    }
+    if( *rt_config_version < 7 )
+    {
+        // a small, bright glowing texture (a TV's static) seen in the bounce light is
+        // a firefly every frame; the real light it casts does that job without noise
+        rt_emis_gi->ResetToDefault();
+        rt_config_version = 7;
     }
 }
 
