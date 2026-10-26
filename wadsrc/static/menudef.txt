@@ -2244,6 +2244,7 @@ OptionMenu "RTOptions" protected
 	Slider "Placed lights (Duke-RT)",	"rt_lightovr_scale", 0, 30, 1, 0
 	Option "Glowing surfaces cast light",	"rt_emis_lights", "OnOff"
 	Slider "Glowing surface light",		"rt_emis_light_scale", 0, 2000, 50, 0
+	Slider "Candle & torch light",		"rt_sprite_light_scale", 0, 12, 0.5, 1
 	Slider "Ambient floor",				"rt_ambient", 0, 0.2, 0.01, 2
 	Slider "Sky light",					"rt_sky", 0, 100, 5, 0
 	Slider "Moonlight (Blood)",			"rt_moon", 0, 40, 1, 0

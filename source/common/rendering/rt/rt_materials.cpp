@@ -115,6 +115,7 @@ struct MatClass
     std::string name;
     float       rough = 0.85f, metal = 0.f, bump = 0.f, polish = 0.f;
     float       glow  = 0.f; // optional 6th column: the texture glows (fire), this bright
+    bool        lamp  = false; // a class named lamp...: its glow follows its room's light (switched off: dark)
     uint32_t    hash  = 0;
 };
 struct MatTable
@@ -149,7 +150,7 @@ const MatClass* TableClass( const std::string& texname )
             float r, m, bu, po, gl = 0.f;
             if( sscanf( line, " class %127s %f %f %f %f %f", a, &r, &m, &bu, &po, &gl ) >= 5 )
             {
-                MatClass mc{ a, r, m, bu, po, gl, 0 };
+                MatClass mc{ a, r, m, bu, po, gl, strncmp( a, "lamp", 4 ) == 0, 0 };
                 char     key[ 256 ];
                 snprintf( key, sizeof( key ), "%s %.3f %.3f %.3f %.3f v2", a, r, m, bu, po );
                 uint32_t hsh = 2166136261u;
@@ -372,6 +373,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
             noE = !hasE;
         }
         out.glow = g->glow;
+        out.lamp = g->lamp;
     }
 
     // emission
@@ -497,7 +499,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         char sfx[ 32 ];
         // (the cavity strength is part of the name: another strength makes them again)
         const float    cav     = std::clamp( float( *rt_cavity ), 0.f, 1.f );
-        const uint32_t ormHash = mc->hash ^ ( uint32_t( cav * 100.f + 0.5f ) * 0x9e3779b1u ) ^ 0x3u;
+        const uint32_t ormHash = mc->hash ^ ( uint32_t( cav * 100.f + 0.5f ) * 0x9e3779b1u ) ^ 0x4u;
         snprintf( sfx, sizeof( sfx ), "_orm.t%08x", ormHash );
         const auto pathT = dir / ( name + sfx );
         if( regen || !Exists( pathT ) || !Exists( pathORM ) )
@@ -518,7 +520,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 if( mc->polish > 0.f && a[ 3 ] >= 128 )
                 {
                     // the mirror: stronger on the lit, raised parts than in the cracks
-                    const float pol = std::clamp( mc->polish * ( 0.5f + 0.5f * rel ), 0.f, 1.5f );
+                    const float pol = std::clamp( mc->polish * ( 0.85f + 0.15f * rel ), 0.f, 3.f );
                     r               = 0.7f - pol / 4.5f;
                 }
                 else

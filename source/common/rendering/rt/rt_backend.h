@@ -257,6 +257,7 @@ public:
     bool IsPolished() const { return m_polished; }
     bool IsGlass() const { return m_glass; }
     float Glow() const { return m_glow; }
+    bool IsLamp() const { return m_lamp; }
 
 private:
     static auto TranslationSuffix( int translation ) -> std::string;
@@ -272,6 +273,7 @@ private:
     bool        m_polished{ false };
     bool        m_glass{ false };
     float       m_glow{ 0.f };
+    bool        m_lamp{ false };
     std::string m_name{};
     std::string m_nameClamped{};
 };
@@ -285,6 +287,7 @@ struct RtMaterialInfo
     bool  polished    = false;
     bool  glass       = false; // the material table calls it glass
     float glow        = 0.f;   // the material table's glow (fire): drawn solid, glowing
+    bool  lamp        = false; // ...following its room's light (a ceiling lamp)
 };
 bool RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& name, const FTextureBuffer& albedo, RtMaterialInfo& out );
 // the material table's glow of a texture (a tile "#01234..."), 0 = none

@@ -134,6 +134,7 @@ EXTERN_CVAR( Bool, rt_glass )
 EXTERN_CVAR( Float, rt_decal_offset )
 EXTERN_CVAR( Float, rt_flat_offset )
 EXTERN_CVAR( Bool, rt_sprite_lights )
+EXTERN_CVAR( Float, rt_sprite_light_scale )
 EXTERN_CVAR( Bool, rt_world_motion )
 EXTERN_CVAR( Float, rt_sector_light_scale )
 

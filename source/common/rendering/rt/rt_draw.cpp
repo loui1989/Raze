@@ -290,6 +290,7 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
         m_polished = mi.polished;
         m_glass    = mi.glass;
         m_glow     = mi.glow;
+        m_lamp     = mi.lamp;
     }
 
     auto details = RgOriginalTextureDetailsEXT{
@@ -986,6 +987,12 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                     glowScale = glow;
                 }
             }
+            // a lamp (the material table's) is lit as its room is: a room whose light is
+            // switched off (its shade goes up) has its lamps off
+            if( hwtex->IsLamp() )
+            {
+                glowScale *= std::clamp( ( classic - 0.25f ) / 0.45f, 0.f, 1.f );
+            }
             emissive   = glowScale;
             emissiveGi = glowScale * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
         }
@@ -1223,7 +1230,8 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
     {
         // a glowing billboard (a candle flame): a small ball just in front of it, and
         // only near the view -- a level has hundreds of them
-        lumens *= RT_LightReachFade( { centre.X, centre.Y, centre.Z }, rtstate.get_sector() );
+        lumens *= RT_LightReachFade( { centre.X, centre.Y, centre.Z }, rtstate.get_sector() ) *
+                  std::max( 0.f, float( *rt_sprite_light_scale ) );
     }
     if( lumens < 0.5f )
     {
