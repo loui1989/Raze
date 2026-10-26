@@ -42,12 +42,50 @@
 #include "rt_state.h"
 #include "texinfo.h"
 #include "gamecontrol.h"
+#include "tiletexture.h"
+#include "palettecontainer.h"
+
+// ray tracing: Blood's liquids, by the game's own surface type of the tile (what its
+// footsteps sound like): water, lava, goo -- and water or goo that is red is blood
+static RtPrim RT_BloodLiquidOf(FGameTexture* tex)
+{
+	static TMap<int, RtPrim> cache;
+	const int idx = tex->GetID().GetIndex();
+	if (auto c = cache.CheckKey(idx)) return *c;
+	RtPrim r = RtPrim::Identity;
+	const int surf = GetExtInfo(tex->GetID()).surftype;
+	enum { kSurfWater = 5, kSurfGoo = 13, kSurfLava = 14 };
+	if (surf == kSurfLava) r = RtPrim::Lava;
+	else if (surf == kSurfWater || surf == kSurfGoo)
+	{
+		// its colour: red is blood, green goo is slime, else water
+		double sum[3] = {};
+		int n = 0;
+		if (const uint8_t* px = GetRawPixels(tex->GetID()))
+		{
+			const int count = int(tex->GetTexelWidth() * tex->GetTexelHeight());
+			for (int i = 0; i < count; i += 3, n++)
+			{
+				const PalEntry c = GPalette.BaseColors[px[i]];
+				sum[0] += c.r; sum[1] += c.g; sum[2] += c.b;
+			}
+		}
+		const double rr = n ? sum[0] / n : 0, gg = n ? sum[1] / n : 0, bb = n ? sum[2] / n : 0;
+		if (rr > 1.5 * gg && rr > 1.5 * bb) r = RtPrim::BloodPool;
+		else if (gg > 1.2 * rr && gg > 1.2 * bb) r = RtPrim::Slime;
+		else r = RtPrim::Water;
+	}
+	cache.Insert(idx, r);
+	return r;
+}
 
 // ray tracing: the liquids, by their (animated) floor tiles -- the families of
 // Duke-RT's FLUIDOVR: water 336, slime 200, lava 1082
 static RtPrim RT_LiquidOf(FGameTexture* tex)
 {
-	if (!RT_IsActive() || !tex || !isDuke()) return RtPrim::Identity;
+	if (!RT_IsActive() || !tex) return RtPrim::Identity;
+	if (isBlood()) return RT_BloodLiquidOf(tex);
+	if (!isDuke()) return RtPrim::Identity;
 	const int t = legacyTileNum(tex->GetID());
 	if (t >= 336 && t <= 338) return RtPrim::Water;
 	if (t >= 200 && t <= 202) return RtPrim::Slime;

@@ -192,6 +192,7 @@ enum class RtPrim : uint32_t
     CopyId         = 1 << 14, // a copy already in place (copied sprites): its own ids
     FloorPlane     = 1 << 15, // a sector's floor
     CeilingPlane   = 1 << 16, // a sector's ceiling
+    BloodPool      = 1 << 17, // a pool of blood (Blood): the stylized liquid, red
 };
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it

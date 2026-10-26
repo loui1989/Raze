@@ -933,6 +933,11 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         {
             primFlags |= RG_MESH_PRIMITIVE_LAVA;
         }
+        else if( rtstate.is< RtPrim::BloodPool >() )
+        {
+            // the stylized liquid surface, liquid 3 (Doom 64's blood: dark red)
+            primFlags |= RG_MESH_PRIMITIVE_WATER | RG_MESH_PRIMITIVE_LIQUID_BIT0 | RG_MESH_PRIMITIVE_LIQUID_BIT1;
+        }
         else if( rtstate.is< RtPrim::Slime >() )
         {
             // the stylized liquid surface, liquid 1 (Doom 64's nukage: green)
