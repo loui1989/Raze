@@ -11,6 +11,8 @@
 #include "texturemanager.h"
 #include "tiletexture.h"
 
+int RT_HightileTileOf( FGameTexture* tex, int* palnum ); // core/textures/hightile.cpp (global)
+
 
 namespace rtx
 {
@@ -197,6 +199,19 @@ double   g_rtTexSeconds = 0;   // ...and the time it took (material files includ
 auto RTHardwareTexture::MakeTextureName( FGameTexture& gametex, int translation ) -> std::string
 {
     const std::string suffix = TranslationSuffix( translation );
+
+    // an HD replacement of a tile (a texture pack): named after its tile, so the material
+    // table, the window glass and the glow know it ("#01234~hd0": its own name, not the
+    // tile's -- both can be in use; and its own material files, made from its texels)
+    {
+        int palnum = 0;
+        if( const int tile = ::RT_HightileTileOf( &gametex, &palnum ); tile >= 0 )
+        {
+            char buf[ 32 ];
+            snprintf( buf, sizeof( buf ), "#%05d~hd%d", tile, palnum );
+            return buf + suffix;
+        }
+    }
 
     if( !gametex.GetName().IsEmpty() )
     {

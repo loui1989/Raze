@@ -95,8 +95,21 @@ void FontCharCreated(FGameTexture* base, FGameTexture* glyph)
 //
 //===========================================================================
 
+// Raze RT: which tile (and palette) a replacement image stands in for -- its materials
+// (the material table, glass, glow) are the tile's
+static TMap<FGameTexture*, int> hightileTileOf;
+
+int RT_HightileTileOf(FGameTexture* tex, int* palnum)
+{
+	auto v = hightileTileOf.CheckKey(tex);
+	if (!v) return -1;
+	if (palnum) *palnum = *v & 0xffff;
+	return *v >> 16;
+}
+
 static void AddReplacement(int tilenum, const HightileReplacement& replace)
 {
+	if (replace.image && !replace.issky) hightileTileOf.Insert(replace.image, (tilenum << 16) | replace.palnum);
 	auto& Hightiles = tileReplacements[tilenum];
 	for (auto& ht : Hightiles)
 	{
