@@ -400,13 +400,21 @@ const WinMask* WindowMask( const std::string& texname )
     {
         return nullptr;
     }
+    // an HD replacement ("#01234~hd0") has its own mask, <tile>-hd.pgm: a redrawn picture
+    // (Blood XHD) has its frames elsewhere, an upscaled one sharper (else the tile's)
+    const bool hd = texname.find( "~hd" ) != std::string::npos;
     static std::unordered_map< int, WinMask > s_masks;
-    auto it = s_masks.find( tile );
+    auto it = s_masks.find( tile * 2 + ( hd ? 1 : 0 ) );
     if( it == s_masks.end() )
     {
         WinMask m;
         m.polish = wi->second;
-        const auto path = std::filesystem::path( RT_GetOverrideFolder() ) / "windows" / ( std::to_string( tile ) + ".pgm" );
+        const auto dirW = std::filesystem::path( RT_GetOverrideFolder() ) / "windows";
+        auto       path = dirW / ( std::to_string( tile ) + ".pgm" );
+        if( hd && Exists( dirW / ( std::to_string( tile ) + "-hd.pgm" ) ) )
+        {
+            path = dirW / ( std::to_string( tile ) + "-hd.pgm" );
+        }
         if( FILE* f = fopen( path.string().c_str(), "rb" ) )
         {
             // binary PGM: P5 <w> <h> 255, one byte a texel
@@ -432,7 +440,7 @@ const WinMask* WindowMask( const std::string& texname )
         {
             Printf( "RT: window %d: no mask %s\n", tile, path.string().c_str() );
         }
-        it = s_masks.emplace( tile, std::move( m ) ).first;
+        it = s_masks.emplace( tile * 2 + ( hd ? 1 : 0 ), std::move( m ) ).first;
     }
     return it->second.w > 0 && it->second.polish > 0.f ? &it->second : nullptr;
 }
