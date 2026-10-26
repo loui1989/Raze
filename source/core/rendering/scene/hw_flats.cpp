@@ -326,6 +326,8 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 	RT_PUSH_TYPE(rtcopy, Sprite ? (Sprite->rtcopy ? RtPrim::CopyId : RtPrim::Identity) : rtCopy ? RtPrim::CopyMove : RtPrim::Identity);
 	auto rtcg = rtstate.push_copygroup(Sprite ? Sprite->rtcopy : rtCopy);
 	RT_PUSH_TYPE(rtplane, Sprite ? RtPrim::Identity : plane ? RtPrim::CeilingPlane : RtPrim::FloorPlane);
+	// (a floor or ceiling is seen only from its own sector, as a wall)
+	RT_PUSH_TYPE(rtonesided, Sprite ? RtPrim::Identity : RtPrim::OneSided);
 
 	state.SetNormal(normal);
 	SetLightAndFog(di, state, fade, palette, shade, visibility, alpha);

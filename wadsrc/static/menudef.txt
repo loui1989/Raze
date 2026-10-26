@@ -2197,6 +2197,13 @@ OptionValue "RtUpscale"
 	5, "Custom (Render scale below)"
 }
 
+OptionValue "RtOneSided"
+{
+	0, "Off"
+	1, "On"
+	-1, "On (reversed)"
+}
+
 OptionValue "RtSharpen"
 {
 	0, "Auto"
@@ -2235,6 +2242,7 @@ OptionMenu "RTOptions" protected
 	Slider "Cavity shading (next start)",	"rt_cavity", 0, 1, 0.1, 1
 	Option "Voxel models in sight at any distance",	"rt_voxel_insight", "OnOff"
 	Slider "Voxel model distance (metres)",	"rt_voxel_distance", 0, 40, 1, 0
+	Option "Walls seen from one side",	"rt_one_sided", "RtOneSided"
 	StaticText " "
 
 	StaticText "Denoiser (lower = smoother, more lag)", 1

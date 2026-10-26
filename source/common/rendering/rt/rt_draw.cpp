@@ -191,6 +191,14 @@ auto RTHardwareTexture::TranslationSuffix( int translation ) -> std::string
 }
 
 CVARD( Float, rt_voxel_glow, 0.4f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how brightly voxel fires (fullbright actors' models) glow (1 = as glowing textures)" )
+// A Build wall or floor is seen only from its own sector's side: a window that looks out
+// over another sector does not show that sector's walls from behind (classic drew only
+// the walls facing the viewer). The triangles are turned to face their sector and the
+// path tracer culls those it meets from behind (only these: a sprite is seen from both
+// sides). -1: the other way round (if walls vanish: a renderer with the other winding).
+CVARD( Int, rt_one_sided, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: walls and floors are seen only from their own sector's side, as in the original (0 off, 1 on, -1 reversed)" )
+// RgMeshPrimitiveFlags: the Metal backend's one-sided group (Raze RT's library)
+constexpr uint32_t RT_PRIMITIVE_ONE_SIDED = 1u << 28;
 CVARD( Bool, rt_voxel_alphatest, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models alpha tested, as their sprites are (slow; for comparison)" )
 
 uint32_t g_rtTexCreates = 0;   // rt_debug_stats: textures given to the path tracer...
@@ -1181,6 +1189,61 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         if( !*rt_world_motion && !isModel && !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::Decal >() )
         {
             primFlags |= RG_MESH_PRIMITIVE_NO_MOTION_VECTORS;
+        }
+    }
+
+    // a one-sided wall or floor (rt_one_sided): its triangles turned to face its sector --
+    // the side its normal points to (towards the sector: the wall's from its start to its
+    // end, turned left; up for a floor, down for a ceiling) -- and marked so; solid only
+    // (a see-through or liquid surface is seen from both sides)
+    if( *rt_one_sided != 0 && !isUI && !isSky && !isSkyVis && !isMirror && !isModel && !islines &&
+        rtstate.is< RtPrim::OneSided >() &&
+        !( primFlags & ( RG_MESH_PRIMITIVE_ALPHA_TESTED | RG_MESH_PRIMITIVE_TRANSLUCENT | RG_MESH_PRIMITIVE_GLASS |
+                         RG_MESH_PRIMITIVE_WATER | RG_MESH_PRIMITIVE_LAVA | RG_MESH_PRIMITIVE_ACID |
+                         RG_MESH_PRIMITIVE_SPRITE | RG_MESH_PRIMITIVE_MIRROR ) ) )
+    {
+        const FVector4& gn = mStreamData.uVertexNormal;
+        FVector3        n{ gn.X, gn.Z, gn.Y }; // (as the vertices: the renderer's axes, see AddEmissionLight)
+        if( n.LengthSquared() > 0.25f )
+        {
+            if( *rt_one_sided < 0 )
+            {
+                n = -n;
+            }
+            const auto& m  = transform.matrix;
+            auto        xf = [ &m ]( const float* p ) {
+                return FVector3{ m[ 0 ][ 0 ] * p[ 0 ] + m[ 0 ][ 1 ] * p[ 1 ] + m[ 0 ][ 2 ] * p[ 2 ],
+                                 m[ 1 ][ 0 ] * p[ 0 ] + m[ 1 ][ 1 ] * p[ 1 ] + m[ 1 ][ 2 ] * p[ 2 ],
+                                 m[ 2 ][ 0 ] * p[ 0 ] + m[ 2 ][ 1 ] * p[ 1 ] + m[ 2 ][ 2 ] * p[ 2 ] };
+            };
+            const size_t count = indices.empty() ? verts.size() : indices.size();
+            m_tempidx.resize( count );
+            for( size_t i = 0; i < count; i++ )
+            {
+                m_tempidx[ i ] = indices.empty() ? uint32_t( i ) : indices[ i ];
+            }
+            bool ok = count % 3 == 0;
+            for( size_t t = 0; ok && t + 2 < count; t += 3 )
+            {
+                uint32_t* tri = &m_tempidx[ t ];
+                if( tri[ 0 ] >= verts.size() || tri[ 1 ] >= verts.size() || tri[ 2 ] >= verts.size() )
+                {
+                    ok = false;
+                    break;
+                }
+                const FVector3 a = xf( verts[ tri[ 0 ] ].position ), b = xf( verts[ tri[ 1 ] ].position ),
+                               c = xf( verts[ tri[ 2 ] ].position );
+                // RTGL1 keeps the side its geometric normal (the counterclockwise one) faces
+                if( ( ( ( b - a ) ^ ( c - a ) ) | n ) < 0.f )
+                {
+                    std::swap( tri[ 1 ], tri[ 2 ] );
+                }
+            }
+            if( ok )
+            {
+                indices = std::span< const uint32_t >( m_tempidx.data(), m_tempidx.size() );
+                primFlags |= RT_PRIMITIVE_ONE_SIDED;
+            }
         }
     }
 

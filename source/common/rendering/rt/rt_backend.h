@@ -481,6 +481,7 @@ private:
     float m_mainCameraProjection_Inverse[ 16 ]{};
 
     std::vector< RgPrimitiveVertex > m_tempverts{};
+    std::vector< uint32_t >          m_tempidx{};
     // the voxel models drawn this frame: one drawn again at the same place is skipped
     std::vector< uint64_t > m_modelsSeen{};
     std::vector< RgPrimitiveVertex > m_clipverts{};

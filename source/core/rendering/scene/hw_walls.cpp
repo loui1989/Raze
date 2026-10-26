@@ -281,6 +281,8 @@ void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 	RT_PUSH_TYPE(rtns, rtflags & 1 ? RtPrim::NoShadow : RtPrim::Identity);
 	RT_PUSH_TYPE(rtdecal, Sprite ? RtPrim::Decal : RtPrim::Identity);
 	RT_PUSH_TYPE(rtcopy, rtCopy ? RtPrim::CopyMove : Sprite && Sprite->rtcopy ? RtPrim::CopyId : RtPrim::Identity);
+	// (a Build wall is seen only from its own sector: the solid parts, not a masked wall)
+	RT_PUSH_TYPE(rtonesided, !Sprite && (type == RENDERWALL_TOP || type == RENDERWALL_BOTTOM || type == RENDERWALL_M1S) ? RtPrim::OneSided : RtPrim::Identity);
 	auto rtcg = rtstate.push_copygroup(rtCopy ? rtCopy : Sprite ? Sprite->rtcopy : 0);
 
 	rendered_lines++;
