@@ -41,6 +41,7 @@ CVARD( Bool, rt_world_white, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: do not
 CVARD( Float, rt_fullbright_emis, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: emission of surfaces the game draws fullbright" )
 CVARD( Float, rt_additive_emis, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: emission of additive sprites (explosions, fire)" )
 CVARD( Float, rt_sky, 25.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky brightness (its light on the scene)" )
+CVARD( Float, rt_lightning_sky, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how many times brighter the sky is in a lightning flash (Blood's storms)" )
 CVARD( Float, rt_emis_mult, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much glowing surfaces light their surroundings" )
 CVARD( Bool, rt_emis_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing surfaces cast real light" )
 CVARD( Float, rt_emis_light_scale, 600.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the light glowing surfaces cast" )
@@ -831,7 +832,7 @@ void RTFrameBuffer::RT_DrawFrame()
         .pNext                       = &reflrefr,
         .skyType                     = m_wassky ? RG_SKY_TYPE_RASTERIZED_GEOMETRY : RG_SKY_TYPE_COLOR,
         .skyColorDefault             = { 0.02f, 0.02f, 0.05f },
-        .skyColorMultiplier          = *rt_sky,
+        .skyColorMultiplier          = *rt_sky * ( 1.f + std::clamp( g_rtSkyFlash, 0.f, 1.f ) * std::max( 0.f, float( *rt_lightning_sky ) ) ),
         .skyColorSaturation          = *rt_sky_saturation,
         .skyViewerPosition           = { 0, 0, 0 },
         .pSkyCubemapTextureName      = nullptr,

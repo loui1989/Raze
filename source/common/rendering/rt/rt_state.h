@@ -26,6 +26,8 @@ extern bool g_rtActive;
 // 0..1: how bright the player's weapon flash is this frame, set by the game before
 // it renders the view (the path tracer adds a light for it)
 extern float g_rtMuzzleFlash;
+// a lightning flash now (0..1): the game's storm brightening the sky sectors (Blood)
+extern float g_rtSkyFlash;
 
 // Set by the game: the camera is under water (the picture takes the water's tint)
 extern bool g_rtCameraUnderwater;

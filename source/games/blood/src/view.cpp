@@ -570,6 +570,33 @@ extern int gRtShots;
 static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 {
 	g_rtMuzzleFlash = (float)clamp(pPlayer->visibility / 20., 0., 1.);
+
+	// lightning: Blood's storms flash the light of the outdoor sectors (their lighting
+	// effect brightens the shade in bursts, and thunder sounds). A sky sector suddenly
+	// brighter than its own recent average -- a sky that pulses slowly is no storm --
+	// flashes the path traced sky and the moonlight with it.
+	{
+		static TArray<float> avg;
+		static const void* level = nullptr;
+		if (level != (const void*)sector.Data() || avg.Size() != sector.Size())
+		{
+			level = sector.Data();
+			avg.Resize(sector.Size());
+			for (unsigned i = 0; i < sector.Size(); i++) avg[i] = -float(sector[i].hasX() ? sector[i].xs().shade : 0);
+		}
+		float flash = 0.f;
+		for (unsigned i = 0; i < sector.Size(); i++)
+		{
+			auto& sect = sector[i];
+			if (!sect.hasX() || !(sect.ceilingstat & CSTAT_SECTOR_SKY)) continue;
+			const XSECTOR& x = sect.xs();
+			if (!(x.shadeCeiling || x.shadeFloor || x.shadeWalls)) continue;
+			const float bright = -float(x.shade);
+			flash = max(flash, (bright - avg[i]) / 24.f);
+			avg[i] += (bright - avg[i]) * 0.03f;	// about a second
+		}
+		g_rtSkyFlash = clamp(flash, 0.f, 1.f);
+	}
 	g_rtCameraUnderwater = pSector && IsUnderwaterSector(pSector);
 	g_rtViewerActor = nullptr;
 	g_rtSectorSwitch.clear();

@@ -43,6 +43,7 @@ CVARD( Bool, rt_lightovr_fixtures, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
 CVARD( Float, rt_moon, 8.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a faint moonlight in games without Duke-RT's lights (Blood), lux; 0 = none" )
 CVARD( Float, rt_moon_angle, 35.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the moon's direction, degrees around" )
+CVARD( Float, rt_lightning, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a lightning flash's light from the sky, lux (Blood's storms)" )
 CVARD( Float, rt_game_light_scale, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the lights the game names (Blood: explosions, fire, flares)" )
 CVARD( Float, rt_light_reach, 40.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lights further than this (metres, walking through openings) from the view are left out; 0 = all lights" )
 
@@ -549,16 +550,19 @@ void UploadOverlayLights( uint32_t time )
     // games without Duke-RT's lights (Blood): a faint moon, so the outdoors has a
     // light with a direction -- shadows, and the bump maps show (the sky's own light
     // comes from everywhere: flat)
-    if( set.directionalRules.Size() == 0 && set.actorRules.Size() == 0 && !s_copyPass && *rt_moon > 0.f )
+    // (a lightning flash is this light too, many times brighter: RTGL1 has one sun)
+    const float flash = std::clamp( g_rtSkyFlash, 0.f, 1.f ) * std::max( 0.f, float( *rt_lightning ) );
+    if( set.directionalRules.Size() == 0 && set.actorRules.Size() == 0 && !s_copyPass && *rt_moon + flash > 0.f )
     {
         const float  az = float( *rt_moon_angle ) * 3.14159265f / 180.f, el = 50.f * 3.14159265f / 180.f;
         const RgFloat3D toLight = { std::cos( el ) * std::cos( az ), std::cos( el ) * std::sin( az ), std::sin( el ) };
-        const float  c[ 3 ] = { 0.72f, 0.78f, 1.0f };
+        const float  mf     = flash / ( flash + std::max( 0.f, float( *rt_moon ) ) + 1e-3f );
+        const float  c[ 3 ] = { 0.72f + 0.2f * mf, 0.78f + 0.17f * mf, 1.0f };
         auto dir = RgLightDirectionalEXT{
             .sType                  = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
             .pNext                  = nullptr,
             .color                  = PackColor( c ),
-            .intensity              = float( *rt_moon ),
+            .intensity              = std::max( 0.f, float( *rt_moon ) ) + flash,
             .direction              = { -toLight.data[ 0 ], -toLight.data[ 1 ], -toLight.data[ 2 ] },
             .angularDiameterDegrees = 1.0f,
         };
