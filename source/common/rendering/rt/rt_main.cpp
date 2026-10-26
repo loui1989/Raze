@@ -798,13 +798,16 @@ void RTFrameBuffer::RT_DrawFrame()
         .pPuffs         = s_puffs,
         .pAlbedoDensity = s_albden,
         .pShape         = s_shape,
-        // Doom 64 RT's values
-        .lightNearFade  = 0.5f,
+        // Doom 64 RT's values, but calmer: Duke's rooms are full of small, strong
+        // lights right next to the smoke (every glowing grate and lamp has one), and
+        // a light a few centimetres from a froxel floods it by inverse square --
+        // white specks that the volume's history then holds on to
+        .lightNearFade  = std::max( 0.f, float( *rt_smoke_light_near ) ),
         .illumBlend     = 0.45f,
         .allLights      = bool( *rt_smoke_illum ),
-        .lightFarFade   = 12.f,
+        .lightFarFade   = 10.f,
         .samplesPerCell = 8,
-        .maxLight       = 6.f,
+        .maxLight       = std::max( 0.f, float( *rt_smoke_maxlight ) ),
         .debugMode      = 0,
         .stylize        = 0.f,
         .stylizeSteps   = 3,
@@ -824,7 +827,7 @@ void RTFrameBuffer::RT_DrawFrame()
         .sType                   = RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS,
         .pNext                   = chain,
         .enable                  = *rt_volumetrics,
-        .maxHistoryLength        = puffCount > 0 ? 20.f : 8.f,
+        .maxHistoryLength        = puffCount > 0 ? std::max( 1.f, float( *rt_smoke_history ) ) : 8.f,
         .useSimpleDepthBased     = false,
         .volumetricFar           = volFar,
         .ambientColor            = { float( *rt_volume_ambient ), float( *rt_volume_ambient ), float( *rt_volume_ambient ) },

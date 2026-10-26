@@ -133,5 +133,8 @@ float RT_EmissiveOverride( int sectnum, int tile, float& glow );
 uint32_t RT_UpdateSmoke( const RgFloat3D& eye, const RgFloat3D& fwd, const RgFloat3D& up, const RgFloat3D& right,
                          float far, RgFloat4D* outPuffs, RgFloat4D* outAlbDen, RgFloat4D* outShape );
 EXTERN_CVAR( Bool, rt_smoke_illum )
+EXTERN_CVAR( Float, rt_smoke_maxlight )
+EXTERN_CVAR( Float, rt_smoke_light_near )
+EXTERN_CVAR( Float, rt_smoke_history )
 // rt_draw.cpp: a quad with a tile's texture, glowing (a LIGHTOVR surface light's fixture)
 void RT_UploadFixtureQuad( uint64_t id, const float corners[ 4 ][ 3 ], const float normal[ 3 ], const char* tileName, float glow );
