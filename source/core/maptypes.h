@@ -520,6 +520,7 @@ struct tspritetype : public spritetypebase
 	DCoreActor* ownerActor;
 	int time;
 	uint8_t rtcopy;	// ray tracing: a copy of a sprite from a copied area (see g_rtCopySector)
+	uint8_t rtoffscreen;	// ray tracing: not in sight, there only for reflections and shadows
 };
 
 class tspriteArray
@@ -539,6 +540,7 @@ public:
 		if ((size & (blocksize - 1)) == 0) blocks.Push(new block);
 		auto t = get(size++);
 		t->rtcopy = 0;
+		t->rtoffscreen = 0;
 		return t;
 	}
 

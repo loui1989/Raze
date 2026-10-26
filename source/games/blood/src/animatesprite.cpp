@@ -614,7 +614,7 @@ void viewProcessSprites(tspriteArray& tsprites, const DVector3& cPos, DAngle cA,
 		case 1:
 		{
 			if (tilehasmodelorvoxel(pTSprite->spritetexture(), pTSprite->pal) && !(owneractor->sprext.renderflags & SPREXT_NOTMD) &&
-				!RT_VoxelTooFar(GetExtInfo(pTSprite->spritetexture()).tiletovox, pTSprite->pos, cPos))	// far away: the sprite, turned as it is seen
+				!RT_VoxelTooFar(GetExtInfo(pTSprite->spritetexture()).tiletovox, pTSprite, cPos))	// far away: the sprite, turned as it is seen
 			{
 				pTSprite->cstat &= ~CSTAT_SPRITE_XFLIP;
 				break;
@@ -634,7 +634,7 @@ void viewProcessSprites(tspriteArray& tsprites, const DVector3& cPos, DAngle cA,
 		case 2:
 		{
 			if (tilehasmodelorvoxel(pTSprite->spritetexture(), pTSprite->pal) && !(owneractor->sprext.renderflags & SPREXT_NOTMD) &&
-				!RT_VoxelTooFar(GetExtInfo(pTSprite->spritetexture()).tiletovox, pTSprite->pos, cPos))	// far away: the sprite, turned as it is seen
+				!RT_VoxelTooFar(GetExtInfo(pTSprite->spritetexture()).tiletovox, pTSprite, cPos))	// far away: the sprite, turned as it is seen
 			{
 				pTSprite->cstat &= ~CSTAT_SPRITE_XFLIP;
 				break;
@@ -666,7 +666,7 @@ void viewProcessSprites(tspriteArray& tsprites, const DVector3& cPos, DAngle cA,
 
 			// Can be overridden by def script
 			if (tilehasvoxel(pTSprite->spritetexture()) && !(owneractor->sprext.renderflags & SPREXT_NOTMD) &&
-				!RT_VoxelTooFar(GetExtInfo(pTSprite->spritetexture()).tiletovox, pTSprite->pos, cPos))
+				!RT_VoxelTooFar(GetExtInfo(pTSprite->spritetexture()).tiletovox, pTSprite, cPos))
 			{
 				if ((pTSprite->flags & kHitagRespawn) == 0)
 				{

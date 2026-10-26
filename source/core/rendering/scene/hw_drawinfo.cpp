@@ -66,12 +66,15 @@ CVAR(Float, gl_mask_sprite_threshold, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 BitArray gotsector;
 
-bool RT_VoxelTooFar(int vox, const DVector3& pos, const DVector3& view)
+CVARD(Bool, rt_voxel_insight, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models in sight are models at any distance (rt_voxel_distance is then for those only reflections and shadows see)")
+
+bool RT_VoxelTooFar(int vox, const tspritetype* spr, const DVector3& view)
 {
 	if (vox < 0 || !RT_IsActive()) return false;
 	if (!isDuke() && !voxdefined[vox]) return false;
+	if (*rt_voxel_insight && !spr->rtoffscreen) return false;
 	const double far = double(*rt_voxel_distance) * 32.;
-	return (pos - view).LengthSquared() > far * far;
+	return (spr->pos - view).LengthSquared() > far * far;
 }
 
 bool VoxelTopZ(tspritetype* spr, double& top)
@@ -81,7 +84,7 @@ bool VoxelTopZ(tspritetype* spr, double& top)
 	if (!r_voxels || vox < 0 || !voxmodels[vox] || !actor) return false;
 	if ((actor->sprext.renderflags & SPREXT_NOTMD) || (spr->cstat2 & CSTAT2_SPRITE_NOMODEL)) return false;
 	if ((spr->cstat & CSTAT_SPRITE_YFLIP) || (spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR) return false;
-	if (RT_VoxelTooFar(vox, spr->pos, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]))) return false;
+	if (RT_VoxelTooFar(vox, spr, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]))) return false;
 
 	const voxmodel_t* voxel = voxmodels[vox];
 	const double sprz = spr->scale.Y * voxel->bscale;
@@ -348,7 +351,7 @@ void HWDrawInfo::DispatchSprites()
 				auto vox = GetExtInfo(texid).tiletovox;
 				if (vox >= 0 && voxmodels[vox])
 				{
-					if (RT_VoxelTooFar(vox, tspr->pos, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]))) vox = -1;
+					if (RT_VoxelTooFar(vox, tspr, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]))) vox = -1;
 				}
 				if (vox >= 0 && voxmodels[vox])
 				{
@@ -448,6 +451,9 @@ void HWDrawInfo::CreateScene(bool portal)
 		for (unsigned i = seen; i < Portals.Size(); i++) Portals[i]->rtOffscreen = true;
 		if (rtMain) mDrawer.RT_ProcessCopy();
 	}
+
+	// (the ones only the path tracer needs: their voxel models only as near as rt_voxel_distance)
+	for (unsigned i = rtHiddenSpriteStart; i < tsprites.Size(); i++) tsprites.get(i)->rtoffscreen = 1;
 
 	SetupSprite.Clock();
 	// vp is in render space, so we must convert back.

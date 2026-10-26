@@ -2230,6 +2230,7 @@ OptionMenu "RTOptions" protected
 	Slider "Bump strength",				"rt_bump", 0, 4, 0.1, 1
 	Slider "Parallax depth",			"rt_parallax", 0, 0.08, 0.005, 3
 	Slider "Cavity shading (next start)",	"rt_cavity", 0, 1, 0.1, 1
+	Option "Voxel models in sight at any distance",	"rt_voxel_insight", "OnOff"
 	Slider "Voxel model distance (metres)",	"rt_voxel_distance", 0, 40, 1, 0
 	StaticText " "
 
