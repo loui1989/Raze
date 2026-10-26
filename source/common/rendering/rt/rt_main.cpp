@@ -1092,6 +1092,20 @@ void RT_SetMainCamera( const DVector3& pos, const FRotator& hwangles, float fovD
 // The size the frame is made at (MetalFX upscales to it; macOS scales it to the
 // screen). Fullscreen only, as in the Doom 64 port: vid_rt_fullscreen_height.
 EXTERN_CVAR( Int, vid_rt_fullscreen_height )
+// Dynamic resolution's test: the renderer holds the render size at 8 steps from the
+// largest to the smallest and measures the GPU's frame time at each, then prints them and
+// how the time divides into a fixed part and a part per pixel (results in the console)
+CCMD( rt_dynres_test )
+{
+    if( !*rt_dynres )
+    {
+        Printf( "rt_dynres_test: turn dynamic resolution on first (Ray Tracing menu, or rt_dynres 1)\n" );
+        return;
+    }
+    setenv( "RTGL1_DYNRES_TEST", "1", 1 );
+    Printf( "Dynamic resolution test: starting -- stand still looking at a busy view, close the console; the results come in about 15 seconds\n" );
+}
+
 CCMD( rt_resolution )
 {
     if( argv.argc() > 1 )
