@@ -745,8 +745,11 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     // one it can see; rays hit both at random -- a grainy, speckled mix of the two.
     // Every floor moves up a little and every ceiling down, into its own room, so each
     // side sees its own surface. (Walls reach past them: no gaps.)
+    // (only those planes: moving every floor and ceiling opens slits under the walls of
+    // raised platforms -- coffins showed their insides at the edges)
     if( !isUI && *rt_flat_offset > 0.f &&
-        ( rtstate.is< RtPrim::FloorPlane >() || rtstate.is< RtPrim::CeilingPlane >() ) )
+        ( rtstate.is< RtPrim::FloorPlane >() || rtstate.is< RtPrim::CeilingPlane >() ) &&
+        RT_FlatTouchesOther( rtstate.get_sector(), rtstate.is< RtPrim::CeilingPlane >() ) )
     {
         if( verts.data() != m_tempverts.data() )
         {

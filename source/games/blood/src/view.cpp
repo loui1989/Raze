@@ -592,10 +592,44 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 		return float(0.85 + 0.1 * sin(t) + 0.05 * sin(t * 2.3 + 1.0));
 	};
 
+	// explosions: the game's own flash strength; the explosion actor lives only a few
+	// tics, so its light fades out a little after it
+	struct Glow { DVector3 pos; int sector; float peak; int seen; int born; };
+	static TMap<int, Glow> s_glow;
+	static const void* s_level = nullptr;
+	if (s_level != currentLevel) { s_glow.Clear(); s_level = currentLevel; }
+	const int now = PlayClock;
 	BloodStatIterator it(kStatExplosion);
 	while (auto actor = it.Next())
 	{
-		if (actor->hasX()) add(actor, 0, 1.f, 0.55f, 0.25f, 40.f * actor->xspr.data3, 0.3f);
+		if (!actor->hasX() || !actor->insector()) continue;
+		auto g = s_glow.CheckKey(actor->GetIndex());
+		const float peak = 150.f * actor->xspr.data3;
+		if (!g) s_glow.Insert(actor->GetIndex(), { actor->spr.pos, actor->sectno(), peak, now, now });
+		else { g->pos = actor->spr.pos; g->seen = now; g->peak = max(g->peak, peak); }
+	}
+	{
+		TArray<int> gone;
+		decltype(s_glow)::Iterator gi(s_glow);
+		decltype(s_glow)::Pair* pair;
+		while (gi.NextPair(pair))
+		{
+			Glow& g = pair->Value;
+			// full while it burns (a quick swell in), then gone in about half a second
+			const float in = clamp((now - g.born) / 6.f, 0.f, 1.f);
+			const float t = (now - g.seen) / 60.f;
+			if (t >= 1.f) { gone.Push(pair->Key); continue; }
+			const float k = (0.4f + 0.6f * in) * (1.f - t) * (1.f - t);
+			RtGameLight l;
+			l.pos[0] = g.pos.X; l.pos[1] = g.pos.Y; l.pos[2] = g.pos.Z - 16;
+			l.color[0] = 1.f; l.color[1] = 0.55f; l.color[2] = 0.22f;
+			l.intensity = g.peak * k;
+			l.radius = 0.4f;
+			l.id = (uint64_t(pair->Key) << 4) | 0;
+			l.sector = g.sector;
+			g_rtGameLights.push_back(l);
+		}
+		for (int k : gone) s_glow.Remove(k);
 	}
 	it.Reset(kStatProjectile);
 	while (auto actor = it.Next())
@@ -626,6 +660,16 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			break;
 		default:
 			break;
+		}
+	}
+	// life essence and life seed: the hearts glow red
+	it.Reset(kStatItem);
+	while (auto actor = it.Next())
+	{
+		if (actor->spr.type == kItemHealthLifeEssense || actor->spr.type == kItemHealthLifeSeed)
+		{
+			const double t = PlayClock * (1. / 120.) * 3.0 + actor->GetIndex();
+			add(actor, 4, 1.f, 0.12f, 0.08f, float(260. * (0.85 + 0.15 * sin(t))), 0.05f);
 		}
 	}
 	// flares stuck in something

@@ -31,6 +31,7 @@
 **
 */ 
 
+#include "rt_state.h"
 #include "build.h"
 #include "imagehelpers.h"
 
@@ -458,7 +459,19 @@ float GetAlphaFromBlend(uint32_t method, uint32_t blend)
 void DrawFullscreenBlends()
 {
     // These get prepended to the 2D drawer so they must be submitted in reverse order of drawing.
-    if (tint_blood_r | tint_blood_g | tint_blood_b)
+    if ((tint_blood_r | tint_blood_g | tint_blood_b) && RT_IsActive())
+    {
+        // the path tracer's 2D layer blends only by alpha: an add and a subtract quad
+        // come out as two opaque-ish colour washes (Blood's red pain flash went green).
+        // One translucent quad of the tint's colour instead.
+        const int r = tint_blood_r, g = tint_blood_g, b = tint_blood_b;
+        const int amount = max(max(abs(r), abs(g)), abs(b));
+        const int hi = max(max(r, g), max(b, 1));
+        PalEntry color(uint8_t(clamp(amount * 3 / 5, 0, 200)),
+                       uint8_t(clamp(r * 255 / hi, 0, 255)), uint8_t(clamp(g * 255 / hi, 0, 255)), uint8_t(clamp(b * 255 / hi, 0, 255)));
+        twod->AddColorOnlyQuad(0, 0, twod->GetWidth(), twod->GetHeight(), color, &LegacyRenderStyles[STYLE_Translucent], true);
+    }
+    else if (tint_blood_r | tint_blood_g | tint_blood_b)
     {
         PalEntry color2(255, max(-tint_blood_r, 0), max(-tint_blood_g, 0), max(-tint_blood_b, 0));
         twod->AddColorOnlyQuad(0, 0, twod->GetWidth(), twod->GetHeight(), color2, &LegacyRenderStyles[STYLE_Subtract], true);

@@ -41,6 +41,7 @@
 #include "v_draw.h"
 #include "gamecvars.h"
 #include "gamestruct.h"
+#include "gamecontrol.h"
 #include "automap.h"
 #include "hw_voxels.h"
 #include "coreactor.h"
@@ -51,7 +52,9 @@
 EXTERN_CVAR(Float, r_visibility)
 CVAR(Bool, gl_no_skyclear, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // ray tracing: voxel models further than this (metres) are drawn as their sprites --
-// every voxel instance is a big mesh RTGL1 rebuilds each frame
+// every voxel instance is a big mesh RTGL1 rebuilds each frame. Duke only: its voxel
+// pack is huge; Blood's own voxels are small, and its sprites for them are not made
+// to stand in (gravestones float)
 CVARD(Float, rt_voxel_distance, 12.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models further than this many metres are drawn as flat sprites (0 = no voxels)")
 
 CVAR(Bool, gl_texture, true, 0)
@@ -309,7 +312,7 @@ void HWDrawInfo::DispatchSprites()
 			if (r_voxels)
 			{
 				auto vox = GetExtInfo(texid).tiletovox;
-				if (vox >= 0 && voxmodels[vox] && RT_IsActive())
+				if (vox >= 0 && voxmodels[vox] && RT_IsActive() && isDuke())
 				{
 					const DVector3 d = tspr->pos - DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
 					const double far = double(*rt_voxel_distance) * 32.;

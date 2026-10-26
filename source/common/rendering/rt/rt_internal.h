@@ -142,6 +142,8 @@ uint32_t RT_LevelGeneration();              // rt_lights.cpp: changes when a map
 bool RT_PointInSector( int sectnum, float x, float y );
 // Duke-RT's LIGHTOVR has actor rules for this game (else glowing sprites cast lights)
 bool RT_HaveActorLightRules();
+// the sector's floor (ceiling) is at the height of an overlapping sector's ceiling (floor)
+bool RT_FlatTouchesOther( int sectnum, bool ceiling );
 // 0..1: how much of a light at p (RT metres) in sector 'sect' is within the light reach
 float RT_LightReachFade( const RgFloat3D& p, int sect );
 // rt_lights.cpp: smoothed / current light level of a sector (a flickering sector's

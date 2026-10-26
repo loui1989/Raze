@@ -853,6 +853,114 @@ float RT_EmissiveOverride( int sectnum, int tile, float& glow )
     return scale;
 }
 
+// Rooms over rooms (overlapping sectors): a ceiling at exactly the height of the
+// floor of a sector over it. Rays hit both at random there; those two planes are
+// moved apart (rt_flat_offset). Found once per level: per sector, bit 0 = its floor,
+// bit 1 = its ceiling.
+static std::vector< uint8_t > s_flatTouch;
+static uint32_t               s_flatTouchGen = ~0u;
+
+static void FindTouchingFlats()
+{
+    const unsigned n = sector.Size();
+    s_flatTouch.assign( n, 0 );
+    std::vector< DVector4 > bb( n ); // min x, min y, max x, max y
+    std::vector< std::vector< DVector2 > > pts( n );
+    for( unsigned i = 0; i < n; i++ )
+    {
+        const auto& sec = sector[ i ];
+        DVector4    b{ 1e30, 1e30, -1e30, -1e30 };
+        DVector2    c{ 0, 0 };
+        for( auto& w : sec.walls )
+        {
+            b.X = std::min( b.X, w.pos.X ), b.Y = std::min( b.Y, w.pos.Y );
+            b.Z = std::max( b.Z, w.pos.X ), b.W = std::max( b.W, w.pos.Y );
+            c += w.pos;
+        }
+        bb[ i ] = b;
+        if( sec.walls.Size() == 0 )
+        {
+            continue;
+        }
+        c /= double( sec.walls.Size() );
+        // points inside the sector: its middle and its corners pulled in a little
+        if( inside( c.X, c.Y, &sec ) == 1 )
+        {
+            pts[ i ].push_back( c );
+        }
+        for( auto& w : sec.walls )
+        {
+            for( double t : { 0.1, 0.4 } )
+            {
+                const DVector2 p = w.pos * ( 1.0 - t ) + c * t;
+                if( inside( p.X, p.Y, &sec ) == 1 )
+                {
+                    pts[ i ].push_back( p );
+                }
+            }
+        }
+    }
+    auto overlap = [ & ]( unsigned a, unsigned b ) {
+        for( auto& p : pts[ a ] )
+        {
+            if( inside( p.X, p.Y, &sector[ b ] ) == 1 )
+            {
+                return true;
+            }
+        }
+        for( auto& p : pts[ b ] )
+        {
+            if( inside( p.X, p.Y, &sector[ a ] ) == 1 )
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+    for( unsigned a = 0; a < n; a++ )
+    {
+        const auto& sa = sector[ a ];
+        for( unsigned b = a + 1; b < n; b++ )
+        {
+            if( bb[ a ].X >= bb[ b ].Z || bb[ b ].X >= bb[ a ].Z || bb[ a ].Y >= bb[ b ].W || bb[ b ].Y >= bb[ a ].W )
+            {
+                continue;
+            }
+            const auto& sb = sector[ b ];
+            // a's ceiling on b's floor, or b's ceiling on a's floor (flat planes)
+            const bool flatA = !( sa.ceilingstat & CSTAT_SECTOR_SLOPE ) && !( sa.floorstat & CSTAT_SECTOR_SLOPE );
+            const bool flatB = !( sb.ceilingstat & CSTAT_SECTOR_SLOPE ) && !( sb.floorstat & CSTAT_SECTOR_SLOPE );
+            if( !flatA || !flatB )
+            {
+                continue;
+            }
+            const bool ab = std::abs( sa.ceilingz - sb.floorz ) < 0.01;
+            const bool ba = std::abs( sb.ceilingz - sa.floorz ) < 0.01;
+            if( ( ab || ba ) && overlap( a, b ) )
+            {
+                if( ab )
+                {
+                    s_flatTouch[ a ] |= 2, s_flatTouch[ b ] |= 1;
+                }
+                if( ba )
+                {
+                    s_flatTouch[ b ] |= 2, s_flatTouch[ a ] |= 1;
+                }
+            }
+        }
+    }
+}
+
+bool RT_FlatTouchesOther( int sectnum, bool ceiling )
+{
+    if( s_flatTouchGen != RT_LevelGeneration() )
+    {
+        FindTouchingFlats();
+        s_flatTouchGen = RT_LevelGeneration();
+    }
+    return sectnum >= 0 && size_t( sectnum ) < s_flatTouch.size() && ( s_flatTouch[ sectnum ] & ( ceiling ? 2 : 1 ) );
+}
+
 bool RT_HaveActorLightRules()
 {
     return *rt_lightovr && currentLevel && GetResolvedLightOverlaySet().actorRules.Size() > 0;
