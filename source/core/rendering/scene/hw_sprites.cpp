@@ -57,6 +57,7 @@
 
 void HWSprite::DrawSprite(HWDrawInfo* di, FRenderState& state, bool translucent)
 {
+	if (RT_IsActive() && RT_PortalFiltered(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : -1)) return;
 	auto rtid = rtstate.push_uniqueid((const void*)(Sprite ? Sprite->ownerActor : nullptr), modelframe == 0 ? RtIdKind::Sprite : RtIdKind::Model);
 	RT_PUSH_TYPE(rtspr, modelframe == 0 ? RtPrim::Sprite : RtPrim::Identity);
 	auto rtsec = rtstate.push_sector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : -1);

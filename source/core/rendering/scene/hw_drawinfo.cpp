@@ -42,6 +42,7 @@
 #include "gamecvars.h"
 #include "gamestruct.h"
 #include "gamecontrol.h"
+#include <queue>
 #include "automap.h"
 #include "hw_voxels.h"
 #include "coreactor.h"
@@ -688,6 +689,77 @@ void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 			state.EnableTexture(false);
 			gp->RT_DrawStencil(state);
 			state.EnableTexture(true);
+		}
+		else if ((gp->GetType() == PORTAL_SECTOR_FLOOR || gp->GetType() == PORTAL_SECTOR_CEILING) && g_rtCopyUsed < RT_MAX_COPIES)
+		{
+			// a room over a room (Blood): the place elsewhere on the map that the opening
+			// shows, as the rasterizer draws it from here -- moved to where it is seen,
+			// with its own ids (and its sectors' lights moved too: g_rtCopySector)
+			auto sp = static_cast<HWSectorStackPortal*>(gp);
+			const PortalDesc* pd = sp->GetPortalDesc();
+			const int copy = ++g_rtCopyUsed;
+			const double ofs[3] = { -pd->delta.X, -pd->delta.Y, -pd->delta.Z };
+			for (int i = 0; i < 3; i++) g_rtCopyOffset[copy - 1][i] = ofs[i] + rtstate.get_copyoffset()[i];
+			g_rtCopySkipWater[copy - 1] = false;
+
+			// the linked place near the opening only: the sectors within ~30 m of the
+			// portal's targets, through openings (shut doors too: they open)
+			const unsigned n = sector.Size();
+			std::vector<char> allow(n, 0);
+			{
+				std::vector<double> dist(n, 1e30);
+				std::vector<DVector2> entry(n);
+				using Item = std::pair<double, int>;
+				std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
+				for (int t : pd->targets)
+				{
+					if (unsigned(t) >= n) continue;
+					DVector2 c(0, 0);
+					for (auto& w : sector[t].walls) c += w.pos;
+					entry[t] = c / max(1u, sector[t].walls.Size());
+					dist[t] = 0;
+					q.push({ 0., t });
+				}
+				while (!q.empty())
+				{
+					auto [d, si] = q.top();
+					q.pop();
+					if (d > dist[si]) continue;
+					allow[si] = 1;
+					for (auto& w : sector[si].walls)
+					{
+						if (!w.twoSided()) continue;
+						const int ni = w.nextsector;
+						if (unsigned(ni) >= n) continue;
+						const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
+						const double nd = d + (mid - entry[si]).Length();
+						if (nd > 960 || nd >= dist[ni]) continue;
+						dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni });
+					}
+				}
+			}
+			std::vector<char> outerFilter = std::move(g_rtPortalFilter);
+			g_rtPortalFilter = std::move(allow);
+
+			auto new_di = StartDrawInfo(this, Viewpoint, &VPUniforms);
+			new_di->visibility = visibility;
+			new_di->rellight = rellight;
+			new_di->mCurrentPortal = gp;
+			state.SetLightIndex(-1);
+			{
+				auto rttype = rtstate.push_type(RtPrim::CopyMove);
+				auto rtcg = rtstate.push_copygroup(copy, ofs, true);
+				gp->DrawContents(new_di, state);
+			}
+			// the sectors it showed, for their lights
+			if (g_rtCopySector.size() != sector.Size()) g_rtCopySector.assign(sector.Size(), 0);
+			const BitArray& got = new_di->mDrawer.GotSector();
+			for (unsigned i = 0; i < sector.Size(); i++)
+				if (got[i] && !RT_PortalFiltered(int(i)) && g_rtCopySector[i] == 0) g_rtCopySector[i] = uint8_t(copy);
+			g_rtPortalFilter = std::move(outerFilter);
+			new_di->EndDrawInfo();
+			state.SetVertexBuffer(screen->mVertexData);
+			screen->mViewpoints->Bind(state, vpIndex);
 		}
 		return;
 	}

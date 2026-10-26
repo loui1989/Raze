@@ -817,7 +817,7 @@ bool RT_PointInSector( int sectnum, float x, float y )
     // a copy is somewhere else than its sector
     if( rtstate.is< RtPrim::CopyMove >() || rtstate.is< RtPrim::CopyId >() )
     {
-        const double* ofs = RT_CopyOffset( rtstate.get_copygroup() );
+        const double* ofs = rtstate.get_copyoffset();
         wx -= ofs[ 0 ];
         wy -= ofs[ 1 ];
     }
@@ -988,15 +988,15 @@ void RT_UploadSceneLights( uint32_t time )
     }
     if( g_rtCopySector.size() == sector.Size() )
     {
-        int used = 0;
+        uint32_t used = 0;
         for( uint8_t c : g_rtCopySector )
         {
-            used |= c >= 1 && c <= RT_MAX_COPIES ? 1 << ( c - 1 ) : 0;
+            used |= c >= 1 && c <= RT_MAX_COPIES ? 1u << ( c - 1 ) : 0u;
         }
         s_copyPass = true;
         for( s_copyGroup = 1; s_copyGroup <= RT_MAX_COPIES; s_copyGroup++ )
         {
-            if( used & ( 1 << ( s_copyGroup - 1 ) ) )
+            if( used & ( 1u << ( s_copyGroup - 1 ) ) )
             {
                 UploadSectorLights();
                 UploadOverlayLights( time );

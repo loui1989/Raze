@@ -267,6 +267,7 @@ void HWWall::RenderTranslucentWall(HWDrawInfo *di, FRenderState &state)
 //==========================================================================
 void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 {
+	if (RT_IsActive() && RT_PortalFiltered(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : frontsector ? sectindex(frontsector) : -1)) return;
 	if (RT_IsActive() && translucent && (type == RENDERWALL_MIRRORSURFACE || type == RENDERWALL_FOGBOUNDARY))
 	{
 		return;	// the mirror is the portal's opening, fog is not a surface

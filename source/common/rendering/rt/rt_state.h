@@ -42,7 +42,16 @@ extern const void* g_rtViewerActor;
 // copy it belongs to (1..RT_MAX_COPIES, 0 = none; or empty), each copy moved by its
 // g_rtCopyOffset (game units, z down). Duke's water: the world above a surface lives
 // elsewhere on the map; under water it is copied over the room
-constexpr int RT_MAX_COPIES = 8;
+constexpr int RT_MAX_COPIES = 32;
+extern int g_rtCopyUsed; // copies (slots of g_rtCopyOffset) handed out this frame
+// While a room-over-room portal's view is drawn: the sectors it may show (per sector,
+// or empty = all). The rasterizer's stencil keeps the rest of that view out; the path
+// tracer has no stencil, so only the linked place near the opening is drawn.
+extern std::vector< char > g_rtPortalFilter;
+inline bool RT_PortalFiltered( int sectnum )
+{
+    return !g_rtPortalFilter.empty() && ( sectnum < 0 || size_t( sectnum ) >= g_rtPortalFilter.size() || !g_rtPortalFilter[ size_t( sectnum ) ] );
+}
 extern std::vector< uint8_t > g_rtCopySector;
 extern double                 g_rtCopyOffset[ RT_MAX_COPIES ][ 3 ];
 inline int RT_CopySector( int sectnum )
@@ -242,18 +251,34 @@ struct FRtState
     }
     int get_sector() const { return m_sector; }
 
-    // the copy (see g_rtCopySector) the primitive belongs to, 0 = none
-    [[nodiscard]] auto push_copygroup( int copy )
+    // the copy (see g_rtCopySector) the primitive belongs to, 0 = none (keeps the
+    // copy around it: a portal's view), and the offset that moves it into place.
+    // 'add': on top of the copy around it (a portal seen through a portal)
+    struct CopyState
     {
-        const int prev = m_copyGroup;
-        m_copyGroup    = copy;
+        int    group;
+        double ofs[ 3 ];
+    };
+    [[nodiscard]] auto push_copygroup( int copy, const double* ofs = nullptr, bool add = false )
+    {
+        const CopyState prev = m_copy;
+        if( copy != 0 )
+        {
+            m_copy.group = copy;
+            const double* o = ofs ? ofs : RT_CopyOffset( copy );
+            for( int i = 0; i < 3; i++ )
+            {
+                m_copy.ofs[ i ] = ( add ? prev.ofs[ i ] : 0.0 ) + o[ i ];
+            }
+        }
         return rtdetail::AutoPop{
             prev,
-            []( FRtState& fthis, int p ) { fthis.m_copyGroup = p; },
+            []( FRtState& fthis, CopyState p ) { fthis.m_copy = p; },
             *this,
         };
     }
-    int get_copygroup() const { return m_copyGroup; }
+    int           get_copygroup() const { return m_copy.group; }
+    const double* get_copyoffset() const { return m_copy.ofs; }
 
     bool has_uniqueid() const { return m_curUniqueID != 0; }
     uint64_t get_uniqueid() const { return m_curUniqueID; }
@@ -275,7 +300,7 @@ private:
     uint32_t m_state{ 0 };       // RtPrim flags
     uint64_t m_curUniqueID{ 0 }; // to identify an object between frames
     int      m_sector{ -1 };
-    int      m_copyGroup{ 0 };
+    CopyState m_copy{ 0, { 0, 0, 0 } };
 
     std::unordered_map< uint64_t, uint32_t > m_nextPrimIndex{};
 };

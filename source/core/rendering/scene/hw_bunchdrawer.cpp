@@ -863,7 +863,6 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam)
 			const int ni = sectindex(ns);
 			const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
 			const double nd = d + (mid - entry[si]).Length();
-			if (nd > 6400) continue;
 			if (nd < dist[ni]) { dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni }); }
 		}
 	}
@@ -875,7 +874,9 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam)
 			auto& t = sector[j];
 			// heights that cross (a room over a room is fine)
 			if (!(s.ceilingz < t.floorz - 0.5 && t.ceilingz < s.floorz - 0.5)) continue;
-			if (dist[j] < dist[i] || (dist[i] >= 1e30 && dist[j] >= 1e30 && j < int(i)))
+			// unreached (behind a shut door), or a crossing one is nearer: left out
+			// (what is on screen is drawn anyway)
+			if (dist[i] >= 1e30 || dist[j] < dist[i])
 			{
 				keep[i] = 0;
 				break;

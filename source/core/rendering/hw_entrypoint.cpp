@@ -334,8 +334,8 @@ void animatecamsprite(double s);
 // place (g_rtCopySector). The path tracer has the whole map at once, so what the
 // rasterizer shows through a portal must physically be there:
 //  - the game's links (g_rtCopyLinks): Duke's water surfaces, the world above them
-//  - the map's sector portals: Blood's and Redneck Rampage's rooms over rooms --
-//    the ceiling over Blood's opening coffin is the crypt elsewhere on the map
+// (The map's sector portals -- Blood's rooms over rooms -- are drawn as the
+// rasterizer draws them, what the opening shows: HWDrawInfo::RenderPortal.)
 // Each copy keeps out anything that would cover another copy's openings.
 //
 //---------------------------------------------------------------------------
@@ -345,6 +345,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 	std::vector<RtCopyLink> links = std::move(g_rtCopyLinks);
 	g_rtCopyLinks.clear();
 	g_rtCopySector.clear();
+	g_rtCopyUsed = 0;
 
 	constexpr double reach = 1600; // 50 m
 	const unsigned n = sector.Size();
@@ -356,30 +357,6 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 		return c / max(1u, s->walls.Size());
 	};
 
-	// the map's sector portals near the view, one link per portal
-	{
-		TMap<int, unsigned> byPortal;
-		for (unsigned i = 0; i < n; i++)
-		{
-			auto s = &sector[i];
-			if (s->portalflags != PORTAL_SECTOR_FLOOR && s->portalflags != PORTAL_SECTOR_CEILING) continue;
-			if (s->portalnum < 0 || unsigned(s->portalnum) >= allPortals.Size()) continue;
-			const PortalDesc& pd = allPortals[s->portalnum];
-			if (pd.targets.Size() == 0 || unsigned(pd.targets[0]) >= n) continue;
-			if ((centre(s) - cpos.XY()).Length() > reach) continue;
-			if (auto k = byPortal.CheckKey(s->portalnum))
-			{
-				links[*k].holes.push_back(int(i));
-				continue;
-			}
-			RtCopyLink l;
-			l.delta = pd.delta;
-			l.start = pd.targets[0];
-			l.holes.push_back(int(i));
-			byPortal.Insert(s->portalnum, unsigned(links.size()));
-			links.push_back(std::move(l));
-		}
-	}
 	if (links.empty()) return;
 
 	// nearest openings first
@@ -411,6 +388,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 		}
 
 	g_rtCopySector.assign(n, 0);
+	g_rtCopyUsed = int(order.size());
 	for (size_t k = 0; k < order.size(); k++)
 	{
 		const RtCopyLink& c = links[order[k]];

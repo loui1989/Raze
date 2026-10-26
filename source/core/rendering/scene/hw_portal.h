@@ -356,6 +356,7 @@ public:
 	{
 		origin = pt;
 	}
+	const PortalDesc* GetPortalDesc() const { return origin; }
 	//void SetupCoverage(HWDrawInfo *di);
 
 };

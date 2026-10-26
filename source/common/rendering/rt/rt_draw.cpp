@@ -800,7 +800,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     const bool isCopy = !isUI && ( rtstate.is< RtPrim::CopyMove >() || rtstate.is< RtPrim::CopyId >() );
     if( !isUI && rtstate.is< RtPrim::CopyMove >() )
     {
-        const double* ofs = RT_CopyOffset( rtstate.get_copygroup() );
+        const double* ofs = rtstate.get_copyoffset();
         transform.matrix[ 0 ][ 3 ] += float( ofs[ 0 ] ) * ONEGAMEUNIT_IN_METERS;
         transform.matrix[ 1 ][ 3 ] -= float( ofs[ 1 ] ) * ONEGAMEUNIT_IN_METERS;
         transform.matrix[ 2 ][ 3 ] -= float( ofs[ 2 ] ) * ONEGAMEUNIT_IN_METERS;
