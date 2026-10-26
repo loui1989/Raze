@@ -801,8 +801,18 @@ void UploadOverlayLights( uint32_t time )
             float intensity = rule.intensity;
             if( rule.hasRandom )
             {
-                const float t = Rand01( id * 7919 + time );
-                intensity += rule.randomIntensityRange[ 0 ] + t * ( rule.randomIntensityRange[ 1 ] - rule.randomIntensityRange[ 0 ] );
+                // (a fire's): a new random level every few tics, reached smoothly, around the
+                // middle of its range and as deep as rt_flicker_amount. A new level every tic
+                // was a strobe the denoiser could not follow: the light near fires boiled.
+                constexpr uint32_t period = 6;
+                const uint32_t     k      = time / period;
+                float              t      = float( time % period ) / float( period );
+                t                         = t * t * ( 3.f - 2.f * t );
+                const float a   = Rand01( id * 7919 + k ), b = Rand01( id * 7919 + k + 1 );
+                const float r   = a + ( b - a ) * t;
+                const float lo  = rule.randomIntensityRange[ 0 ], hi = rule.randomIntensityRange[ 1 ];
+                const float mid = 0.5f * ( lo + hi );
+                intensity += mid + ( lo + r * ( hi - lo ) - mid ) * std::clamp( float( *rt_flicker_amount ), 0.f, 1.f );
             }
             intensity *= FlickerScale( id, rule.flickerFrames, time );
 
