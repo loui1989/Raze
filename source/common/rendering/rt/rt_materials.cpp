@@ -12,7 +12,9 @@
 //    translated pixels, so a palette swapped sign glows in its own colour. Either
 //    way the brightest texel is brought to full brightness: the glowmaps are drawn
 //    soft (a neon sign peaks at a quarter), and RTGL1 shows _e as it is.
-//  - roughness / metallic: packed into _orm (R unused, G roughness, B metallic).
+//  - roughness / metallic: packed into _orm (R occlusion, G roughness, B metallic).
+//    R is 1 (open) but in the material table's maps, where it is the cavities
+//    (rt_cavity): Raze RT's shaders darken a surface's ambient glow by it.
 //    RTGL1's "polished" surfaces mirror the scene (traced mirror rays; low roughness
 //    alone gets denoised away), masked per texel by the _orm roughness -- and much
 //    more strongly than a real dielectric (15% head on, where wood or concrete gives
@@ -38,6 +40,7 @@ CVARD( Bool, rt_materials, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: use the 
 CVARD( Bool, rt_materials_brightmaps, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: textures without a glowmap glow where the palette is fullbright" )
 CVARD( Bool, rt_materials_regen, false, 0, "RT: make the material files again (this session)" )
 CVARD( Bool, rt_materials_normals, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: use the normal maps (World Tour's, imported by setup.sh)" )
+CVARD( Float, rt_cavity, 0.6f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much a material table texture's cracks and joints darken its ambient glow (0..1; new maps at the next start)" )
 
 const std::string& RT_GetOverrideFolder();
 
@@ -424,7 +427,10 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     if( mc )
     {
         char sfx[ 32 ];
-        snprintf( sfx, sizeof( sfx ), "_orm.t%08x", mc->hash );
+        // (the cavity strength is part of the name: another strength makes them again)
+        const float    cav     = std::clamp( float( *rt_cavity ), 0.f, 1.f );
+        const uint32_t ormHash = mc->hash ^ ( uint32_t( cav * 100.f + 0.5f ) * 0x9e3779b1u ) ^ 0x3u;
+        snprintf( sfx, sizeof( sfx ), "_orm.t%08x", ormHash );
         const auto pathT = dir / ( name + sfx );
         if( regen || !Exists( pathT ) || !Exists( pathORM ) )
         {
@@ -452,7 +458,11 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                     // rough enough never to mirror; the cracks and mortar rougher
                     r = std::max( mc->rough + ( 1.f - rel ) * 0.1f, 0.71f );
                 }
-                rgb[ size_t( i ) * 3 + 0 ] = 255;
+                // the cavities: darker than the texture's average is deeper (a joint, a
+                // crack), the more so the bumpier its class
+                const float depthRel = std::clamp( 1.f - rel, 0.f, 1.f );
+                const float occ      = 1.f - cav * std::clamp( mc->bump / 1.2f, 0.f, 1.f ) * depthRel * ( 2.f - depthRel );
+                rgb[ size_t( i ) * 3 + 0 ] = uint8_t( std::clamp( occ * 255.f + 0.5f, 0.f, 255.f ) );
                 rgb[ size_t( i ) * 3 + 1 ] = uint8_t( std::clamp( r * 255.f + 0.5f, 0.f, 255.f ) );
                 rgb[ size_t( i ) * 3 + 2 ] = uint8_t( std::clamp( mc->metal * ( 0.75f + 0.25f * rel ) * 255.f + 0.5f, 0.f, 255.f ) );
             }
@@ -502,6 +512,37 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 if( WritePNG( pathN, rgb, w, h ) )
                 {
                     Touch( pathNT );
+                }
+            }
+        }
+
+        // the height map, for parallax occlusion mapping (RTGL1: _h, white = raised): the
+        // same heights, stretched to the full range; a flatter class keeps to the top
+        if( mc->bump > 0.f )
+        {
+            const auto pathH  = dir / ( name + "_h.png" );
+            snprintf( sfx, sizeof( sfx ), "_h.t%08x", mc->hash ^ 0x1u );
+            const auto pathHT = dir / ( name + sfx );
+            if( regen || !Exists( pathHT ) || !Exists( pathH ) )
+            {
+                const auto hgt = Heights( albedo );
+                float      lo = 1e9f, hi = -1e9f;
+                for( float v : hgt )
+                {
+                    lo = std::min( lo, v ), hi = std::max( hi, v );
+                }
+                const float            span  = std::max( hi - lo, 1e-3f );
+                const float            depth = std::clamp( mc->bump / 1.2f, 0.f, 1.f );
+                std::vector< uint8_t > rgb( size_t( w ) * h * 3 );
+                for( int i = 0; i < w * h; i++ )
+                {
+                    const float   v = 1.f - depth * ( 1.f - ( hgt[ size_t( i ) ] - lo ) / span );
+                    const uint8_t b = uint8_t( std::clamp( v * 255.f + 0.5f, 0.f, 255.f ) );
+                    rgb[ size_t( i ) * 3 + 0 ] = rgb[ size_t( i ) * 3 + 1 ] = rgb[ size_t( i ) * 3 + 2 ] = b;
+                }
+                if( WritePNG( pathH, rgb, w, h ) )
+                {
+                    Touch( pathHT );
                 }
             }
         }
