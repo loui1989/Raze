@@ -42,6 +42,7 @@
 #include "gamecvars.h"
 #include "gamestruct.h"
 #include "gamecontrol.h"
+#include "mapinfo.h"
 #include <queue>
 #include "automap.h"
 #include "hw_voxels.h"
@@ -655,6 +656,43 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 //
 //-----------------------------------------------------------------------------
 
+// ray tracing: per sector, its bounding box (min x, min y, max x, max y) and some
+// points inside it -- for telling where sectors overlap. Made once per level.
+static std::vector<DVector4> rt_sectorBox;
+static std::vector<std::vector<DVector2>> rt_sectorPoints;
+static void RT_SectorShapes()
+{
+	static const void* level = nullptr;
+	static const void* data = nullptr;
+	if (level == currentLevel && data == sector.Data() && rt_sectorBox.size() == sector.Size()) return;
+	level = currentLevel; data = sector.Data();
+	const unsigned n = sector.Size();
+	rt_sectorBox.assign(n, DVector4(0, 0, 0, 0));
+	rt_sectorPoints.assign(n, {});
+	for (unsigned i = 0; i < n; i++)
+	{
+		auto& sec = sector[i];
+		DVector4 b(1e30, 1e30, -1e30, -1e30);
+		DVector2 c(0, 0);
+		for (auto& w : sec.walls)
+		{
+			b.X = min(b.X, w.pos.X); b.Y = min(b.Y, w.pos.Y);
+			b.Z = max(b.Z, w.pos.X); b.W = max(b.W, w.pos.Y);
+			c += w.pos;
+		}
+		rt_sectorBox[i] = b;
+		if (sec.walls.Size() == 0) continue;
+		c /= double(sec.walls.Size());
+		if (inside(c.X, c.Y, &sec) == 1) rt_sectorPoints[i].push_back(c);
+		for (auto& w : sec.walls)
+			for (double t : { 0.1, 0.4 })
+			{
+				const DVector2 pt = w.pos * (1.0 - t) + c * t;
+				if (inside(pt.X, pt.Y, &sec) == 1) rt_sectorPoints[i].push_back(pt);
+			}
+	}
+}
+
 void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 {
 	auto gp = static_cast<HWPortal *>(p);
@@ -704,61 +742,43 @@ void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 			g_rtCopySkipWater[copy - 1] = false;
 
 			// the linked place near the opening only: the sectors within ~30 m of the
-			// portal's targets, through openings (shut doors too: they open), and only
-			// what lies wholly beyond the opening once moved -- nothing of it may poke
-			// through to this side (the courtyard copied over itself: enemies knee deep
-			// in a floor, bits of ground hanging under the tomb's ceiling)
+			// portal's targets, through openings (shut doors too: they open)...
 			const unsigned n = sector.Size();
 			std::vector<char> allow(n, 0);
-			const int pnum = int(pd - allPortals.Data());
-			bool isFloor = true, haveOpen = false;
-			double zOpen = 0;
-			for (unsigned i = 0; i < n; i++)
+			// ...and nothing that, moved into place, would overlap the real map in 3D: a
+			// room over a room fills space the map leaves empty; what is not like that
+			// (the courtyard reached from the linked side, copied over itself) is out
 			{
-				auto& os = sector[i];
-				if (os.portalnum != pnum || (os.portalflags != PORTAL_SECTOR_FLOOR && os.portalflags != PORTAL_SECTOR_CEILING)) continue;
-				isFloor = os.portalflags == PORTAL_SECTOR_FLOOR;
-				const double z = isFloor ? os.floorz : os.ceilingz;
-				zOpen = haveOpen ? (isFloor ? min(zOpen, z) : max(zOpen, z)) : z;
-				haveOpen = true;
-			}
-			auto beyond = [&](const sectortype& ls)
-			{
-				if (!haveOpen) return true;
-				// moved by -delta; z grows downwards
-				if (isFloor) return ls.ceilingz - pd->delta.Z >= zOpen - 1.0;	// all of it below the floor opening
-				return ls.floorz - pd->delta.Z <= zOpen + 1.0;					// all of it above the ceiling opening
-			};
-			{
-				std::vector<double> dist(n, 1e30);
-				std::vector<DVector2> entry(n);
-				using Item = std::pair<double, int>;
-				std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
-				for (int t : pd->targets)
+				std::vector<char> cand = std::move(allow);
+				allow.assign(n, 0);
+				RT_SectorShapes();
+				const DVector2 dxy = pd->delta.XY();
+				for (unsigned ci = 0; ci < n; ci++)
 				{
-					if (unsigned(t) >= n) continue;
-					DVector2 c(0, 0);
-					for (auto& w : sector[t].walls) c += w.pos;
-					entry[t] = c / max(1u, sector[t].walls.Size());
-					dist[t] = 0;
-					q.push({ 0., t });
-				}
-				while (!q.empty())
-				{
-					auto [d, si] = q.top();
-					q.pop();
-					if (d > dist[si]) continue;
-					allow[si] = beyond(sector[si]);
-					for (auto& w : sector[si].walls)
+					if (!cand[ci]) continue;
+					auto& ls = sector[ci];
+					const auto& lb = rt_sectorBox[ci];
+					const double z0 = ls.ceilingz - pd->delta.Z, z1 = ls.floorz - pd->delta.Z;
+					bool clash = false;
+					for (unsigned ri = 0; ri < n && !clash; ri++)
 					{
-						if (!w.twoSided()) continue;
-						const int ni = w.nextsector;
-						if (unsigned(ni) >= n) continue;
-						const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
-						const double nd = d + (mid - entry[si]).Length();
-						if (nd > 960 || nd >= dist[ni]) continue;
-						dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni });
+						const auto& rb = rt_sectorBox[ri];
+						if (lb.X - dxy.X >= rb.Z || rb.X >= lb.Z - dxy.X || lb.Y - dxy.Y >= rb.W || rb.Y >= lb.W - dxy.Y) continue;
+						auto& rs = sector[ri];
+						if (!(z0 < rs.floorz - 1.0 && rs.ceilingz < z1 - 1.0)) continue;	// heights apart
+						for (auto& p : rt_sectorPoints[ci])
+						{
+							const DVector2 q = p - dxy;
+							if (inside(q.X, q.Y, &rs) == 1) { clash = true; break; }
+						}
+						if (!clash)
+							for (auto& p : rt_sectorPoints[ri])
+							{
+								const DVector2 q = p + dxy;
+								if (inside(q.X, q.Y, &ls) == 1) { clash = true; break; }
+							}
 					}
+					allow[ci] = !clash;
 				}
 			}
 			std::vector<char> outerFilter = std::move(g_rtPortalFilter);

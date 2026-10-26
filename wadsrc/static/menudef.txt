@@ -2243,6 +2243,8 @@ OptionMenu "RTOptions" protected
 	Slider "Glowing surface light",		"rt_emis_light_scale", 0, 2000, 50, 0
 	Slider "Ambient floor",				"rt_ambient", 0, 0.2, 0.01, 2
 	Slider "Sky light",					"rt_sky", 0, 100, 5, 0
+	Slider "Moonlight (Blood)",			"rt_moon", 0, 40, 1, 0
+	Slider "Moon direction",			"rt_moon_angle", 0, 360, 15, 0
 	Option "Muzzle flash light",		"rt_muzzleflash", "OnOff"
 	Option "Flashlight",				"rt_flashlight", "OnOff"
 	StaticText " "
