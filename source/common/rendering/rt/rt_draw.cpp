@@ -989,11 +989,16 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             }
             // a lamp (the material table's) is lit as its room is: a room whose light is
             // switched off (its shade goes up) has its lamps off
+            float screenScale = 1.f;
             if( hwtex->IsLamp() )
             {
                 glowScale *= std::clamp( ( classic - 0.25f ) / 0.45f, 0.f, 1.f );
+                // its light by the class's glow; on screen softer than a sign's (it is
+                // big and white: at full brightness it outshone the room it lights)
+                emisLightScale *= hwtex->Glow();
+                screenScale = 0.45f;
             }
-            emissive   = glowScale;
+            emissive   = glowScale * screenScale;
             emissiveGi = glowScale * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
         }
         else
@@ -1211,6 +1216,15 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
         {
             n = -n;
         }
+        else if( rtstate.is< RtPrim::CeilingPlane >() || rtstate.is< RtPrim::FloorPlane >() )
+        {
+            // a ceiling lamp shines down into its room, a floor's glow up (RT: z up)
+            const bool ceiling = rtstate.is< RtPrim::CeilingPlane >();
+            if( ceiling ? n.Z > 0.f : n.Z < 0.f )
+            {
+                n = -n;
+            }
+        }
         else if( front == back && ( rtstate.is< RtPrim::Decal >() || rtstate.is< RtPrim::Sprite >() ) )
         {
             // a free-standing two-sided sprite: the side it is seen from
@@ -1253,7 +1267,9 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
                           rtstate.is< RtPrim::Sprite >();
     if( vertical )
     {
-        const float    out = rtstate.is< RtPrim::Sprite >() ? 0.08f : 0.25f;
+        // (a candle's or a torch's a little way out from it: right by the flame it would
+        // only light up the wall it is on)
+        const float    out = rtstate.is< RtPrim::Sprite >() ? 0.3f : 0.25f;
         const FVector3 p   = centre + n * out;
         auto sphere = RgLightSphericalEXT{
             .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
@@ -1261,7 +1277,7 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
             .color     = color,
             .intensity = lumens,
             .position  = { p.X, p.Y, p.Z },
-            .radius    = std::clamp( float( std::sqrt( area ) ) * 0.2f, 0.03f, 0.18f ),
+            .radius    = std::clamp( float( std::sqrt( area ) ) * 0.2f, rtstate.is< RtPrim::Sprite >() ? 0.08f : 0.03f, 0.18f ),
         };
         auto info = RgLightInfo{
             .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,

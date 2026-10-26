@@ -56,7 +56,7 @@ CVARD( Float, rt_decal_offset, 0.03f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: met
 CVARD( Float, rt_bump, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: strength of the bump (normal) maps" )
 CVARD( Float, rt_parallax, 0.03f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: parallax occlusion mapping depth, in texture widths (0 = off): textures with height maps look carved" )
 CVARD( Bool, rt_sprite_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing sprites (candles, torches) cast light, in games without Duke-RT's light rules" )
-CVARD( Float, rt_sprite_light_scale, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how bright the light of a glowing sprite (a candle, a torch) is" )
+CVARD( Float, rt_sprite_light_scale, 6.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how bright the light of a glowing sprite (a candle, a torch) is" )
 CVARD( Float, rt_flat_offset, 0.01f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres floors move up and ceilings down (rooms over rooms: a ceiling flush with the floor above)" )
 // how fast the denoiser drops its history when the lighting changes: lower = calmer
 // under flickering lights and explosions, but lighting changes trail a little
