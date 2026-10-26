@@ -127,6 +127,7 @@ struct MatTable
     std::unordered_map< int, unsigned > tiles; // tile -> class index
     bool                                loaded = false;
     float                               autoBump = 0.f; // "autobump N": bumps for textures with none
+    std::unordered_map< int, float >    windows;         // "window <tile>[-<tile>] [polish]": its panes mirror
 };
 MatTable g_table;
 
@@ -155,6 +156,23 @@ const MatClass* TableClass( const std::string& texname )
             if( float ab; sscanf( line, " autobump %f", &ab ) == 1 )
             {
                 g_table.autoBump = std::max( 0.f, ab );
+                continue;
+            }
+            // a window: the texture keeps its class, its glass (<rt>/windows/<tile>.pgm,
+            // white = glass) is smooth and flat and mirrors the scene, this much
+            if( char wt[ 64 ]; sscanf( line, " window %63s", wt ) == 1 )
+            {
+                float wp = 1.f;
+                sscanf( line, " window %*s %f", &wp );
+                int w0 = -1, w1 = -1;
+                if( sscanf( wt, "%d-%d", &w0, &w1 ) < 2 )
+                {
+                    w1 = w0;
+                }
+                for( int t = w0; t >= 0 && t <= w1 && t - w0 < 1000; t++ )
+                {
+                    g_table.windows[ t ] = std::clamp( wp, 0.f, 3.f );
+                }
                 continue;
             }
             if( sscanf( line, " class %127s %f %f %f %f %f", a, &r, &m, &bu, &po, &gl ) >= 5 )
@@ -224,6 +242,22 @@ bool FlameTexel( const uint8_t* a )
     const int b = a[ 0 ], g = a[ 1 ], r = a[ 2 ];
     return a[ 3 ] >= 128 && b <= 12 && r >= 140 && g * 4 >= r && g <= r;
 }
+
+// a window tile's glass: its mask (any size: scaled to the texture's), how strongly it mirrors
+struct WinMask
+{
+    int                    w = 0, h = 0;
+    std::vector< uint8_t > px;
+    uint32_t               hash   = 0;
+    float                  polish = 0.f;
+    bool At( int x, int y, int tw, int th ) const
+    {
+        const int mx = std::clamp( int( ( x + 0.5 ) * w / tw ), 0, w - 1 );
+        const int my = std::clamp( int( ( y + 0.5 ) * h / th ), 0, h - 1 );
+        return px[ size_t( my ) * w + mx ] >= 128;
+    }
+};
+const WinMask* WindowMask( const std::string& texname );
 
 bool Exists( const std::filesystem::path& p )
 {
@@ -351,6 +385,82 @@ std::vector< float > HeightsFromNormals( const Mask& nm, int& W, int& H )
 } // namespace
 
 const std::string& RT_GetOverrideFolder();
+
+namespace
+{
+const WinMask* WindowMask( const std::string& texname )
+{
+    if( texname.size() < 2 || texname[ 0 ] != '#' || TableClass( texname ) == nullptr )
+    {
+        return nullptr;
+    }
+    const int tile = atoi( texname.c_str() + 1 );
+    const auto wi  = g_table.windows.find( tile );
+    if( wi == g_table.windows.end() )
+    {
+        return nullptr;
+    }
+    static std::unordered_map< int, WinMask > s_masks;
+    auto it = s_masks.find( tile );
+    if( it == s_masks.end() )
+    {
+        WinMask m;
+        m.polish = wi->second;
+        const auto path = std::filesystem::path( RT_GetOverrideFolder() ) / "windows" / ( std::to_string( tile ) + ".pgm" );
+        if( FILE* f = fopen( path.string().c_str(), "rb" ) )
+        {
+            // binary PGM: P5 <w> <h> 255, one byte a texel
+            int w = 0, h = 0, mx = 0;
+            if( fscanf( f, "P5 %d %d %d", &w, &h, &mx ) == 3 && w > 0 && h > 0 && w <= 4096 && h <= 4096 && mx == 255 )
+            {
+                fgetc( f );
+                m.px.resize( size_t( w ) * h );
+                if( fread( m.px.data(), 1, m.px.size(), f ) == m.px.size() )
+                {
+                    m.w = w, m.h = h;
+                    uint32_t hsh = 2166136261u ^ uint32_t( m.polish * 1000.f );
+                    for( uint8_t b : m.px )
+                    {
+                        hsh = ( hsh ^ b ) * 16777619u;
+                    }
+                    m.hash = hsh;
+                }
+            }
+            fclose( f );
+        }
+        if( m.w == 0 )
+        {
+            Printf( "RT: window %d: no mask %s\n", tile, path.string().c_str() );
+        }
+        it = s_masks.emplace( tile, std::move( m ) ).first;
+    }
+    return it->second.w > 0 && it->second.polish > 0.f ? &it->second : nullptr;
+}
+
+// a window's heights: its glass flat, set back a little (the frame stands out of it)
+std::vector< float > ClassHeights( const FTextureBuffer& albedo, const WinMask* wm )
+{
+    auto hgt = Heights( albedo );
+    if( wm && !hgt.empty() )
+    {
+        const int w = albedo.mWidth, h = albedo.mHeight;
+        auto      sorted = hgt;
+        std::sort( sorted.begin(), sorted.end() );
+        const float low = sorted[ sorted.size() * 15 / 100 ];
+        for( int y = 0; y < h; y++ )
+        {
+            for( int x = 0; x < w; x++ )
+            {
+                if( wm->At( x, y, w, h ) )
+                {
+                    hgt[ size_t( y ) * w + x ] = low;
+                }
+            }
+        }
+    }
+    return hgt;
+}
+} // namespace
 
 float rtx::RT_TableGlow( const std::string& name )
 {
@@ -645,12 +755,14 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         char sfx[ 32 ];
         // (the cavity strength is part of the name: another strength makes them again)
         const float    cav     = std::clamp( float( *rt_cavity ), 0.f, 1.f );
-        const uint32_t ormHash = mc->hash ^ ( uint32_t( cav * 100.f + 0.5f ) * 0x9e3779b1u ) ^ 0x4u;
+        const WinMask* wm      = WindowMask( name );
+        const uint32_t wmHash  = wm ? wm->hash : 0u;
+        const uint32_t ormHash = mc->hash ^ ( uint32_t( cav * 100.f + 0.5f ) * 0x9e3779b1u ) ^ 0x4u ^ wmHash;
         snprintf( sfx, sizeof( sfx ), "_orm.t%08x", ormHash );
         const auto pathT = dir / ( name + sfx );
         if( regen || !Exists( pathT ) || !Exists( pathORM ) )
         {
-            const auto           hgt = Heights( albedo );
+            const auto           hgt = ClassHeights( albedo, wm );
             double               avg = 0;
             for( float v : hgt )
             {
@@ -663,7 +775,13 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 const uint8_t* a     = &albedo.mBuffer[ size_t( i ) * 4 ];
                 const float    rel   = std::clamp( float( hgt[ size_t( i ) ] / std::max( avg, 0.02 ) ), 0.f, 2.f );
                 float          r;
-                if( mc->polish > 0.f && a[ 3 ] >= 128 )
+                const bool     pane = wm && a[ 3 ] >= 128 && wm->At( i % w, i / w, w, h );
+                if( pane )
+                {
+                    // a window's glass: smooth, mirroring evenly
+                    r = 0.7f - wm->polish / 4.5f;
+                }
+                else if( mc->polish > 0.f && a[ 3 ] >= 128 )
                 {
                     // the mirror: stronger on the lit, raised parts than in the cracks
                     const float pol = std::clamp( mc->polish * ( 0.85f + 0.15f * rel ), 0.f, 3.f );
@@ -677,14 +795,14 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 // the cavities: darker than the texture's average is deeper (a joint, a
                 // crack), the more so the bumpier its class
                 const float depthRel = std::clamp( 1.f - rel, 0.f, 1.f );
-                const float occ      = 1.f - cav * std::clamp( mc->bump / 1.2f, 0.f, 1.f ) * depthRel * ( 2.f - depthRel );
+                const float occ      = pane ? 1.f : 1.f - cav * std::clamp( mc->bump / 1.2f, 0.f, 1.f ) * depthRel * ( 2.f - depthRel );
                 rgb[ size_t( i ) * 3 + 0 ] = uint8_t( std::clamp( occ * 255.f + 0.5f, 0.f, 255.f ) );
                 rgb[ size_t( i ) * 3 + 1 ] = uint8_t( std::clamp( r * 255.f + 0.5f, 0.f, 255.f ) );
-                rgb[ size_t( i ) * 3 + 2 ] = uint8_t( std::clamp( mc->metal * ( 0.75f + 0.25f * rel ) * 255.f + 0.5f, 0.f, 255.f ) );
+                rgb[ size_t( i ) * 3 + 2 ] = uint8_t( std::clamp( pane ? 0.f : mc->metal * ( 0.75f + 0.25f * rel ) * 255.f + 0.5f, 0.f, 255.f ) );
             }
             if( WritePNG( pathORM, rgb, w, h ) )
             {
-                Touch( pathPol, mc->polish > 0.f ? "1\n" : "0\n" );
+                Touch( pathPol, mc->polish > 0.f || wm ? "1\n" : "0\n" );
                 Touch( pathT );
             }
         }
@@ -699,11 +817,11 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         // the bump map, from the texture's own light and dark texels (RTGL1: Y up)
         if( mc->bump > 0.f && !( layers && layers->Normal.get() ) && *rt_materials_normals )
         {
-            snprintf( sfx, sizeof( sfx ), "_n.t%08x", mc->hash );
+            snprintf( sfx, sizeof( sfx ), "_n.t%08x", mc->hash ^ wmHash );
             const auto pathNT = dir / ( name + sfx );
             if( regen || !Exists( pathNT ) || !Exists( pathN ) )
             {
-                const auto             hgt = Heights( albedo );
+                const auto             hgt = ClassHeights( albedo, wm );
                 std::vector< uint8_t > rgb( size_t( w ) * h * 3 );
                                 // (a bigger texture has more texels to the same stone: smaller steps per texel)
                 const float k = 14.f * mc->bump * std::sqrt( std::clamp( float( std::min( w, h ) ) / 64.f, 0.5f, 4.f ) );
@@ -748,11 +866,11 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         if( mc->bump > 0.f )
         {
             const auto pathH  = dir / ( name + "_h.png" );
-            snprintf( sfx, sizeof( sfx ), "_h.t%08x", mc->hash ^ 0x1u );
+            snprintf( sfx, sizeof( sfx ), "_h.t%08x", mc->hash ^ 0x1u ^ wmHash );
             const auto pathHT = dir / ( name + sfx );
             if( regen || !Exists( pathHT ) || !Exists( pathH ) )
             {
-                const auto hgt = Heights( albedo );
+                const auto hgt = ClassHeights( albedo, wm );
                 float      lo = 1e9f, hi = -1e9f;
                 for( float v : hgt )
                 {
