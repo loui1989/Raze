@@ -99,6 +99,20 @@ inline void MatMul44( const float* a, const float* b, float* result )
     }
 }
 
+// lights uploaded this frame, for rt_debug_stats
+extern uint32_t g_rtLightsThisFrame;
+extern uint32_t g_rtLightsFailed;
+inline RgResult RT_UploadLight( const RgLightInfo* info )
+{
+    g_rtLightsThisFrame++;
+    const RgResult r = rt.rgUploadLight( info );
+    if( r != RG_RESULT_SUCCESS )
+    {
+        g_rtLightsFailed++;
+    }
+    return r;
+}
+
 } // namespace rtx
 
 // cvars of the backend, defined in rt_main.cpp

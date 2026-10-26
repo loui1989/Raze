@@ -1156,7 +1156,7 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
             .uniqueID     = id,
             .isExportable = false,
         };
-        RG_CHECK( rt.rgUploadLight( &info ) );
+        RG_CHECK( RT_UploadLight( &info ) );
         return;
     }
 
@@ -1180,7 +1180,7 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
         .uniqueID     = id,
         .isExportable = false,
     };
-    RG_CHECK( rt.rgUploadLight( &info ) );
+    RG_CHECK( RT_UploadLight( &info ) );
 }
 
 } // namespace rtx

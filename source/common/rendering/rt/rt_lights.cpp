@@ -109,7 +109,7 @@ void UploadSphere( uint64_t id, const RgFloat3D& pos, RgColor4DPacked32 color, f
         .uniqueID     = id,
         .isExportable = false,
     };
-    RG_CHECK( rt.rgUploadLight( &info ) );
+    RG_CHECK( RT_UploadLight( &info ) );
 }
 
 float FlickerScale( uint64_t key, uint32_t frames, uint32_t time )
@@ -384,7 +384,7 @@ void UploadOverlayLights( uint32_t time )
                 .uniqueID     = MapLightBase - 1,
                 .isExportable = false,
             };
-            RG_CHECK( rt.rgUploadLight( &info ) );
+            RG_CHECK( RT_UploadLight( &info ) );
         }
     }
 

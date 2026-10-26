@@ -538,8 +538,15 @@ void RTFrameBuffer::Update()
     Super::Update();
 }
 
+uint32_t rtx::g_rtLightsThisFrame = 0;
+uint32_t rtx::g_rtLightsFailed    = 0;
+static uint32_t g_cameraUploads   = 0;
+
 void RTFrameBuffer::RT_StartFrame()
 {
+    g_rtLightsThisFrame = 0;
+    g_rtLightsFailed    = 0;
+    g_cameraUploads     = 0;
     m_state->RT_BeginFrame();
     m_wassky         = false;
     m_cameraUploaded = false;
@@ -615,6 +622,7 @@ void RTFrameBuffer::RT_SetMainCamera( const DVector3& pos, const FRotator& hwang
     m_state->RT_SetMainCameraInverse( readback.viewInverse, readback.projectionInverse );
 
     m_cameraUploaded = true;
+    g_cameraUploads++;
     m_camPos         = info.position;
     m_camUp          = up;
     m_camRight       = right;
@@ -661,7 +669,7 @@ void RTFrameBuffer::RT_UploadLights()
             .isExportable = false,
         };
 
-        RG_CHECK( rt.rgUploadLight( &light ) );
+        RG_CHECK( RT_UploadLight( &light ) );
     }
 
     // the game says how bright its weapon flash is (Duke: the player's visibility dip)
@@ -690,7 +698,7 @@ void RTFrameBuffer::RT_UploadLights()
             .uniqueID     = MuzzleFlashLightId,
             .isExportable = false,
         };
-        RG_CHECK( rt.rgUploadLight( &light ) );
+        RG_CHECK( RT_UploadLight( &light ) );
     }
 }
 
@@ -953,11 +961,13 @@ void RTFrameBuffer::RT_DrawFrame()
         if( now - last > 3.0 )
         {
             last = now;
-            Printf( "RT: %u primitives uploaded, %u dropped, sky %d, camera %d\n",
+            Printf( "RT: %u primitives uploaded, %u dropped, %u lights (%u failed), camera uploads %u, sky %d\n",
                     m_state->m_drawsThisFrame,
                     m_state->m_droppedThisFrame,
-                    int( m_wassky ),
-                    int( m_cameraUploaded ) );
+                    g_rtLightsThisFrame,
+                    g_rtLightsFailed,
+                    g_cameraUploads,
+                    int( m_wassky ) );
         }
     }
 }
