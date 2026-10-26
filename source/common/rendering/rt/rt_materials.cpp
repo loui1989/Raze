@@ -853,8 +853,24 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         }
     }
 
+    // a see-through texture (a sprite, a grate), a glowing one (a sign) or one that is not
+    // a tile (a voxel model's skin: the voxel enemies went black) has no height map or
+    // made-up bumps
+    size_t holes = 0;
+    for( int i = 0; i < w * h; i++ )
+    {
+        holes += albedo.mBuffer[ size_t( i ) * 4 + 3 ] < 128;
+    }
+    // (and only the game's tiles, "#01234": not voxel models' skins, skies, pictures)
+    const bool solid = holes <= size_t( w ) * h / 100 && w >= 16 && h >= 16 && !hasE && name.size() > 1 && name[ 0 ] == '#';
+
     // parallax for the textures with World Tour's normal maps: heights made from them
-    if( layers && layers->Normal.get() && *rt_materials_normals )
+    if( layers && layers->Normal.get() && *rt_materials_normals && !solid )
+    {
+        std::filesystem::remove( dir / ( name + "_h.png" ), ec ); // (made by an earlier version)
+        std::filesystem::remove( dir / ( name + "_h.n1" ), ec );
+    }
+    else if( layers && layers->Normal.get() && *rt_materials_normals )
     {
         const auto pathH  = dir / ( name + "_h.png" );
         const auto pathHv = dir / ( name + "_h.n1" );
@@ -880,14 +896,9 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     // the rest (Duke: the textures World Tour made no normal map for): bumps and heights
     // from the texture's own light and dark texels, if the table says so (autobump) --
     // not for see-through ones (sprites, grates) nor glowing ones (signs, screens)
-    else if( !mc && !out.glass && !hasE && *rt_materials_normals && TableClass( "" ) == nullptr && g_table.autoBump > 0.f )
+    else if( !mc && !out.glass && *rt_materials_normals && TableClass( "" ) == nullptr && g_table.autoBump > 0.f )
     {
-        size_t holes = 0;
-        for( int i = 0; i < w * h; i++ )
-        {
-            holes += albedo.mBuffer[ size_t( i ) * 4 + 3 ] < 128;
-        }
-        if( holes <= size_t( w ) * h / 100 && w >= 16 && h >= 16 )
+        if( solid )
         {
             char sfx[ 32 ];
             snprintf( sfx, sizeof( sfx ), "_n.a%08x", uint32_t( g_table.autoBump * 1000.f ) ^ 0xa0u );
