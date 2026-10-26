@@ -673,12 +673,12 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 // has no stencil: the linked place is drawn moved to where it is seen (a copy,
 // g_rtCopyOffset), and only where it fills space that is empty around the viewer.
 // Where the moved place would overlap real sectors in 3D:
-//  - real sectors in the viewer's surroundings, or reachable and not beyond the
-//    opening: that part of the copy is left out (the courtyard copied over itself:
-//    enemies knee deep in it, a second mortuary door)
+//  - real sectors the view sees, or in the viewer's surroundings: that part of the
+//    copy is left out (the courtyard copied over itself: enemies knee deep in it, a
+//    second mortuary door)
 //  - otherwise the real sectors are left out instead and the copy drawn there (the
 //    crypt over the coffin sits partly on the real crypt, which the coffin cannot
-//    reach; the mortuary's upper storey is stacked right over the courtyard, a
+//    see; the mortuary's upper storey is stacked right over the courtyard, a
 //    little off from where the opening shows it)
 //
 //==========================================================================
@@ -881,22 +881,15 @@ static void RT_PlanPortalViews(HWDrawInfo* di, unsigned seen)
 			if (near.empty()) { RT_SectorShapes(); near = RT_ViewDistance(); }
 			const std::vector<char> cand = RT_PortalCandidates(pd);
 			const DVector3 shift = -pd->delta;
-			// the opening's plane
-			const int pnum = int(pd - allPortals.Data());
-			const bool isFloor = type == PORTAL_SECTOR_FLOOR;
-			double zOpen = isFloor ? 1e30 : -1e30;
-			for (auto& os : sector)
-				if (os.portalnum == pnum && os.portalflags == type)
-					zOpen = isFloor ? min(zOpen, double(os.floorz)) : max(zOpen, double(os.ceilingz));
-			// a real sector the copy may stand in for: not in the viewer's surroundings,
-			// and either out of the viewer's reach altogether (the crypt, from the coffin)
-			// or wholly beyond the opening (the mortuary's upper storey, from the
-			// courtyard -- not the crypt hall up the hill, which is seen as it is)
+			// a real sector the copy may stand in for: one the view does not see (the
+			// clipper did not get it) and not in the viewer's surroundings. (Seen from
+			// the coffin, the real crypt; from the courtyard, the mortuary's upper storey
+			// stacked over it. Not the crypt's corridors, seen from the crypt while the
+			// courtyard's sky shows through a door.)
+			const BitArray& got = di->mDrawer.GotSector();
 			auto mayHide = [&](int r)
 			{
-				if (near[r] < nearDist) return false;
-				if (near[r] >= 1e30) return true;
-				return isFloor ? sector[r].ceilingz >= zOpen - 1.0 : sector[r].floorz <= zOpen + 1.0;
+				return near[r] >= nearDist && !got[r];
 			};
 			plan.allow.assign(n, 0);
 			std::vector<int> hide;
