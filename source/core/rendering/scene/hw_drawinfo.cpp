@@ -352,6 +352,13 @@ void HWDrawInfo::DispatchSprites()
 				if (vox >= 0 && voxmodels[vox])
 				{
 					if (RT_VoxelTooFar(vox, tspr, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]))) vox = -1;
+					// a sprite with a glowmap of its own (Duke-RT's neon signs): the sprite, glowing
+					// as drawn -- the voxel model has only the palette's fullbright colours to glow
+					if (vox >= 0 && RT_IsActive())
+					{
+						auto gt = TexMan.GetGameTexture(texid);
+						if (gt && gt->GetGlowmap()) vox = -1;
+					}
 				}
 				if (vox >= 0 && voxmodels[vox])
 				{

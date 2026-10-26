@@ -188,7 +188,7 @@ auto RTHardwareTexture::TranslationSuffix( int translation ) -> std::string
     return "_tr" + std::to_string( remap->Index );
 }
 
-CVARD( Float, rt_voxel_glow, 0.4f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how brightly the fullbright colours of voxel models glow (1 = as glowing textures)" )
+CVARD( Float, rt_voxel_glow, 0.4f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how brightly voxel fires (fullbright actors' models) glow (1 = as glowing textures)" )
 CVARD( Bool, rt_voxel_alphatest, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models alpha tested, as their sprites are (slow; for comparison)" )
 
 uint32_t g_rtTexCreates = 0;   // rt_debug_stats: textures given to the path tracer...
@@ -1089,8 +1089,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             emissiveGi = glowScale * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
             // a voxel model's glowing faces (a voxel fire is mostly glow, and flickers
             // through its frames): softer than a sign's
-            if( isModel )
+            if( isModel && rtstate.is< RtPrim::Fullbright >() )
             {
+                // (a fullbright actor's: Duke-RT's fires, which cast their own light too)
                 emissive *= std::max( 0.f, float( *rt_voxel_glow ) );
                 emissiveGi *= std::max( 0.f, float( *rt_voxel_glow ) );
             }
