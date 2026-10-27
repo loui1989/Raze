@@ -1111,7 +1111,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // a fixture in a switched room goes out with its lights
             // (not a fullbright actor's: a fire burns in a dark alcove too)
             // (nor a candle's flame: it burns in a dark room)
-            if( *rt_emis_follow_shade && !rtstate.is< RtPrim::Fullbright >() && !hwtex->IsFlame() )
+            // (nor a lamp of the material table: it is on as it looks, by its own shade --
+            // below -- whatever its room's switch: a lamp drawn lit in a dim room is on)
+            if( *rt_emis_follow_shade && !rtstate.is< RtPrim::Fullbright >() && !hwtex->IsFlame() && !hwtex->IsLamp() )
             {
                 const float sw = RT_SectorSwitch( rtstate.get_sector() );
                 if( sw >= 0.f )

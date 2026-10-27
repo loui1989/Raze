@@ -980,8 +980,8 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			if (!actor->insector() || (actor->spr.cstat & CSTAT_SPRITE_INVISIBLE) || actor->spr.scale.Y == 0) continue;
 			const int tileNo = legacyTileNum(actor->spr.spritetexture());
 			// (and the light tube, 796 -- a breakable thing: coloured by its palette too)
-			// (the round lamp only glows: in the original it lights nothing, and the
-			// add-ons' red alarm lamps lit whole rooms red)
+			// (the round lamp: the material table's lamp, its light is its glow's -- on as
+			// it looks; the add-ons' dark red alarm lamps light nothing)
 			if (tileNo == 795) continue;
 			const bool lampTile = tileNo == 796;
 			if (stat == kStatThing && !lampTile) continue;
@@ -1001,7 +1001,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				orbColor(actor, l.color);
 				// brighter as it is bigger and as its shade is (-60: as bright as can be)
 				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 2.f);
-				l.intensity = float(clamp(56. * repeat, 210., 1680.)) * shade * scale;
+				l.intensity = float(clamp(40. * repeat, 150., 1200.)) * shade * scale;
 				l.radius = 0.04f;
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 6u;
 				l.sector = actor->sectno();
