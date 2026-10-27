@@ -398,7 +398,10 @@ void HWDrawInfo::DispatchSprites()
 			// (a copy's sprite is already moved: where it really is)
 			const double* ofs = RT_CopyOffset(tspr->rtcopy);
 			const DVector3 pos = tspr->pos - DVector3(ofs[0], ofs[1], ofs[2]);
-			const double top = (tspr->cstat & CSTAT_SPRITE_YCENTER) ? pos.Z - h * 0.5 : pos.Z - h;
+			// (raised by its tile's offset as it is drawn: a lamp post's picture stands on its
+			// foot -- Death Wish sinks lamp posts into wooden posts, the lantern on top)
+			const double lift = tex ? (tex->GetDisplayTopOffset() + tspr->yoffset) * tspr->scale.Y : 0;
+			const double top = ((tspr->cstat & CSTAT_SPRITE_YCENTER) ? pos.Z - h * 0.5 : pos.Z - h) - lift;
 			if (h > 0 && top > getflorzofslopeptr(tspr->sectp, pos.X, pos.Y) + 1) continue;
 		}
 

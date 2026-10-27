@@ -58,6 +58,7 @@
 void HWSprite::DrawSprite(HWDrawInfo* di, FRenderState& state, bool translucent)
 {
 	if (RT_IsActive() && RT_SkipSector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : -1)) return;
+	if (Sprite && Sprite->ownerActor) RT_MarkSprite(Sprite->ownerActor->GetIndex(), 2);
 	auto rtid = rtstate.push_uniqueid((const void*)(Sprite ? Sprite->ownerActor : nullptr), modelframe == 0 ? RtIdKind::Sprite : RtIdKind::Model);
 	RT_PUSH_TYPE(rtspr, modelframe == 0 ? RtPrim::Sprite : RtPrim::Identity);
 	auto rtsec = rtstate.push_sector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : -1);
@@ -337,6 +338,7 @@ void HWSprite::Process(HWDrawInfo* di, tspritetype* spr, sectortype* sector, int
 {
 	if (spr == nullptr)
 		return;
+	if (spr->ownerActor) RT_MarkSprite(spr->ownerActor->GetIndex(), 0);
 
 	auto tex = TexMan.GetGameTexture(spr->spritetexture());
 	if (!tex || !tex->isValid()) return;
@@ -462,6 +464,7 @@ void HWSprite::Process(HWDrawInfo* di, tspritetype* spr, sectortype* sector, int
 	}
 #endif
 
+	if (Sprite && Sprite->ownerActor) RT_MarkSprite(Sprite->ownerActor->GetIndex(), 1);
 	PutSprite(di, true);
 }
 
@@ -561,6 +564,7 @@ bool HWSprite::ProcessVoxel(HWDrawInfo* di, voxmodel_t* vox, tspritetype* spr, s
 
 	auto vp = di->Viewpoint;
 	depth = (float)((x - vp.Pos.X) * vp.TanCos + (y - vp.Pos.Y) * vp.TanSin);
+	if (Sprite && Sprite->ownerActor) RT_MarkSprite(Sprite->ownerActor->GetIndex(), 1);
 	PutSprite(di, spriteHasTranslucency(Sprite));
 	return true;
 }

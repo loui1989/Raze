@@ -743,6 +743,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 	g_rtCameraUnderwater = pSector && IsUnderwaterSector(pSector);
 	g_rtViewerActor = nullptr;
 	g_rtViewerDrawn = 0;
+	g_rtFrameNo++;
 	g_rtSectorSwitch.clear();
 	// the light switches: a sector whose lighting effect runs with its state, not always
 	// (a switch turns it on and off): on as far as the effect has gone (busy), the
@@ -1346,10 +1347,12 @@ CCMD(rt_lookat)
 			float st, rgb[3];
 			if (!RT_TableLight(legacyTileNum(a->spr.spritetexture()), st, rgb) || (a->spr.pos - view).Length() > 320) continue;
 			auto gt = TexMan.GetGameTexture(a->spr.spritetexture());
-			Printf("  lantern sprite %d: tile %d, cstat %04x, stat %d, in sector %d, at z %.1f, %.1f tall (its sector's floor z %.1f, ceiling z %.1f), %.1f m away\n",
+			Printf("  lantern sprite %d: tile %d, cstat %04x, stat %d, in sector %d, at z %.1f, %.1f tall (its sector's floor z %.1f, ceiling z %.1f), %.1f m away; last frame: %s\n",
 				a->GetIndex(), legacyTileNum(a->spr.spritetexture()), int(a->spr.cstat), int(a->spr.statnum), a->sectno(), a->spr.pos.Z,
 				gt ? gt->GetDisplayHeight() * a->spr.scale.Y : 0., a->sector() ? getflorzofslopeptr(a->sector(), a->spr.pos) : 0.,
-				a->sector() ? getceilzofslopeptr(a->sector(), a->spr.pos) : 0., (a->spr.pos - view).Length() / 32.);
+				a->sector() ? getceilzofslopeptr(a->sector(), a->spr.pos) : 0., (a->spr.pos - view).Length() / 32.,
+				!RT_SpriteAt(a->GetIndex(), 0) ? "not given to the renderer" : !RT_SpriteAt(a->GetIndex(), 1) ? "given, but dropped before its picture was made" :
+				!RT_SpriteAt(a->GetIndex(), 2) ? "made, but not drawn" : "drawn");
 		}
 	}
 }

@@ -43,6 +43,22 @@ extern const void* g_rtViewerActor;
 // what of it was drawn the last frame (rt_lookat): how many times, its tile, as a model
 extern int  g_rtViewerDrawn, g_rtViewerDrawnTile;
 extern bool g_rtViewerDrawnModel;
+// per sprite (its actor's index), the frame it last got to each stage of drawing
+// (rt_lookat): 0 processed (the game gave it), 1 placed (a picture or model made), 2 drawn
+extern uint32_t g_rtFrameNo;
+extern std::vector< uint32_t > g_rtSpriteStage[ 3 ];
+inline void RT_MarkSprite( int index, int stage )
+{
+    if( index < 0 || index > 1 << 20 ) return;
+    auto& v = g_rtSpriteStage[ stage ];
+    if( size_t( index ) >= v.size() ) v.resize( size_t( index ) + 256, 0 );
+    v[ size_t( index ) ] = g_rtFrameNo;
+}
+inline bool RT_SpriteAt( int index, int stage )
+{
+    const auto& v = g_rtSpriteStage[ stage ];
+    return index >= 0 && size_t( index ) < v.size() && v[ size_t( index ) ] == g_rtFrameNo && g_rtFrameNo != 0;
+}
 // Set by the game: sectors copied to another place this frame -- per sector the
 // copy it belongs to (1..RT_MAX_COPIES, 0 = none; or empty), each copy moved by its
 // g_rtCopyOffset (game units, z down). Duke's water: the world above a surface lives

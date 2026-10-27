@@ -13,6 +13,8 @@ const char* g_rtShotEvent   = nullptr;
 const void* g_rtViewerActor = nullptr;
 int         g_rtViewerDrawn = 0, g_rtViewerDrawnTile = -1;
 bool        g_rtViewerDrawnModel = false;
+uint32_t    g_rtFrameNo = 0;
+std::vector< uint32_t > g_rtSpriteStage[ 3 ];
 int         g_rtViewSector  = -1;
 std::vector< uint8_t > g_rtCopySector;
 std::vector< RtGameLight > g_rtGameLights;
