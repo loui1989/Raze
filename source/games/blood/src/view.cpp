@@ -1004,6 +1004,17 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 					const double fz = getflorzofslopeptr(actor->sector(), actor->spr.pos);
 					l.pos[2] = actor->spr.pos.Z - cz < fz - actor->spr.pos.Z ? actor->spr.pos.Z + 6 : actor->spr.pos.Z - 6;
 				}
+				// an orb faces the view: its light a little behind it, away from the view --
+				// at the picture itself, the light blew its own orb out to white
+				if ((tileNo == 624 || tileNo == 625) && (actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FACING)
+				{
+					DVector3 away(l.pos[0] - g_rtViewPos[0], l.pos[1] - g_rtViewPos[1], l.pos[2] - g_rtViewPos[2]);
+					if (away.LengthSquared() > 1.)
+					{
+						away.MakeUnit();
+						for (int k = 0; k < 3; k++) l.pos[k] += away[k] * 6.;
+					}
+				}
 				// brighter as it is bigger and as its shade is (-60: as bright as can be)
 				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 2.f);
 				l.intensity = float(clamp(40. * repeat, 150., 1200.)) * shade * scale;

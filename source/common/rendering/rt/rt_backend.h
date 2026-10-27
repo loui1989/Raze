@@ -447,6 +447,7 @@ private:
 
     auto MakeTransform( bool isSky, bool isModel ) const -> RgTransform;
     auto ResolveTexture( bool clamped, const RTHardwareTexture** outTex ) -> const char*;
+    bool m_curLampFlat = false; // AddEmissionLight: for a material table lamp
     void AddEmissionLight( std::span< const RgPrimitiveVertex > verts,
                            std::span< const uint32_t >          indices,
                            const RgTransform&                   transform,

@@ -1147,6 +1147,19 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                 emisLightScale *= hwtex->Glow();
                 screenScale = 0.45f;
             }
+            else if( hwtex->Glow() > 0.f && hwtex->Glow() < 3.f )
+            {
+                // a glowing class softer than fire's 3.0 (Blood's glow orbs, 0.3): softer
+                // on screen too -- the class's glow only set its light before, and a
+                // translucent orb's whole picture shone at full brightness, white
+                screenScale = hwtex->Glow() / 3.f;
+            }
+            // a see-through glowing sprite (an orb's halo, alpha a third): glows through
+            // as much as it is seen
+            if( alpha < 0.98f )
+            {
+                screenScale *= std::max( alpha, 0.f );
+            }
             emissive   = glowScale * screenScale;
             emissiveGi = glowScale * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
             // a voxel model's glowing faces (a voxel fire is mostly glow, and flickers
@@ -1393,8 +1406,10 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         }
         else
         {
+            m_curLampFlat = hwtex->IsLamp();
             AddEmissionLight( verts, indices, transform, hwtex->EmissionAverage(), glowScale * emisLightScale,
                               FRtState::MixId( uniqueId * 31 + prim.primitiveIndexInMesh, RtIdKind::Other ) );
+            m_curLampFlat = false;
         }
     }
 }
@@ -1659,6 +1674,30 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
             .intensity = lumens,
             .position  = { p.X, p.Y, p.Z },
             .radius    = std::clamp( float( std::sqrt( area ) ) * 0.2f, rtstate.is< RtPrim::Sprite >() ? 0.08f : 0.03f, 0.18f ),
+        };
+        auto info = RgLightInfo{
+            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+            .pNext        = &sphere,
+            .uniqueID     = id,
+            .isExportable = false,
+        };
+        RG_CHECK( RT_UploadLight( &info ) );
+        return;
+    }
+
+    // a lamp in the ceiling (the material table's lamps: Blood's light panels): a ball
+    // of light a little under it, lighting the room all round -- the spot from the panel
+    // itself, sunk in its recess, lit the floor under it and little else
+    if( m_curLampFlat && rtstate.is< RtPrim::CeilingPlane >() )
+    {
+        const FVector3 p      = centre + n * 0.45f;
+        auto           sphere = RgLightSphericalEXT{
+            .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
+            .pNext     = nullptr,
+            .color     = color,
+            .intensity = lumens * 0.5f,
+            .position  = { p.X, p.Y, p.Z },
+            .radius    = std::clamp( float( std::sqrt( area ) ) * 0.25f, 0.05f, 0.3f ),
         };
         auto info = RgLightInfo{
             .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
