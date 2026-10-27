@@ -350,10 +350,13 @@ std::array< float, 3 > WindowTint( FTextureID texid )
     return t;
 }
 
-// a shut door in the way of a sky opening: a solid sector (a door's panel -- Blood's
-// rotating and sliding doors are a closed sector turning or sliding in the doorway) next
-// to the room or to the sky's sector, one of whose walls crosses the way from 'from' to 'to'
-static bool SkyPortalBlocked( const sectortype& room, const sectortype& sky, const DVector2& from, const DVector2& to )
+// a shut door in the way of a sky opening: a sector next to the room, to the sky's sector
+// or to the room the light was moved into (a recess's inner side) that is mostly solid
+// over the opening's height -- a door's panel (Blood's rotating and sliding doors are a
+// sector turning or sliding in the doorway, its floor up near its ceiling; a door that
+// comes down shuts its own sector) -- one of whose walls crosses the way from 'from' to 'to'
+static bool SkyPortalBlocked( std::initializer_list< const sectortype* > around, double top, double bottom,
+                              const DVector2& from, const DVector2& to )
 {
     auto crosses = []( const DVector2& a, const DVector2& b, const DVector2& c, const DVector2& d ) {
         auto side = []( const DVector2& p, const DVector2& q, const DVector2& r ) {
@@ -362,12 +365,23 @@ static bool SkyPortalBlocked( const sectortype& room, const sectortype& sky, con
         const double d1 = side( c, d, a ), d2 = side( c, d, b ), d3 = side( a, b, c ), d4 = side( a, b, d );
         return ( ( d1 > 0 ) != ( d2 > 0 ) ) && ( ( d3 > 0 ) != ( d4 > 0 ) );
     };
-    for( const sectortype* side : { &room, &sky } )
+    const double h = std::max( 1., bottom - top );
+    for( const sectortype* side : around )
     {
+        if( !side )
+        {
+            continue;
+        }
         for( auto& w : side->walls )
         {
             const sectortype* t = w.nextSector();
-            if( !t || t == &room || t == &sky || t->floorz - t->ceilingz > 4 )
+            if( !t || std::find( around.begin(), around.end(), t ) != around.end() )
+            {
+                continue;
+            }
+            // (its open part, over the opening's height: under a third of it is shut)
+            const double open = std::min( t->floorz, bottom ) - std::max( t->ceilingz, top );
+            if( open > h * 0.35 )
             {
                 continue;
             }
@@ -496,7 +510,7 @@ void UploadSkyPortals()
                 // (shut: its door in the way, from the light out to a metre and a half outside)
                 {
                     const DVector2 onOpening = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces );
-                    if( SkyPortalBlocked( s, *o, pc, onOpening - n * 48. ) )
+                    if( SkyPortalBlocked( { &s, o, inner ? inner->nextSector() : nullptr }, top, bottom, pc, onOpening - n * 48. ) )
                     {
                         continue;
                     }

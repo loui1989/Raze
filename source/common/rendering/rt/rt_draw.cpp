@@ -203,6 +203,7 @@ CVARD( Int, rt_one_sided, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: walls and fl
 constexpr uint32_t RT_PRIMITIVE_ONE_SIDED = 1u << 28;
 CVARD( Bool, rt_voxel_alphatest, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models alpha tested, as their sprites are (slow; for comparison)" )
 
+CVARD( Float, rt_mirror_reflect, 0.9f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much light a mirror reflects (1 = all)" )
 CVARD( Float, rt_emis_spot, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing surface's light where it is a spot (a lamp's picture on the ceiling, a glowing floor or wall), this strong" )
 CVARD( Float, rt_emis_ceiling_ball, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing ceiling fixture's light, a ball under it (out of its recess), this strong (0 = a spot from the panel, as before)" )
 CVARD( Bool, rt_debug_emis, false, 0, "RT: print, once per texture, how a glowing texture glows and lights (the log)" )
@@ -1005,9 +1006,15 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                                                mStreamData.uObjectColor.b * mStreamData.uVertexColor[ 2 ],
                                                alpha );
     }
-    else if( isSkyVis || isMirror )
+    else if( isMirror )
     {
-        // must stay opaque: RTGL1 rasterizes anything with alpha below 0.98
+        // must stay opaque: RTGL1 rasterizes anything with alpha below 0.98; its colour is
+        // the mirror's reflectance (a metal: see the PBR values below)
+        const float m = std::clamp( float( *rt_mirror_reflect ), 0.f, 1.f );
+        primColor     = rt.rgUtilPackColorFloat4D( m, m, m, 1.f );
+    }
+    else if( isSkyVis )
+    {
         primColor = RG_PACKED_COLOR_WHITE;
     }
     else if( *rt_world_white )
@@ -1345,9 +1352,18 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         .localLightsIntensity = 1.0f,
     };
 
+    // a mirror is a metal (its reflection tinted by its colour, the reflectance): as a
+    // plain surface it reflected like painted plaster -- 4% head on, a dark mirror
+    auto mirrorPbr = RgMeshPrimitivePBREXT{
+        .sType            = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT,
+        .pNext            = nullptr,
+        .metallicDefault  = 1.f,
+        .roughnessDefault = 0.f,
+    };
+
     auto prim = RgMeshPrimitiveInfo{
         .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
-        .pNext                = isUI ? &ui : nullptr,
+        .pNext                = isUI ? static_cast< void* >( &ui ) : isMirror ? static_cast< void* >( &mirrorPbr ) : nullptr,
         .flags                = primFlags,
         .primitiveIndexInMesh = rtstate.next_primitiveindex( uniqueId ),
         .pVertices            = verts.data(),
