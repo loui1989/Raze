@@ -95,6 +95,7 @@ CVARD( Float, rt_white_point, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonema
 CVARD( Float, rt_contrast, 0.1f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping contrast" )
 CVARD( Float, rt_sky_saturation, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky saturation" )
 CVARD( Bool, rt_sun_require_sky, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sun or moon lights only what can see the sky (not rooms it reaches through gaps in the walls; the sky must be drawn there, nearby)" )
+CVARD( Bool, rt_glass_shadows, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: light through glass takes its colour, texel by texel (a stained glass window's pattern on the floor; a little slower)" )
 CVARD( Bool, rt_sun_split, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sun or moon gets its own shadow ray per pixel (cleaner shadows, a little slower)" )
 CVARD( Int, rt_bounces, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: indirect light bounces" )
 CVARD( Bool, rt_volumetrics, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: volumetric light (haze, light shafts) and smoke" )
@@ -917,7 +918,9 @@ void RTFrameBuffer::RT_DrawFrame()
         .skyCubemapRotationTransform = {},
         .sunRequireSky               = *rt_sun_require_sky ? 1.0f : 0.0f,
         .sunLeakDebug                = 0.0f,
-        .sunLeakDebugMul             = 1.0f,
+        // (the shaders' switch for coloured light through glass: RaygenCommon.h's
+        // glassTransmittance; the header has no field of its own for it)
+        .sunLeakDebugMul             = *rt_glass_shadows ? 1.0f : 0.0f,
         .sunSkyProbeMaxDist          = 10000.0f,
         .sunSplit                    = *rt_sun_split ? 1.0f : 0.0f,
     };

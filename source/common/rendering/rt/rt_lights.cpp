@@ -26,6 +26,7 @@
 #include <array>
 #include "palette.h"
 #include "palettecontainer.h"
+#include "bitmap.h"
 
 CVARD( Bool, rt_lightovr, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lights from Duke-RT's LIGHTOVR" )
 CVARD( Float, rt_lightovr_scale, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of LIGHTOVR point lights" )
@@ -294,6 +295,60 @@ void UploadSphere( uint64_t id, const RgFloat3D& pos, RgColor4DPacked32 color, f
 // through it. The sky lit rooms before only by rays that bounced out through the opening
 // and happened to find it -- dim and grainy, the smaller the window the more so; this
 // way the path tracer aims at the windows
+// how much light, of what colour, comes through a window's picture (a masked wall in the
+// opening): through its see-through texels all of it; through stained glass its
+// colours, as the path tracer filters a view through it (darker texels -- the
+// leading -- less); through the solid texels of bars and grates none
+std::array< float, 3 > WindowTint( FTextureID texid )
+{
+    static std::unordered_map< int, std::array< float, 3 > > cache;
+    static uint32_t                                          gen = ~0u;
+    if( gen != RT_LevelGeneration() )
+    {
+        cache.clear();
+        gen = RT_LevelGeneration();
+    }
+    if( auto it = cache.find( texid.GetIndex() ); it != cache.end() )
+    {
+        return it->second;
+    }
+    std::array< float, 3 > t = { 1.f, 1.f, 1.f };
+    auto gt = TexMan.GetGameTexture( texid );
+    if( gt && gt->GetTexture() )
+    {
+        const bool glass = RT_TableGlass( legacyTileNum( texid ) );
+        FBitmap    bm    = gt->GetTexture()->GetBgraBitmap( nullptr );
+        const uint8_t* px = bm.GetPixels();
+        const int      n  = bm.GetWidth() * bm.GetHeight();
+        if( px && n > 0 )
+        {
+            double sum[ 3 ] = {};
+            for( int i = 0; i < n; i++ )
+            {
+                const uint8_t* c = &px[ size_t( i ) * 4 ];   // BGRA
+                if( c[ 3 ] < 128 )
+                {
+                    sum[ 0 ] += 1; sum[ 1 ] += 1; sum[ 2 ] += 1;
+                    continue;
+                }
+                if( !glass )
+                {
+                    continue;
+                }
+                const double r = std::pow( c[ 2 ] / 255., 2.2 ), g = std::pow( c[ 1 ] / 255., 2.2 ), b = std::pow( c[ 0 ] / 255., 2.2 );
+                const double m = std::max( { r, g, b } );
+                const double hue[ 3 ] = { r / std::max( m, 0.002 ), g / std::max( m, 0.002 ), b / std::max( m, 0.002 ) };
+                const double s = std::clamp( ( m - 0.015 ) / ( 0.22 - 0.015 ), 0., 1. );
+                const double through = s * s * ( 3 - 2 * s );
+                for( int k = 0; k < 3; k++ ) sum[ k ] += ( 0.1 + 0.9 * hue[ k ] ) * through;
+            }
+            for( int k = 0; k < 3; k++ ) t[ k ] = float( sum[ k ] / n );
+        }
+    }
+    cache[ texid.GetIndex() ] = t;
+    return t;
+}
+
 void UploadSkyPortals()
 {
     if( *rt_sky_portals <= 0.f || !g_rtSkyLight.valid || s_copyPass )
@@ -308,7 +363,6 @@ void UploadSkyPortals()
         return;
     }
     const float             c[ 3 ]   = { a[ 0 ] / mx, a[ 1 ] / mx, a[ 2 ] / mx };
-    const RgColor4DPacked32 color    = PackColor( c );
     const float             radiance = lum * std::max( 0.f, float( *rt_sky ) );
     constexpr double        Piece    = 80.;   // 2.5 m: a wide opening is several lights
     for( unsigned si = 0; si < sector.Size(); si++ )
@@ -344,6 +398,25 @@ void UploadSkyPortals()
             {
                 n = -n;
             }
+            // a window's picture in it: its colour (stained glass), less through bars
+            std::array< float, 3 > tint = { 1.f, 1.f, 1.f };
+            {
+                const walltype* mw = ( w.cstat & CSTAT_WALL_MASKED ) ? &w : nullptr;
+                if( !mw && w.nextWall() && ( w.nextWall()->cstat & CSTAT_WALL_MASKED ) ) mw = w.nextWall();
+                if( mw && mw->overtexture.isValid() ) tint = WindowTint( mw->overtexture );
+            }
+            const float tmax = std::max( { tint[ 0 ], tint[ 1 ], tint[ 2 ] } );
+            if( tmax <= 0.01f )
+            {
+                continue;
+            }
+            const float             lc[ 3 ] = { c[ 0 ] * tint[ 0 ], c[ 1 ] * tint[ 1 ], c[ 2 ] * tint[ 2 ] };
+            const float             lm      = std::max( { lc[ 0 ], lc[ 1 ], lc[ 2 ], 1e-4f } );
+            const float             ln[ 3 ] = { lc[ 0 ] / lm, lc[ 1 ] / lm, lc[ 2 ] / lm };
+            const RgColor4DPacked32 wcolor  = PackColor( ln );
+            // (the light's strength: the window's share of the sky's, by the brightness of its tint)
+            const float through = 0.2126f * lc[ 0 ] + 0.7152f * lc[ 1 ] + 0.0722f * lc[ 2 ];
+            const float through0 = std::max( 1e-4f, 0.2126f * c[ 0 ] + 0.7152f * c[ 1 ] + 0.0722f * c[ 2 ] );
             // into the room, a little down (the sky is above)
             const float dl     = std::sqrt( float( n.X * n.X + n.Y * n.Y ) + 0.35f * 0.35f );
             const RgFloat3D dir = { float( n.X ) / dl, float( -n.Y ) / dl, -0.35f / dl };
@@ -361,7 +434,7 @@ void UploadSkyPortals()
                 // the sky seen through it: about half of it (above the horizon), a
                 // Lambertian opening -- pi * radiance * area
                 const float area   = float( pw * h ) * ONEGAMEUNIT_IN_METERS * ONEGAMEUNIT_IN_METERS;
-                const float lumens = *rt_sky_portals * 3.14159265f * radiance * area * 0.5f * fade;
+                const float lumens = *rt_sky_portals * 3.14159265f * radiance * area * 0.5f * fade * ( through / through0 );
                 if( lumens <= 0.05f )
                 {
                     continue;
@@ -370,7 +443,7 @@ void UploadSkyPortals()
                 auto spot = RgLightSpotEXT{
                     .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
                     .pNext      = nullptr,
-                    .color      = color,
+                    .color      = wcolor,
                     .intensity  = lumens,
                     .position   = pos,
                     .direction  = dir,

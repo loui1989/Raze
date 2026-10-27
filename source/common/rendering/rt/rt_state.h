@@ -194,6 +194,7 @@ inline float RT_SectorSwitch( int sectnum )
 // the material table's flame class (<rt>/materials.txt: a candle, a torch whose flame is
 // in its picture): how brightly the tile's flame glows, 0 if not one; and its colours
 float RT_TableFlame( int tile );
+bool  RT_TableGlass( int tile ); // the material table calls the tile glass (a window)
 // the table's "light" lines: a decoration with a light of its own (a lantern), how strong,
 // its colour (negative: the sprite's brightest colour)
 bool  RT_TableLight( int tile, float& strength, float rgb[ 3 ] );

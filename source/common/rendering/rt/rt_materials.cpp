@@ -549,6 +549,14 @@ bool RT_TableLight( int tile, float& strength, float rgb[ 3 ] )
     return true;
 }
 
+bool RT_TableGlass( int tile )
+{
+    char nm[ 16 ];
+    snprintf( nm, sizeof( nm ), "#%05d", tile );
+    const MatClass* g = TableClass( nm );
+    return g && g->name == "glass";
+}
+
 float RT_TableFlame( int tile )
 {
     char nm[ 16 ];
