@@ -71,6 +71,7 @@ CVARD( Float, rt_denoise_sens_indirect, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, 
 // more samples per pixel: less noise to clean up, so newly seen places settle faster
 CVARD( Int, rt_samples_direct, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: direct light samples per pixel (1..8; each costs a shadow ray)" )
 CVARD( Int, rt_samples_indirect, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bounce light paths per pixel (1..8; costly)" )
+CVARD( Float, rt_bloom, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bloom (the glow around bright light), 0 = off -- it runs at the output size: off saves ~0.5 ms at 1800p" )
 CVARD( Bool, rt_gi_halfrate, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bounce light traced for half of the pixels each frame (alternating; the rest reuse it) -- faster, a little softer and slower to settle" )
 CVARD( Float, rt_water_waves, 0.8f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strongly water and slime ripple (0 = flat)" )
 CVARD( Float, rt_water_wave_speed, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how fast the ripples move" )
@@ -818,9 +819,18 @@ void RTFrameBuffer::RT_DrawFrame()
     // the liquids: Doom 64 RT's stylized surfaces. Liquid 0 is water (blue), 1 is
     // Duke's slime (Doom 64's nukage, green); lava has its own path
     auto l_rgb = []( int r, int g, int b ) { return RgFloat3D{ r / 255.f, g / 255.f, b / 255.f }; };
+    // (RTGL1's defaults, its strength from rt_bloom; 0 skips the pass)
+    auto bloom = RgDrawFrameBloomParams{
+        .sType             = RG_STRUCTURE_TYPE_DRAW_FRAME_BLOOM_PARAMS,
+        .pNext             = &illum,
+        .inputEV           = 6.0f,
+        .inputThreshold    = 16.0f,
+        .bloomIntensity    = std::clamp( float( *rt_bloom ), 0.f, 4.f ),
+        .lensDirtIntensity = 1.0f,
+    };
     auto reflrefr = RgDrawFrameReflectRefractParams{
         .sType                                 = RG_STRUCTURE_TYPE_DRAW_FRAME_REFLECT_REFRACT_PARAMS,
-        .pNext                                 = &illum,
+        .pNext                                 = &bloom,
         .maxReflectRefractDepth                = 8,
         .typeOfMediaAroundCamera               = g_rtCameraUnderwater ? RG_MEDIA_TYPE_WATER : RG_MEDIA_TYPE_VACUUM,
         .indexOfRefractionGlass                = 1.52f,
