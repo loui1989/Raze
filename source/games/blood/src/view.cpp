@@ -1007,7 +1007,10 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			const bool lampTile = tileNo == 796 || tileNo == 795;
 			// a lamp the material table names ("light <tile>": a lantern, its glass not a flame's colour)
 			float tblStrength = 0.f, tblRgb[3];
-			const bool tableLight = !lampTile && stat != kStatFX && RT_TableLight(tileNo, tblStrength, tblRgb);
+			// (only a standing picture: a lantern's tile laid flat -- a wooden post's cap -- or
+			// flush with a wall is a picture, not a lantern)
+			const bool tableLight = !lampTile && stat != kStatFX && RT_TableLight(tileNo, tblStrength, tblRgb) &&
+				(actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FACING;
 			if (stat == kStatThing && !lampTile && !tableLight) continue;
 			if (tableLight)
 			{
@@ -1257,7 +1260,8 @@ CCMD(rt_lookat)
 				glowInfo(ceil ? hit.hitSector->ceilingtexture : hit.hitSector->floortexture).GetChars());
 		}
 		if (hit.hitActor)
-			Printf("  hits sprite %d: tile %d (%s)\n", hit.hitActor->GetIndex(), legacyTileNum(hit.hitActor->spr.spritetexture()), glowInfo(hit.hitActor->spr.spritetexture()).GetChars());
+			Printf("  hits sprite %d: tile %d, cstat %04x, stat %d (%s)\n", hit.hitActor->GetIndex(), legacyTileNum(hit.hitActor->spr.spritetexture()),
+				int(hit.hitActor->spr.cstat), int(hit.hitActor->spr.statnum), glowInfo(hit.hitActor->spr.spritetexture()).GetChars());
 	}
 	struct Cand { double ang; DCoreActor* a; };
 	TArray<Cand> cands;

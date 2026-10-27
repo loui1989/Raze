@@ -349,6 +349,7 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
         m_glow     = mi.glow;
         m_lamp     = mi.lamp;
         m_flame    = mi.flame;
+        m_lantern  = mi.lantern;
         m_voxGlow.clear();
         if( mi.voxel && texbuffer.mWidth == 16 && texbuffer.mHeight == 16 )
         {
@@ -1165,6 +1166,12 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             if( alpha < 0.98f )
             {
                 screenScale *= std::max( alpha, 0.f );
+            }
+            // a lantern's picture laid flat or flush with a wall (a post's cap, painted with
+            // the lamp post's tile): a picture, not a lantern -- no glow
+            if( hwtex->IsLantern() && rtstate.is< RtPrim::Decal >() )
+            {
+                glowScale = 0.f;
             }
             emissive   = glowScale * screenScale;
             emissiveGi = glowScale * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );

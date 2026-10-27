@@ -704,6 +704,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         out.glow  = g->glow;
         out.lamp  = g->lamp;
         out.flame = g->flame;
+        out.lantern = g->lantern;
     }
 
     // emission
