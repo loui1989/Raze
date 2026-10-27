@@ -333,7 +333,8 @@ void animatecamsprite(double s);
 // Ray tracing: copies of places linked to openings near the view, moved into
 // place (g_rtCopySector). The path tracer has the whole map at once, so what the
 // rasterizer shows through a portal must physically be there:
-//  - the game's links (g_rtCopyLinks): Duke's water surfaces, the world above them
+//  - the game's links (g_rtCopyLinks): Duke's and Blood's water surfaces, the world
+//    above them
 // (The map's sector portals -- Blood's rooms over rooms -- are drawn as the
 // rasterizer draws them, what the opening shows: HWDrawInfo::RenderPortal.)
 // Each copy keeps out anything that would cover another copy's openings.
@@ -410,7 +411,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 		// nothing solid of this copy over another copy's openings (its own win)
 		auto keep = [&](sectortype* ss)
 		{
-			if (c.skipWaterFloors && ss->lotag == 1) return true; // its floor is left out anyway
+			if (c.skipWaterFloors && RT_WaterSide(sectindex(ss), ss->lotag) == 1) return true; // its floor is left out anyway
 			for (size_t j = 0; j < order.size(); j++)
 				if (j != k && over(holes[j], ss)) return over(holes[k], ss);
 			return true;
@@ -421,7 +422,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 		// the linked side within reach of the camera's place there, through openings
 		sectortype* start = &sector[c.start];
 		updatesector(cpos.XY() + c.delta.XY(), &start);
-		if (!start || isHole[sectindex(start)] || (c.skipWaterFloors && start->lotag == 2)) start = &sector[c.start];
+		if (!start || isHole[sectindex(start)] || (c.skipWaterFloors && RT_WaterSide(sectindex(start), start->lotag) == 2)) start = &sector[c.start];
 
 		std::vector<double> dist(n, -1.);
 		std::vector<DVector2> entry(n);
@@ -443,7 +444,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 				if (!ns) continue;
 				const int ni = sectindex(ns);
 				// not back onto the opening side
-				if (isHole[ni] || (c.skipWaterFloors && ns->lotag == 2)) continue;
+				if (isHole[ni] || (c.skipWaterFloors && RT_WaterSide(ni, ns->lotag) == 2)) continue;
 				const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
 				const double nd = d + (mid - entry[si]).Length();
 				if (nd > reach) continue;

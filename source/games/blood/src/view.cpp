@@ -563,6 +563,125 @@ void renderCrystalBall()
 
 //---------------------------------------------------------------------------
 //
+// ray tracing: under water, look up through the surface. Blood's water (and goo)
+// is two places linked by markers: the pool's surface on one side, the room under
+// it somewhere else on the map, and the player is moved between the two. The path
+// tracer gets a copy of the world above the surface over the room under it (as for
+// Duke's water). A link drawn as a room over a room (the mirror tile) needs none:
+// the renderer copies those itself.
+//
+//---------------------------------------------------------------------------
+
+static void RT_BloodWaterCopy(sectortype* sect, const DVector3& cpos)
+{
+	g_rtWaterSide.clear();
+	if (!sect) return;
+	updatesector(cpos.XY(), &sect);
+	if (!sect) return;
+
+	auto isWaterLink = [](DCoreActor* a, bool lower)
+	{
+		if (!a) return false;
+		const int t = static_cast<DBloodActor*>(a)->spr.type;
+		return lower ? (t == kMarkerLowWater || t == kMarkerLowGoo) : (t == kMarkerUpWater || t == kMarkerUpGoo);
+	};
+	auto lowerOf = [&](sectortype* s) -> DBloodActor*
+	{
+		auto lo = barrier_cast<DBloodActor*>(s->lowerLink);
+		if (!isWaterLink(lo, true) || s->portalflags == PORTAL_SECTOR_CEILING) return nullptr;
+		auto up = lo->GetOwner();
+		if (!up || !up->insector() || !isWaterLink(up, false)) return nullptr;
+		return lo;
+	};
+	if (!IsUnderwaterSector(sect) && !lowerOf(sect)) return;
+
+	const unsigned n = sector.Size();
+	g_rtWaterSide.assign(n, 0);
+	for (unsigned i = 0; i < n; i++)
+	{
+		auto s = &sector[i];
+		if (isWaterLink(s->upperLink, false)) g_rtWaterSide[i] = 1;
+		if (IsUnderwaterSector(s) || isWaterLink(s->lowerLink, true)) g_rtWaterSide[i] = 2;
+	}
+
+	constexpr double reach = 1600; // 50 m
+	struct WaterCopy
+	{
+		DVector3 delta;          // below + delta = above
+		sectortype* above;
+		double dist;
+		TArray<int> seeds;       // the sectors under the surface with its links
+	};
+	TArray<WaterCopy> copies;
+	for (unsigned i = 0; i < n; i++)
+	{
+		auto s = &sector[i];
+		auto lo = lowerOf(s);
+		if (!lo) continue;
+		auto up = static_cast<DBloodActor*>(lo->GetOwner());
+		const double d = s == sect ? 0. : (lo->spr.pos.XY() - cpos.XY()).Length();
+		if (d > reach) continue;
+		const DVector3 delta(up->spr.pos.X - lo->spr.pos.X, up->spr.pos.Y - lo->spr.pos.Y,
+			up->sector()->floorz - s->ceilingz);
+
+		WaterCopy* c = nullptr;
+		for (auto& cc : copies)
+			if (fabs(cc.delta.X - delta.X) < 4 && fabs(cc.delta.Y - delta.Y) < 4 && fabs(cc.delta.Z - delta.Z) < 4) { c = &cc; break; }
+		if (!c)
+		{
+			copies.Push({ delta, up->sector(), d, {} });
+			c = &copies.Last();
+		}
+		else if (d < c->dist)
+		{
+			c->dist = d;
+			c->above = up->sector();
+		}
+		c->seeds.Push(int(i));
+	}
+	if (copies.Size() == 0) { g_rtWaterSide.clear(); return; }
+
+	// each copy's surfaces: the linked sectors, and the under-water sectors next to
+	// them with the same surface overhead (no link of their own), each going to the
+	// nearest link's copy
+	std::vector<int> owner(n, -1);
+	TArray<int> front, next;
+	for (unsigned k = 0; k < copies.Size(); k++)
+		for (int si : copies[k].seeds)
+			if (owner[si] < 0) { owner[si] = k; front.Push(si); }
+	while (front.Size())
+	{
+		next.Clear();
+		for (int si : front)
+			for (auto& w : sector[si].walls)
+			{
+				if (!w.twoSided()) continue;
+				auto ns = w.nextSector();
+				const int ni = sectindex(ns);
+				if (owner[ni] >= 0 || !IsUnderwaterSector(ns) || ns->lowerLink != nullptr || ns->portalflags) continue;
+				if (ns->ceilingtexture != sector[si].ceilingtexture || (ns->ceilingstat & CSTAT_SECTOR_SKY) ||
+					fabs(ns->ceilingz - sector[si].ceilingz) > 1) continue;
+				owner[ni] = owner[si];
+				next.Push(ni);
+			}
+		std::swap(front, next);
+	}
+
+	// the renderer makes the copies (with the room-over-room portals of the map)
+	for (unsigned k = 0; k < copies.Size(); k++)
+	{
+		RtCopyLink l;
+		l.delta = copies[k].delta;
+		l.start = sectindex(copies[k].above);
+		l.skipWaterFloors = true;
+		for (unsigned i = 0; i < n; i++)
+			if (owner[i] == int(k)) l.holes.push_back(int(i));
+		g_rtCopyLinks.push_back(std::move(l));
+	}
+}
+
+//---------------------------------------------------------------------------
+//
 // ray tracing: the lights Blood's own effects make (Duke-RT's LIGHTOVR names Duke's;
 // Blood has nothing like it, so they come from the game: explosions, burning
 // things, flares, fireballs, tesla) and the shotgun's flash
@@ -995,7 +1114,7 @@ void viewDrawScreen(bool sceneonly)
 		auto bakCstat = pPlayer->GetActor()->spr.cstat;
 		pPlayer->GetActor()->spr.cstat |= (gViewPos == 0) ? CSTAT_SPRITE_INVISIBLE : CSTAT_SPRITE_TRANSLUCENT | CSTAT_SPRITE_TRANS_FLIP;
 		cAngles.Pitch -= deliriumPitchI;
-		if (RT_IsActive()) RT_BloodLights(pPlayer, pSector);
+		if (RT_IsActive()) { RT_BloodLights(pPlayer, pSector); RT_BloodWaterCopy(pSector, cPos); }
 		render_drawrooms(pPlayer->GetActor(), cPos, pSector, cAngles, interpfrac);
 		pPlayer->GetActor()->spr.cstat = bakCstat;
 		bDeliriumOld = bDelirium && gDeliriumBlur;
