@@ -69,8 +69,10 @@ static FVector3 CalcNormal(sectortype* sector, int plane)
 
 	pt[0] = { (float)wal->pos.X, 0.f, -(float)wal->pos.Y};
 	pt[1] = { (float)wal2->pos.X, 0.f, -(float)wal2->pos.Y};
-	PlanesAtPoint(sector, wal->pos.X, wal->pos.Y, plane ? &pt[0].Z : nullptr, plane? nullptr : &pt[0].Y);
-	PlanesAtPoint(sector, wal2->pos.X, wal2->pos.Y, plane ? &pt[1].Z : nullptr, plane ? nullptr : &pt[1].Y);
+	// (the height is Y for either plane: the ceiling's went to Z -- a horizontal coordinate --
+	// and a sloped ceiling's normal came out tilted the wrong way)
+	PlanesAtPoint(sector, wal->pos.X, wal->pos.Y, plane ? &pt[0].Y : nullptr, plane? nullptr : &pt[0].Y);
+	PlanesAtPoint(sector, wal2->pos.X, wal2->pos.Y, plane ? &pt[1].Y : nullptr, plane ? nullptr : &pt[1].Y);
 
 	if (pt[0].X == pt[1].X)
 	{

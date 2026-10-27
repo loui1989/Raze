@@ -1222,6 +1222,10 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             {
                 m_tempidx[ i ] = indices.empty() ? uint32_t( i ) : indices[ i ];
             }
+            // (a floor faces up, a ceiling down, whatever its normal says: Raze's for a
+            // sloped ceiling was wrong, and a triangle turned by it went missing)
+            const bool isFloor   = rtstate.is< RtPrim::FloorPlane >();
+            const bool isCeiling = rtstate.is< RtPrim::CeilingPlane >();
             bool ok = count % 3 == 0;
             for( size_t t = 0; ok && t + 2 < count; t += 3 )
             {
@@ -1234,7 +1238,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                 const FVector3 a = xf( verts[ tri[ 0 ] ].position ), b = xf( verts[ tri[ 1 ] ].position ),
                                c = xf( verts[ tri[ 2 ] ].position );
                 // RTGL1 keeps the side its geometric normal (the counterclockwise one) faces
-                if( ( ( ( b - a ) ^ ( c - a ) ) | n ) < 0.f )
+                const FVector3 g      = ( b - a ) ^ ( c - a );
+                const float    facing = isFloor ? g.Z : isCeiling ? -g.Z : ( g | n );
+                if( ( *rt_one_sided < 0 && ( isFloor || isCeiling ) ? -facing : facing ) < 0.f )
                 {
                     std::swap( tri[ 1 ], tri[ 2 ] );
                 }
