@@ -739,6 +739,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 	}
 	g_rtCameraUnderwater = pSector && IsUnderwaterSector(pSector);
 	g_rtViewerActor = nullptr;
+	g_rtViewerDrawn = 0;
 	g_rtSectorSwitch.clear();
 	// the light switches: a sector whose lighting effect runs with its state, not always
 	// (a switch turns it on and off): on as far as the effect has gone (busy), the
@@ -1241,6 +1242,9 @@ CCMD(rt_lookat)
 			glowInfo(a->spr.spritetexture()).GetChars(), vox,
 			vox >= 0 && vox < MAXVOXELS && voxdefined[vox] ? " (a pack's)" : vox >= 0 ? " (the game's)" : "", sectorInfo(a->sector()).GetChars());
 	}
+	Printf("  your body (shadows, reflections): %s\n", g_rtViewerDrawn > 0 ?
+		FStringf("drawn %d time(s) last frame, tile %d, as %s", g_rtViewerDrawn, g_rtViewerDrawnTile, g_rtViewerDrawnModel ? "a voxel model" : "a sprite").GetChars() :
+		"not drawn last frame");
 	for (auto& l : g_rtGameLights)
 	{
 		const DVector3 p(l.pos[0], l.pos[1], l.pos[2]);

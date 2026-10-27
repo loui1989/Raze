@@ -327,12 +327,15 @@ HWPortal * HWDrawInfo::FindPortal(const void * src)
 void HWDrawInfo::DispatchSprites()
 {
 	// ray tracing: the voxel models over the frame's budget (rt_voxel_budget), the
-	// furthest first, are drawn as their sprites
+	// furthest first, are drawn as their sprites -- those in sight before those only
+	// shadows and reflections see (by distance alone, the models behind the player and
+	// round the corner took the budget from barrels in front of him: near ones in view
+	// flipped between model and sprite as he moved)
 	std::vector<char> rtVoxOver;
 	if (RT_IsActive() && r_voxels && *rt_voxel_budget > 0)
 	{
 		const DVector3 view(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
-		struct Cand { double d; unsigned i; unsigned cost; };
+		struct Cand { double d; unsigned i; unsigned cost; bool off; };
 		std::vector<Cand> cands;
 		uint64_t total = 0;
 		for (unsigned i = 0; i < tsprites.Size(); i++)
@@ -347,13 +350,13 @@ void HWDrawInfo::DispatchSprites()
 			if (!isDuke() && !voxdefined[vox]) continue;
 			if (RT_VoxelTooFar(vox, tspr, view)) continue;
 			const unsigned cost = voxmodels[vox]->model->GetNumIndices();
-			cands.push_back({ (tspr->pos - view).LengthSquared(), i, cost });
+			cands.push_back({ (tspr->pos - view).LengthSquared(), i, cost, !!tspr->rtoffscreen });
 			total += cost;
 		}
 		const uint64_t budget = uint64_t(*rt_voxel_budget) * 1000;
 		if (total > budget)
 		{
-			std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d < b.d; });
+			std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.off != b.off ? !a.off : a.d < b.d; });
 			rtVoxOver.assign(tsprites.Size(), 0);
 			uint64_t used = 0;
 			for (auto& c : cands)

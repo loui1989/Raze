@@ -40,6 +40,9 @@ extern const char* g_rtShotEvent;
 // The player's own actor: drawn only where the player cannot see it himself
 // (mirrors, reflections, shadows)
 extern const void* g_rtViewerActor;
+// what of it was drawn the last frame (rt_lookat): how many times, its tile, as a model
+extern int  g_rtViewerDrawn, g_rtViewerDrawnTile;
+extern bool g_rtViewerDrawnModel;
 // Set by the game: sectors copied to another place this frame -- per sector the
 // copy it belongs to (1..RT_MAX_COPIES, 0 = none; or empty), each copy moved by its
 // g_rtCopyOffset (game units, z down). Duke's water: the world above a surface lives

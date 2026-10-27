@@ -454,6 +454,7 @@ void displayrooms(int snum, double interpfrac, bool sceneonly)
 		g_rtCameraUnderwater = sect && sect->lotag == ST_2_UNDERWATER;
 		RT_SetupWaterCopy(sect, cpos);
 		g_rtViewerActor = nullptr; // animatesprites sets it
+		g_rtViewerDrawn = 0;
 
 		// the light switches (SE12: the sector's map shade is off, the effector's is on)
 		g_rtSectorSwitch.assign(sector.Size(), -1.f);
