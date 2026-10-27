@@ -153,15 +153,16 @@ void RTSkyLightOf(RTSkyDome& d, FGameTexture* tex, double th0, double base, cons
 	// up the sky enough to light the ground and cast shadows of a sensible length (a
 	// glow on the horizon lit rooms sideways through their windows), not straight down
 	const double az = atan2(dir[2], dir[0]);
-	const double el = clamp(atan2(dir[1], sqrt(dir[0] * dir[0] + dir[2] * dir[2])), 30. * pi / 180., 60. * pi / 180.);
+	const double el = clamp(atan2(dir[1], sqrt(dir[0] * dir[0] + dir[2] * dir[2])), 38. * pi / 180., 55. * pi / 180.);
 	d.lightDir[0] = float(cos(el) * cos(az)); d.lightDir[1] = float(sin(el)); d.lightDir[2] = float(cos(el) * sin(az));
 	const double mx = max({ rgb[0], rgb[1], rgb[2] });
 	if (mx <= 0) return;
 	for (int i = 0; i < 3; i++) d.lightColor[i] = float(0.9 * rgb[i] / mx + 0.1);
-	// as bright as the sky's light on the ground (pi times its average radiance), more
-	// the more its bright stretch stands out; softer shadows from a wide, even glow
+	// a share of the sky's own light on the ground (pi times its average radiance): the
+	// same contrast between lit and shadowed in every sky, dim or bright (the brighter
+	// and wider earlier version lit the whole place evenly: flat)
 	const double ratio = clamp(best / avgLum, 1., 4.);
-	d.lightIrr  = float(pi * avgLum * sqrt(ratio));
+	d.lightIrr  = float(0.6 * pi * avgLum);
 	d.lightDiam = float(clamp(12. / ratio, 2., 6.));
 	d.lightOk   = true;
 }

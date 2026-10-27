@@ -43,7 +43,9 @@ CVARD( Bool, rt_lightovr_fixtures, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
 CVARD( Float, rt_moon, 8.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a faint moonlight in games without Duke-RT's lights (Blood), lux; 0 = none" )
 CVARD( Float, rt_moon_angle, 35.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the moon's direction, degrees around" )
-CVARD( Float, rt_skysun, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's own moon or sun -- from the brightest part of the sky in view, in its colour -- times the sky's light on the ground; 0 = the fixed rt_moon instead" )
+CVARD( Float, rt_skysun, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's own moon or sun -- from the brightest part of the sky in view, tinted by it, as strong as the sky is bright; 0 = the fixed rt_moon instead" )
+CVARD( Float, rt_skysun_tint, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much the sky's moon takes the sky's colour (0 white; 1 the sky's own: a red sky's red on red, no contrast)" )
+CVARD( Float, rt_skysun_size, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's moon's size, degrees (small: crisp shadows)" )
 EXTERN_CVAR( Float, rt_sky )
 CVARD( Float, rt_lightning, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a lightning flash's light from the sky, lux (Blood's storms)" )
 CVARD( Float, rt_game_light_scale, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the lights the game names (Blood: explosions, fire, flares)" )
@@ -571,7 +573,13 @@ void UploadOverlayLights( uint32_t time )
         const float mf  = flash / ( flash + sun + 1e-3f );
         const float flashc[ 3 ] = { 0.92f, 0.95f, 1.f };
         float c[ 3 ];
-        for( int i = 0; i < 3; i++ ) c[ i ] = g_rtSkyLight.color[ i ] * ( 1.f - mf ) + flashc[ i ] * mf;
+        const float tint = std::clamp( float( *rt_skysun_tint ), 0.f, 1.f );
+        for( int i = 0; i < 3; i++ )
+        {
+            // (lighter than the sky: the lit side stands apart from the sky-lit shadows)
+            const float sc = 1.f - tint + tint * g_rtSkyLight.color[ i ];
+            c[ i ] = sc * ( 1.f - mf ) + flashc[ i ] * mf;
+        }
         const float* d = g_rtSkyLight.dir;
         auto dir = RgLightDirectionalEXT{
             .sType                  = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
@@ -579,7 +587,7 @@ void UploadOverlayLights( uint32_t time )
             .color                  = PackColor( c ),
             .intensity              = sun + flash,
             .direction              = { -d[ 0 ], -d[ 1 ], -d[ 2 ] },
-            .angularDiameterDegrees = g_rtSkyLight.diameter,
+            .angularDiameterDegrees = std::clamp( float( *rt_skysun_size ), 0.1f, 10.f ),
         };
         auto info = RgLightInfo{
             .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
