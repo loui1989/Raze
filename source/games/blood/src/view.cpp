@@ -1049,6 +1049,13 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				// the glass is at the other end)
 				const double gv = brightV(actor->spr.spritetexture());
 				DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, top + (bottom - top) * ((actor->spr.cstat & CSTAT_SPRITE_YFLIP) ? 1. - gv : gv));
+				// its glass buried (a lamp post sunk into a wooden post, unseen -- a blocker): no
+				// light, it lit the post's top white
+				{
+					sectortype* gs = actor->sector();
+					updatesector(p.XY(), &gs);
+					if (gs && (p.Z > getflorzofslopeptr(gs, p.XY()) - 0.5 || p.Z < getceilzofslopeptr(gs, p.XY()) + 0.5)) continue;
+				}
 				if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR)
 				{
 					const double cz = getceilzofslopeptr(actor->sector(), actor->spr.pos);
@@ -1262,6 +1269,12 @@ CCMD(rt_lookat)
 		if (hit.hitActor)
 			Printf("  hits sprite %d: tile %d, cstat %04x, stat %d (%s)\n", hit.hitActor->GetIndex(), legacyTileNum(hit.hitActor->spr.spritetexture()),
 				int(hit.hitActor->spr.cstat), int(hit.hitActor->spr.statnum), glowInfo(hit.hitActor->spr.spritetexture()).GetChars());
+			{
+				auto ha = hit.hitActor;
+				auto gt = TexMan.GetGameTexture(ha->spr.spritetexture());
+				Printf("    in sector %d, at height %.2f m, %.2f m tall (its sector's floor %.2f m, ceiling %.2f m)\n", ha->sectno(), -ha->spr.pos.Z / 16.,
+					gt ? gt->GetDisplayHeight() * ha->spr.scale.Y / 16. : 0., -getflorzofslopeptr(ha->sector(), ha->spr.pos) / 16., -getceilzofslopeptr(ha->sector(), ha->spr.pos) / 16.);
+			}
 	}
 	struct Cand { double ang; DCoreActor* a; };
 	TArray<Cand> cands;
