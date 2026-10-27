@@ -46,11 +46,13 @@
 #include "palettecontainer.h"
 
 // ray tracing: Blood's liquids, by the game's own surface type of the tile (what its
-// footsteps sound like): water, lava, goo -- and water or goo that is red is blood
-static RtPrim RT_BloodLiquidOf(FGameTexture* tex)
+// footsteps sound like): water, lava, goo -- and water or goo that is red is blood.
+// Its colour as drawn, by the floor's palette: a map makes the blue-grey water tile a pool
+// of blood with palette 2 (judged by the tile's own colours, it was clear water: silver)
+static RtPrim RT_BloodLiquidOf(FGameTexture* tex, int pal)
 {
 	static TMap<int, RtPrim> cache;
-	const int idx = tex->GetID().GetIndex();
+	const int idx = tex->GetID().GetIndex() * 256 + (pal & 255);
 	if (auto c = cache.CheckKey(idx)) return *c;
 	// an animated liquid is judged by its first frame, so all its frames are the same
 	// liquid (frame by frame, a muddy pool flipped between blood and water)
@@ -75,7 +77,7 @@ static RtPrim RT_BloodLiquidOf(FGameTexture* tex)
 	}
 	if (base != tex->GetID())
 	{
-		const RtPrim r = RT_BloodLiquidOf(TexMan.GetGameTexture(base));
+		const RtPrim r = RT_BloodLiquidOf(TexMan.GetGameTexture(base), pal);
 		cache.Insert(idx, r);
 		return r;
 	}
@@ -88,12 +90,14 @@ static RtPrim RT_BloodLiquidOf(FGameTexture* tex)
 		// its colour: red is blood, green goo is slime, else water
 		double sum[3] = {};
 		int n = 0;
+		// (the normal base palette's remap: not an underwater one, as this is cached)
+		const auto* remap = pal != 0 ? GPalette.GetTranslation(Translation_Remap, pal) : nullptr;
 		if (const uint8_t* px = GetRawPixels(tex->GetID()))
 		{
 			const int count = int(tex->GetTexelWidth() * tex->GetTexelHeight());
 			for (int i = 0; i < count; i += 3, n++)
 			{
-				const PalEntry c = GPalette.BaseColors[px[i]];
+				const PalEntry c = remap ? remap->Palette[px[i]] : GPalette.BaseColors[px[i]];
 				sum[0] += c.r; sum[1] += c.g; sum[2] += c.b;
 			}
 		}
@@ -110,10 +114,10 @@ static RtPrim RT_BloodLiquidOf(FGameTexture* tex)
 
 // ray tracing: the liquids, by their (animated) floor tiles -- the families of
 // Duke-RT's FLUIDOVR: water 336, slime 200, lava 1082
-static RtPrim RT_LiquidOf(FGameTexture* tex)
+static RtPrim RT_LiquidOf(FGameTexture* tex, int pal = 0)
 {
 	if (!RT_IsActive() || !tex) return RtPrim::Identity;
-	if (isBlood()) return RT_BloodLiquidOf(tex);
+	if (isBlood()) return RT_BloodLiquidOf(tex, pal);
 	if (!isDuke()) return RtPrim::Identity;
 	const int t = legacyTileNum(tex->GetID());
 	if (t >= 336 && t <= 338) return RtPrim::Water;
@@ -321,7 +325,7 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 	auto rtid = rtstate.push_uniqueid(Sprite ? (const void*)Sprite->ownerActor : (const void*)&sections[section], Sprite ? RtIdKind::FlatSprite : plane ? RtIdKind::CeilingFlat : RtIdKind::FloorFlat);
 	RT_PUSH_TYPE(rtfb, Sprite && Sprite->shade <= -numshades ? RtPrim::Fullbright : RtPrim::Identity);
 	RT_PUSH_TYPE(rtdecal, Sprite ? RtPrim::Decal : RtPrim::Identity);
-	RT_PUSH_TYPE(rtliquid, Sprite ? RtPrim::Identity : RT_LiquidOf(texture));
+	RT_PUSH_TYPE(rtliquid, Sprite ? RtPrim::Identity : RT_LiquidOf(texture, palette));
 	auto rtsec = rtstate.push_sector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : sec ? sectindex(sec) : -1);
 	RT_PUSH_TYPE(rtcopy, Sprite ? (Sprite->rtcopy ? RtPrim::CopyId : RtPrim::Identity) : rtCopy ? RtPrim::CopyMove : RtPrim::Identity);
 	auto rtcg = rtstate.push_copygroup(Sprite ? Sprite->rtcopy : rtCopy);
@@ -364,7 +368,7 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 	if (RT_IsActive() && !Sprite && plane == 0 && isBlood() && sec && sec->upperLink == nullptr &&
 		sec->portalflags != PORTAL_SECTOR_FLOOR)
 	{
-		const RtPrim liq = RT_LiquidOf(texture);
+		const RtPrim liq = RT_LiquidOf(texture, palette);
 		if (liq == RtPrim::Water || liq == RtPrim::Slime || liq == RtPrim::BloodPool)
 		{
 			auto rtsolid = rtstate.push_without(RtPrim(uint32_t(RtPrim::Water) | uint32_t(RtPrim::Slime) | uint32_t(RtPrim::BloodPool)));
