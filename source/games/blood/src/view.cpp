@@ -935,13 +935,61 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			return tl;
 		};
 		const float scale = max(0.f, float(*rt_sprite_light_scale)) / 4.5f;
-		it.Reset(kStatDecoration);
+		// glow orbs (624, 625: a white ball the map tints with a palette -- the add-ons'
+		// red, blue and yellow lights): a light of the orb's colour, the small ones (a
+		// bright dot inside a halo) left to their halo
+		auto orbColor = [](DBloodActor* actor, float rgb[3])
+		{
+			auto gt = TexMan.GetGameTexture(actor->spr.spritetexture());
+			int idx = -1, best = -1;
+			if (gt && gt->GetTexture())
+			{
+				auto px = gt->GetTexture()->Get8BitPixels(false);
+				const int n = gt->GetTexture()->GetWidth() * gt->GetTexture()->GetHeight();
+				for (int i = 0; i < n; i++)
+				{
+					if (px[i] == 255) continue;
+					const PalEntry c = GPalette.BaseColors[px[i]];
+					const int l = c.r + c.g + c.b;
+					if (l > best) { best = l; idx = px[i]; }
+				}
+			}
+			PalEntry c(255, 255, 255);
+			if (idx >= 0)
+			{
+				c = GPalette.BaseColors[idx];
+				if (auto remap = GPalette.GetTranslation(Translation_Remap + curbasepal, actor->spr.pal)) c = remap->Palette[idx];
+			}
+			const float m = max(1, max(int(c.r), max(int(c.g), int(c.b))));
+			rgb[0] = c.r / m; rgb[1] = c.g / m; rgb[2] = c.b / m;
+		};
+		for (int stat : { kStatDecoration, kStatFX })
+		{
+		it.Reset(stat);
 		while (auto actor = it.Next())
 		{
 			if (!actor->insector() || (actor->spr.cstat & CSTAT_SPRITE_INVISIBLE) || actor->spr.scale.Y == 0) continue;
 			const int tileNo = legacyTileNum(actor->spr.spritetexture());
-			const bool torch = actor->spr.type == kDecorationTorch || (tileNo >= 506 && tileNo <= 509);	// (506: a wall torch, no torch type)
-			if (actor->spr.type == kDecorationTorch && actor->hasX() && actor->xspr.state != 1) continue;	// put out
+			if (tileNo == 624 || tileNo == 625)
+			{
+				const double repeat = actor->spr.scale.X * 64.;
+				if (stat != kStatDecoration || repeat < 6) continue;
+				RtGameLight l;
+				l.pos[0] = actor->spr.pos.X; l.pos[1] = actor->spr.pos.Y; l.pos[2] = actor->spr.pos.Z;
+				orbColor(actor, l.color);
+				// brighter as it is bigger and as its shade is (-60: as bright as can be)
+				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 2.f);
+				l.intensity = float(clamp(40. * repeat, 150., 1200.)) * shade * scale;
+				l.radius = 0.04f;
+				l.id = (uint64_t(actor->GetIndex()) << 4) | 6u;
+				l.sector = actor->sectno();
+				g_rtGameLights.push_back(l);
+				continue;
+			}
+			// (an effect's type is not a decoration's: only flame tiles light up there)
+			const bool deco = stat == kStatDecoration;
+			const bool torch = deco && (actor->spr.type == kDecorationTorch || (tileNo >= 506 && tileNo <= 509));	// (506: a wall torch, no torch type)
+			if (deco && actor->spr.type == kDecorationTorch && actor->hasX() && actor->xspr.state != 1) continue;	// put out
 			const TileLight tl = tileGlow(actor->spr.spritetexture());
 			float glow = tl.frac;
 			if (torch) glow = max(glow, 0.2f);
@@ -993,6 +1041,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			l.id = (uint64_t(actor->GetIndex()) << 4) | 5u;
 			l.sector = actor->sectno();
 			g_rtGameLights.push_back(l);
+		}
 		}
 	}
 }
