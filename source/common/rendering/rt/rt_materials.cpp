@@ -128,6 +128,10 @@ struct MatTable
     bool                                loaded = false;
     float                               autoBump = 0.f; // "autobump N": bumps for textures with none
     std::unordered_map< int, float >    windows;         // "window <tile>[-<tile>] [polish]": its panes mirror
+    // "light <tile>[-<tile>] [strength] [r g b]": a decoration that is a lamp (a lantern):
+    // a light of its own, coloured as given or by its brightest colour
+    struct Light { float strength = 1.f, rgb[ 3 ] = { -1.f, -1.f, -1.f }; };
+    std::unordered_map< int, Light >    lights;
 };
 MatTable g_table;
 
@@ -175,6 +179,27 @@ const MatClass* TableClass( const std::string& texname )
                 }
                 continue;
             }
+            if( char lt[ 64 ]; sscanf( line, " light %63s", lt ) == 1 )
+            {
+                MatTable::Light L;
+                float           st = 1.f, cr, cg, cb;
+                const int       nn = sscanf( line, " light %*s %f %f %f %f", &st, &cr, &cg, &cb );
+                L.strength         = std::clamp( nn >= 1 ? st : 1.f, 0.f, 10.f );
+                if( nn == 4 )
+                {
+                    L.rgb[ 0 ] = cr, L.rgb[ 1 ] = cg, L.rgb[ 2 ] = cb;
+                }
+                int l0 = -1, l1 = -1;
+                if( sscanf( lt, "%d-%d", &l0, &l1 ) < 2 )
+                {
+                    l1 = l0;
+                }
+                for( int t = l0; t >= 0 && t <= l1 && t - l0 < 1000; t++ )
+                {
+                    g_table.lights[ t ] = L;
+                }
+                continue;
+            }
             if( sscanf( line, " class %127s %f %f %f %f %f", a, &r, &m, &bu, &po, &gl ) >= 5 )
             {
                 MatClass mc{ a, r, m, bu, po, gl, strncmp( a, "lamp", 4 ) == 0, 0, strncmp( a, "flame", 5 ) == 0 };
@@ -210,7 +235,7 @@ const MatClass* TableClass( const std::string& texname )
             }
         }
         fclose( f );
-        Printf( "RT: material table: %d classes, %d textures\n", int( g_table.classes.size() ), nt );
+        Printf( "RT: material table: %d classes, %d textures, %d lights\n", int( g_table.classes.size() ), nt, int( g_table.lights.size() ) );
     }
     if( texname.size() < 2 || texname[ 0 ] != '#' )
     {
@@ -475,6 +500,22 @@ float rtx::RT_TableGlow( const std::string& name )
     const MatClass* g = TableClass( name );
     // (a flame class's texture glows only where its flame is: its emission map)
     return g && !g->flame ? g->glow : 0.f;
+}
+
+bool RT_TableLight( int tile, float& strength, float rgb[ 3 ] )
+{
+    TableClass( "" ); // (loads the table)
+    auto it = g_table.lights.find( tile );
+    if( it == g_table.lights.end() )
+    {
+        return false;
+    }
+    strength = it->second.strength;
+    for( int k = 0; k < 3; k++ )
+    {
+        rgb[ k ] = it->second.rgb[ k ];
+    }
+    return true;
 }
 
 float RT_TableFlame( int tile )

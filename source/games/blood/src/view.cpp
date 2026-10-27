@@ -1001,7 +1001,70 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			// (and the round ceiling lamp, 795, when it looks lit: drawn bright -- a white
 			// one; the add-ons' dark red alarm lamps light nothing)
 			const bool lampTile = tileNo == 796 || tileNo == 795;
-			if (stat == kStatThing && !lampTile) continue;
+			// a lamp the material table names ("light <tile>": a lantern, its glass not a flame's colour)
+			float tblStrength = 0.f, tblRgb[3];
+			const bool tableLight = !lampTile && stat != kStatFX && RT_TableLight(tileNo, tblStrength, tblRgb);
+			if (stat == kStatThing && !lampTile && !tableLight) continue;
+			if (tableLight)
+			{
+				if (tblStrength <= 0.f) continue;
+				double top, bottom;
+				GetActorExtents(actor, &top, &bottom);
+				RtGameLight l;
+				// its middle: a lantern's glass; on the ceiling, just under it
+				DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, (top + bottom) * 0.5);
+				if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR)
+				{
+					const double cz = getceilzofslopeptr(actor->sector(), actor->spr.pos);
+					const double fz = getflorzofslopeptr(actor->sector(), actor->spr.pos);
+					p.Z = actor->spr.pos.Z - cz < fz - actor->spr.pos.Z ? actor->spr.pos.Z + 6 : actor->spr.pos.Z - 6;
+				}
+				else
+				{
+					// a lantern on a wall: a little off it, into the room (in the wall it lights the wall)
+					auto sect = actor->sector();
+					double best = 1e9;
+					DVector2 bestC(0, 0), bestD(1, 0);
+					for (auto& wal : sect->walls)
+					{
+						const DVector2 a2 = wal.pos, b2 = wal.point2Wall()->pos, d = b2 - a2;
+						const double len2 = d.LengthSquared();
+						if (len2 < 1e-6) continue;
+						const double t = clamp(((p.XY() - a2) | d) / len2, 0., 1.);
+						const DVector2 c = a2 + d * t;
+						const double dist = (p.XY() - c).Length();
+						if (dist < best) { best = dist; bestC = c; bestD = d; }
+					}
+					if (best < 6 || inside(p.X, p.Y, sect) != 1)
+					{
+						DVector2 n = DVector2(-bestD.Y, bestD.X).Unit();
+						if (inside(bestC.X + n.X * 2, bestC.Y + n.Y * 2, sect) != 1) n = -n;
+						p = DVector3(bestC + n * 6, p.Z);
+					}
+				}
+				l.pos[0] = p.X; l.pos[1] = p.Y; l.pos[2] = p.Z;
+				if (tblRgb[0] >= 0.f)
+				{
+					const float m = max(1e-3f, max(tblRgb[0], max(tblRgb[1], tblRgb[2])));
+					l.color[0] = tblRgb[0] / m; l.color[1] = tblRgb[1] / m; l.color[2] = tblRgb[2] / m;
+				}
+				else orbColor(actor, l.color);
+				// as bright as a candle's flame (by its size; brighter as it is drawn brighter,
+				// a fullbright one most)
+				const float size = clamp(float(sqrt(actor->spr.scale.X * actor->spr.scale.Y)), 0.4f, 2.f);
+				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 1.5f);
+				l.intensity = 600.f * tblStrength * size * shade * scale;
+				if (const float sw = RT_SectorSwitch(actor->sectno()); sw >= 0.f)
+				{
+					if (sw < 0.02f) continue;
+					l.intensity *= sw;
+				}
+				l.radius = 0.05f;
+				l.id = (uint64_t(actor->GetIndex()) << 4) | 7u;
+				l.sector = actor->sectno();
+				g_rtGameLights.push_back(l);
+				continue;
+			}
 			if (tileNo == 624 || tileNo == 625 || lampTile)
 			{
 				const double repeat = actor->spr.scale.X * 64.;
