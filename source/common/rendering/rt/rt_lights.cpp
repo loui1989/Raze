@@ -48,6 +48,7 @@ CVARD( Float, rt_skysun, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's o
 CVARD( Float, rt_skysun_tint, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much the sky's moon takes the sky's colour (0 white; 1 the sky's own: a red sky's red on red, no contrast)" )
 CVARD( Float, rt_skysun_size, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's moon's size, degrees (small: crisp shadows)" )
 EXTERN_CVAR( Float, rt_sky )
+EXTERN_CVAR( Bool, rt_glass_shadows )
 CVARD( Int, rt_sky_portal_debug, 0, 0, "RT: sky portals as bright magenta lights (1) -- to see where they are and what they light" )
 CVARD( Float, rt_sky_portals, 35.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: windows and openings to the sky light the room behind them with the sky's own light (sky portals), this strong; 0 = off" )
 CVARD( Float, rt_lightning, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a lightning flash's light from the sky, lux (Blood's storms)" )
@@ -284,6 +285,35 @@ void UploadSphere( uint64_t id, const RgFloat3D& pos, RgColor4DPacked32 color, f
     auto info = RgLightInfo{
         .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
         .pNext        = &sph,
+        .uniqueID     = CopyId( id ),
+        .isExportable = false,
+    };
+    RG_CHECK( RT_UploadLight( &info ) );
+}
+
+// a spot light (since rtgl1-lib 0012 as bright as asked): a stained glass window's
+// light, outside the glass, shining in through it
+static void UploadSpotLight( uint64_t id, const RgFloat3D& pos, const RgFloat3D& dir, RgColor4DPacked32 color, float lumens,
+                             float outerDeg, float innerDeg )
+{
+    if( lumens <= 0.01f )
+    {
+        return;
+    }
+    auto spot = RgLightSpotEXT{
+        .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
+        .pNext      = nullptr,
+        .color      = color,
+        .intensity  = lumens,
+        .position   = CopyMoved( pos ),
+        .direction  = dir,
+        .radius     = 0.05f,
+        .angleOuter = outerDeg * 3.14159265f / 180.f,
+        .angleInner = innerDeg * 3.14159265f / 180.f,
+    };
+    auto info = RgLightInfo{
+        .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+        .pNext        = &spot,
         .uniqueID     = CopyId( id ),
         .isExportable = false,
     };
@@ -582,7 +612,14 @@ void UploadSkyPortals()
                 }
             }
             // (stained glass: smaller lights, each with the colours of its own panes)
-            const int    pieces = std::clamp( int( width / ( glassWalls.empty() ? Piece : Piece * 0.5 ) ) + 1, 1, 8 );
+            // stained glass with rt_glass_shadows: the light outside the glass, shining in
+            // through it -- the path tracer colours it texel by texel, the window's pattern
+            // on the floor (a light in the room, its colour the panes' mean, threw none);
+            // without: smaller lights, each with the colours of its own panes
+            bool glassLit = false;
+            if( *rt_glass_shadows )
+                for( const walltype* mw : glassWalls ) glassLit |= RT_TableGlass( legacyTileNum( mw->overtexture ) );
+            const int    pieces = std::clamp( int( width / ( glassWalls.empty() || glassLit ? Piece : Piece * 0.5 ) ) + 1, 1, 8 );
             const double pw     = width / pieces;
             for( int k = 0; k < pieces; k++ )
             {
@@ -661,8 +698,23 @@ void UploadSkyPortals()
                 static const float magenta[ 3 ] = { 1.f, 0.f, 1.f };
                 // a small ball (RTGL1's spot lights lit almost nothing here -- a ball of the
                 // same strength lit the room: rt_sky_portal_debug 1 and 2 showed it)
-                UploadSphere( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), pos,
-                              dbg ? PackColor( magenta ) : wcolor, dbg ? 5000.f : lumens, std::clamp( size * 0.1f, 0.05f, 0.2f ) );
+                if( glassLit && !dbg )
+                {
+                    // three quarters of a metre outside the opening, in the middle of its piece,
+                    // a little above the middle (the light comes in from the sky: down onto the
+                    // floor), facing into the room; its colour the sky's (the glass gives its own)
+                    const DVector2  onp   = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces ) - n * 24.;
+                    const RgFloat3D spos  = WorldToRT( onp.X, onp.Y, top + ( bottom - top ) * 0.35 );
+                    const FVector3  down  = FVector3( float( n.X ), float( -n.Y ), -0.35f ).Unit();
+                    const float     sky   = *rt_sky_portals * outside * area * fade * open;
+                    UploadSpotLight( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), spos, { down.X, down.Y, down.Z },
+                                     PackColor( c ), sky * 0.6f, 75.f, 45.f );
+                }
+                else
+                {
+                    UploadSphere( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), pos,
+                                  dbg ? PackColor( magenta ) : wcolor, dbg ? 5000.f : lumens, std::clamp( size * 0.1f, 0.05f, 0.2f ) );
+                }
                 g_rtSkyPortalStats.count++;
                 g_rtSkyPortalStats.maxLumens = std::max( g_rtSkyPortalStats.maxLumens, lumens );
                 const float dd = std::sqrt( ( pos.data[ 0 ] - cam.data[ 0 ] ) * ( pos.data[ 0 ] - cam.data[ 0 ] ) +
