@@ -770,7 +770,9 @@ static TArray<GrpEntry> SetupGame()
 	if (groupno == -1 && userConfig.gamegrp.Len())
 	{
 		FString gamegrplower = userConfig.gamegrp.MakeLower();
-		if (gamegrplower[1] != ':' || gamegrplower[2] != '/') gamegrplower.Insert(0, "/");
+		// (a full path stays as it is: "/Users/..." made "//users/..." matched nothing,
+		// and the game picker came up although -gamegrp named the game)
+		if (gamegrplower[0] != '/' && (gamegrplower[1] != ':' || gamegrplower[2] != '/')) gamegrplower.Insert(0, "/");
 
 		int g = 0;
 		for (auto& grp : groups)
