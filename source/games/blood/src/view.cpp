@@ -51,6 +51,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 EXTERN_CVAR(Float, rt_sprite_light_scale)
 
 
+FString RT_SectorWhy(int s);	// hw_bunchdrawer.cpp (rt_lookat)
+
 BEGIN_BLD_NS
 
 VIEWPOS gViewPos;
@@ -1241,6 +1243,24 @@ CCMD(rt_lookat)
 			a->spr.statnum, int(a->spr.type), (a->spr.pos - view).Length() / 32., RT_TableFlame(tile),
 			glowInfo(a->spr.spritetexture()).GetChars(), vox,
 			vox >= 0 && vox < MAXVOXELS && voxdefined[vox] ? " (a pack's)" : vox >= 0 ? " (the game's)" : "", sectorInfo(a->sector()).GetChars());
+	}
+	// what the path tracer was given of the sectors here, and why (overlapping rooms,
+	// room-over-room views: Death Wish's walls where none should be)
+	{
+		TArray<int> secs;
+		auto addSec = [&](sectortype* sp) { if (sp) { int si = sectindex(sp); if (secs.Find(si) == secs.Size()) secs.Push(si); } };
+		addSec(vs);
+		if (vs)
+		{
+			HitInfoBase hit;
+			hit.clearObj();
+			hitscan(view, vs, dir * 1024., hit, CLIPMASK1);
+			if (hit.hitWall) { addSec(hit.hitWall->sectorp()); if (hit.hitWall->twoSided()) addSec(hit.hitWall->nextSector()); }
+			if (hit.hitSector) addSec(hit.hitSector);
+		}
+		for (int si : secs)
+			Printf("  sector %d: %s%s\n", si, RT_SectorWhy(si).GetChars(),
+				RT_CopySector(si) ? FStringf("; drawn again as room-over-room view %d (of %d)", RT_CopySector(si), g_rtCopyUsed).GetChars() : "");
 	}
 	Printf("  your body (shadows, reflections): %s\n", g_rtViewerDrawn > 0 ?
 		FStringf("drawn %d time(s) last frame, tile %d, as %s", g_rtViewerDrawn, g_rtViewerDrawnTile, g_rtViewerDrawnModel ? "a voxel model" : "a sprite").GetChars() :

@@ -791,6 +791,27 @@ CVARD(Bool, rt_hide_overlaps, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: of ro
 CVARD(Float, rt_offscreen_reach, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: rooms off screen further than this (metres, walking through openings and doors) are left out; 0 = the whole map")
 
 static std::vector<std::vector<int>> rt_overlaps;
+// rt_lookat: why each sector was or was not given to the path tracer the last frame
+// (0 off screen and kept, 1 beyond rt_offscreen_reach, 2 an overlapping room is nearer,
+// 3 an overlapping room is on screen, 4 a room-over-room view in its place, 5 on screen),
+// and the overlapping room of 2 and 3
+static std::vector<uint8_t> rt_why;
+static std::vector<int> rt_whyOther;
+FString RT_SectorWhy(int s)
+{
+	if (s < 0 || unsigned(s) >= rt_why.size()) return "no record";
+	static const char* const what[] = { "off screen, given to the path tracer", "left out: beyond reach (rt_offscreen_reach)",
+		"left out: an overlapping room is nearer (rt_hide_overlaps)", "left out: an overlapping room is on screen (rt_hide_overlaps)",
+		"left out: a room-over-room view drawn in its place (rt_portal_views)", "on screen" };
+	FString r = what[std::min<int>(rt_why[s], 5)];
+	if ((rt_why[s] == 2 || rt_why[s] == 3) && unsigned(s) < rt_whyOther.size()) r.AppendFormat(" (%d)", rt_whyOther[s]);
+	if (unsigned(s) < rt_overlaps.size() && !rt_overlaps[s].empty())
+	{
+		r += "; overlaps";
+		for (int o : rt_overlaps[s]) r.AppendFormat(" %d", o);
+	}
+	return r;
+}
 static const void* rt_ovlLevel = nullptr;
 static const void* rt_ovlData = nullptr;
 static unsigned rt_ovlCount = 0;
@@ -845,6 +866,8 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam, c
 		rt_ovlLevel = currentLevel; rt_ovlData = sector.Data(); rt_ovlCount = n;
 	}
 	std::vector<char> keep(n, 1);
+	rt_why.assign(n, 0);
+	rt_whyOther.assign(n, -1);
 	// out of reach (doors count as passages: one opening shows what is behind it)
 	const double reach = double(*rt_offscreen_reach) * 32.0;	// 32 map units a metre
 	if (reach > 0 && camsect >= 0 && unsigned(camsect) < n)
@@ -871,7 +894,7 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam, c
 				dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni });
 			}
 		}
-		for (unsigned i = 0; i < n; i++) if (dist[i] > reach) keep[i] = 0;
+		for (unsigned i = 0; i < n; i++) if (dist[i] > reach) { keep[i] = 0; rt_why[i] = 1; }
 	}
 	if (!rt_hide_overlaps) return keep;
 	bool any = false;
@@ -918,6 +941,7 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam, c
 			if (onscreen && j < int(onscreen->Size()) && (*onscreen)[j] && !(i < onscreen->Size() && (*onscreen)[i]))
 			{
 				keep[i] = 0;
+				rt_why[i] = 3; rt_whyOther[i] = j;
 				break;
 			}
 			// unreached (behind a shut door), or a crossing one is nearer: left out
@@ -925,6 +949,7 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam, c
 			if (dist[i] >= 1e30 || dist[j] < dist[i])
 			{
 				keep[i] = 0;
+				rt_why[i] = 2; rt_whyOther[i] = j;
 				break;
 			}
 		}
@@ -941,7 +966,8 @@ void BunchDrawer::RT_ProcessRemaining(bool copyView)
 	{
 		rtkeep = RT_OffscreenSectors(g_rtViewSector, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]), &visiblesectors);
 		// where a room-over-room view is drawn in their place
-		for (unsigned i = 0; i < rtkeep.size(); i++) if (RT_SectorHidden(int(i))) rtkeep[i] = 0;
+		for (unsigned i = 0; i < rtkeep.size(); i++) if (RT_SectorHidden(int(i))) { rtkeep[i] = 0; if (i < rt_why.size()) rt_why[i] = 4; }
+		for (unsigned i = 0; i < rt_why.size() && i < visiblesectors.Size(); i++) if (visiblesectors[i]) rt_why[i] = 5;
 	}
 
 	for (unsigned s = 0; s < sections.Size(); s++)
