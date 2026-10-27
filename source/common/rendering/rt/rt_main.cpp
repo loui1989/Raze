@@ -475,6 +475,8 @@ SystemBaseFrameBuffer* RT_CreateFrameBuffer( void* hMonitor, bool fullscreen )
 // Frame buffer
 //
 
+void RT_FreeSkyDomes(); // hw_skyportal.cpp
+
 RTFrameBuffer::RTFrameBuffer( void* hMonitor, bool fullscreen )
     : SystemBaseFrameBuffer( hMonitor, fullscreen )
 {
@@ -482,6 +484,7 @@ RTFrameBuffer::RTFrameBuffer( void* hMonitor, bool fullscreen )
 
 RTFrameBuffer::~RTFrameBuffer()
 {
+    RT_FreeSkyDomes(); // (hw_skyportal.cpp: the path tracer's sky domes, made by this frame buffer)
     delete mVertexData;
     delete mSkyData;
     delete mViewpoints;
