@@ -940,6 +940,14 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 		// bright dot inside a halo) left to their halo
 		auto orbColor = [](DBloodActor* actor, float rgb[3])
 		{
+			static TMap<int, PalEntry> cache;	// by texture and palette
+			const int key = actor->spr.spritetexture().GetIndex() * 256 + actor->spr.pal;
+			if (auto c = cache.CheckKey(key))
+			{
+				const float m = max(1, max(int(c->r), max(int(c->g), int(c->b))));
+				rgb[0] = c->r / m; rgb[1] = c->g / m; rgb[2] = c->b / m;
+				return;
+			}
 			auto gt = TexMan.GetGameTexture(actor->spr.spritetexture());
 			int idx = -1, best = -1;
 			if (gt && gt->GetTexture())
@@ -960,22 +968,34 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				c = GPalette.BaseColors[idx];
 				if (auto remap = GPalette.GetTranslation(Translation_Remap + curbasepal, actor->spr.pal)) c = remap->Palette[idx];
 			}
+			cache.Insert(key, c);
 			const float m = max(1, max(int(c.r), max(int(c.g), int(c.b))));
 			rgb[0] = c.r / m; rgb[1] = c.g / m; rgb[2] = c.b / m;
 		};
-		for (int stat : { kStatDecoration, kStatFX })
+		for (int stat : { kStatDecoration, kStatFX, kStatThing })
 		{
 		it.Reset(stat);
 		while (auto actor = it.Next())
 		{
 			if (!actor->insector() || (actor->spr.cstat & CSTAT_SPRITE_INVISIBLE) || actor->spr.scale.Y == 0) continue;
 			const int tileNo = legacyTileNum(actor->spr.spritetexture());
-			if (tileNo == 624 || tileNo == 625)
+			// (and the round ceiling lamp, 795, and the light tube, 796 -- a breakable
+			// thing: coloured by their palette too, the add-ons' red alarm lamps)
+			const bool lampTile = tileNo == 795 || tileNo == 796;
+			if (stat == kStatThing && !lampTile) continue;
+			if (tileNo == 624 || tileNo == 625 || lampTile)
 			{
 				const double repeat = actor->spr.scale.X * 64.;
-				if (stat != kStatDecoration || repeat < 6) continue;
+				if (stat == kStatFX || repeat < 6) continue;
 				RtGameLight l;
 				l.pos[0] = actor->spr.pos.X; l.pos[1] = actor->spr.pos.Y; l.pos[2] = actor->spr.pos.Z;
+				// a lamp on the ceiling: the light just under it, in the room
+				if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR)
+				{
+					const double cz = getceilzofslopeptr(actor->sector(), actor->spr.pos);
+					const double fz = getflorzofslopeptr(actor->sector(), actor->spr.pos);
+					l.pos[2] = actor->spr.pos.Z - cz < fz - actor->spr.pos.Z ? actor->spr.pos.Z + 6 : actor->spr.pos.Z - 6;
+				}
 				orbColor(actor, l.color);
 				// brighter as it is bigger and as its shade is (-60: as bright as can be)
 				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 2.f);

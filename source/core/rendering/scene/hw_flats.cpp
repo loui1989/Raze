@@ -360,7 +360,7 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 
 	// ray tracing: a liquid floor with nothing under it (Blood's shallow pools and
 	// puddles: no water link, no room below). The path tracer sees through liquids,
-	// down to the sky: a bottom under the surface, its own floor again, solid
+	// down to the sky: a bottom just under the surface, its own floor again, solid
 	if (RT_IsActive() && !Sprite && plane == 0 && isBlood() && sec && sec->upperLink == nullptr &&
 		sec->portalflags != PORTAL_SECTOR_FLOOR)
 	{
@@ -369,7 +369,9 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 		{
 			auto rtsolid = rtstate.push_without(RtPrim(uint32_t(RtPrim::Water) | uint32_t(RtPrim::Slime) | uint32_t(RtPrim::BloodPool)));
 			RT_PUSH_TYPE(rtbottom, RtPrim::CopyMove);
-			static const double down[3] = { 0, 0, 16 };	// half a metre (z down)
+			// just under it (z down): deeper, the rays find the gap between the bottom
+			// and the pool's edges, and the sky through it
+			static const double down[3] = { 0, 0, 1.5 };
 			auto rtbcg = rtstate.push_copygroup(64 + rtstate.get_copygroup(), down, true);
 			state.Draw(DT_Triangles, vertindex, vertcount);
 		}
