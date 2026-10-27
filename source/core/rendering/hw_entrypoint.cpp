@@ -388,6 +388,44 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 			}
 		}
 
+	// what the camera can walk to on its own side (not through the surfaces: they are
+	// the openings): there for real, never copied. (Death Wish's caves: the place under
+	// a pool's surface joins the caves round it by passages; the copy reached the
+	// corridor the camera stands in -- the cave copied over itself: rock in a doorway,
+	// pieces of cave in the sky)
+	std::vector<char> camSide(n, 0);
+	{
+		std::vector<char> anyHole(n, 0);
+		for (size_t k = 0; k < order.size(); k++)
+			for (int h : links[order[k]].holes) anyHole[h] = 1;
+		std::vector<double> d(n, -1.);
+		std::vector<DVector2> entry(n);
+		using Item = std::pair<double, int>;
+		std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
+		const int cs = sectindex(camsect);
+		d[cs] = 0; entry[cs] = cpos.XY();
+		q.push({ 0., cs });
+		while (!q.empty())
+		{
+			auto [dd, si] = q.top();
+			q.pop();
+			if (dd > d[si]) continue;
+			camSide[si] = 1;
+			if (anyHole[si] && si != cs) continue;	// (a surface: its other side is the copy's)
+			for (auto& w : sector[si].walls)
+			{
+				if (!w.twoSided()) continue;
+				auto ns = w.nextSector();
+				if (!ns) continue;
+				const int ni = sectindex(ns);
+				const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
+				const double nd = dd + (mid - entry[si]).Length();
+				if (nd > reach * 2) continue;
+				if (d[ni] < 0 || nd < d[ni]) { d[ni] = nd; entry[ni] = mid; q.push({ nd, ni }); }
+			}
+		}
+	}
+
 	g_rtCopySector.assign(n, 0);
 	g_rtCopyUsed = int(order.size());
 	for (size_t k = 0; k < order.size(); k++)
@@ -457,7 +495,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 			}
 		}
 		for (unsigned i = 0; i < n; i++)
-			if (dist[i] >= 0 && g_rtCopySector[i] == 0 && !isHole[i] && keep(&sector[i])) g_rtCopySector[i] = uint8_t(k + 1);
+			if (dist[i] >= 0 && g_rtCopySector[i] == 0 && !isHole[i] && !camSide[i] && keep(&sector[i])) g_rtCopySector[i] = uint8_t(k + 1);
 	}
 }
 
