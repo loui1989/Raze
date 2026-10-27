@@ -256,6 +256,9 @@ void PropagateMarkerReferences(void)
 //
 //---------------------------------------------------------------------------
 
+static TArray<FString> pendingLoadout;
+static void ApplyLoadout(const TArray<FString>& args);
+
 void StartLevel(MapRecord* level, bool newgame)
 {
 	if (!level) return;
@@ -375,8 +378,124 @@ void StartLevel(MapRecord* level, bool newgame)
 	levelTryPlayMusic();
 	gChoke.reset();
 	setLevelStarted(level);
+	if (pendingLoadout.Size())
+	{
+		ApplyLoadout(pendingLoadout);
+		pendingLoadout.Clear();
+	}
 }
 
+
+
+//---------------------------------------------------------------------------
+//
+// loadout: start a level with the player's things set as given -- to carry on a
+// game saved by another port (Refreshed Supply's saves cannot be read here):
+//   loadout [map <name> [skill <0-4>]] [health N] [armor <fire> <body> <spirit>]
+//           [<weapon> <ammo>]... [<item> <amount>]... [key <1-7>]...
+// weapons: flaregun shotgun tommygun napalm dynamite spraycan tesla lifeleech
+// voodoo proximity remote; items: doctorsbag divingsuit crystalball beastvision
+// jumpboots. Amounts as the status bar shows them. With a map, the level is
+// started (a new game, or the next level of this one) and the things are set when
+// it begins; without one, they are set now.
+//
+//---------------------------------------------------------------------------
+
+static void ApplyLoadout(const TArray<FString>& args)
+{
+	DBloodPlayer* pPlayer = getPlayer(myconnectindex);
+	if (!pPlayer || !pPlayer->GetActor() || !pPlayer->GetActor()->hasX()) return;
+	auto actor = pPlayer->GetActor();
+	static const struct { const char* name; int weapon, ammo; } weapons[] = {
+		{ "flaregun", kWeapFlareGun, 1 }, { "shotgun", kWeapShotgun, 2 }, { "tommygun", kWeapTommyGun, 3 },
+		{ "napalm", kWeapNapalm, 4 }, { "dynamite", kWeapDynamite, 5 }, { "spraycan", kWeapSpraycan, 6 },
+		{ "tesla", kWeapTeslaCannon, 7 }, { "lifeleech", kWeapLifeLeech, 8 }, { "voodoo", kWeapVoodooDoll, 9 },
+		{ "proximity", kWeapProximity, 10 }, { "remote", kWeapRemote, 11 },
+	};
+	static const char* items[] = { "doctorsbag", "divingsuit", "crystalball", "beastvision", "jumpboots" };
+	auto num = [&](unsigned i) { return i < args.Size() ? (int)strtol(args[i].GetChars(), nullptr, 10) : 0; };
+	for (unsigned i = 0; i < args.Size();)
+	{
+		const FString& k = args[i];
+		bool done = false;
+		if (k.CompareNoCase("health") == 0)
+		{
+			actor->xspr.health = clamp(num(i + 1), 1, 200) << 4;
+			i += 2; continue;
+		}
+		if (k.CompareNoCase("armor") == 0)
+		{
+			pPlayer->armor[1] = clamp(num(i + 1), 0, 200) << 4;	// fire (red)
+			pPlayer->armor[0] = clamp(num(i + 2), 0, 200) << 4;	// body (blue)
+			pPlayer->armor[2] = clamp(num(i + 3), 0, 200) << 4;	// spirit (green)
+			i += 4; continue;
+		}
+		if (k.CompareNoCase("key") == 0)
+		{
+			const int key = num(i + 1);
+			if (key >= 1 && key < 8) pPlayer->hasKey[key] = true;
+			i += 2; continue;
+		}
+		for (auto& w : weapons)
+			if (k.CompareNoCase(w.name) == 0)
+			{
+				pPlayer->hasWeapon[w.weapon] = true;
+				pPlayer->ammoCount[w.ammo] = max(0, num(i + 1)) * (w.weapon == kWeapSpraycan ? 10 : 1);
+				i += 2; done = true; break;
+			}
+		if (done) continue;
+		for (int n = 0; n < 5; n++)
+			if (k.CompareNoCase(items[n]) == 0)
+			{
+				pPlayer->packSlots[n].isActive = false;
+				pPlayer->packSlots[n].curAmount = clamp(num(i + 1), 0, 100);
+				if (pPlayer->packSlots[n].curAmount > 0) pPlayer->packItemId = n;
+				i += 2; done = true; break;
+			}
+		if (done) continue;
+		Printf("loadout: don't know '%s'\n", k.GetChars());
+		i++;
+	}
+	Printf("loadout set\n");
+}
+
+CCMD(loadout)
+{
+	TArray<FString> args;
+	FString mapname;
+	int skill = g_nextskill;
+	for (int i = 1; i < argv.argc(); i++)
+	{
+		if (!stricmp(argv[i], "map") && i + 1 < argv.argc()) mapname = argv[++i];
+		else if (!stricmp(argv[i], "skill") && i + 1 < argv.argc()) skill = clamp(atoi(argv[++i]), 0, 4);
+		else args.Push(argv[i]);
+	}
+	// from the command line (+loadout): the game is not up yet and its levels not
+	// known -- the level is started as -map would be, the things set when it begins
+	if (gamestate == GS_STARTUP)
+	{
+		if (mapname.IsEmpty()) { Printf("loadout: give a map on the command line\n"); return; }
+		userConfig.CommandMap = mapname;
+		g_nextskill = skill;
+		pendingLoadout = std::move(args);
+		return;
+	}
+	MapRecord* map = nullptr;
+	if (mapname.IsNotEmpty())
+	{
+		map = FindMapByName(mapname.GetChars());
+		if (!map) { Printf("loadout: map %s not found\n", mapname.GetChars()); return; }
+	}
+	if (!map)
+	{
+		if (gamestate != GS_LEVEL) { Printf("loadout: not in a game (give a map)\n"); return; }
+		ApplyLoadout(args);
+		return;
+	}
+	pendingLoadout = std::move(args);
+	if (gamestate == GS_LEVEL) ChangeLevel(map, skill);
+	else DeferredStartGame(map, skill);
+}
 
 //---------------------------------------------------------------------------
 //
