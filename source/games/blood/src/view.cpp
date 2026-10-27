@@ -783,8 +783,13 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 	struct Glow { DVector3 pos; int sector; float peak; int seen; int born; };
 	static TMap<int, Glow> s_glow;
 	static const void* s_level = nullptr;
-	if (s_level != currentLevel) { s_glow.Clear(); s_level = currentLevel; }
 	const int now = PlayClock;
+	// (a new level, or a saved game loaded: the clock goes back -- an old explosion's
+	// fade, timed by it, would then never end and grow without bound: the burning
+	// white glow over everything after loading a save)
+	static int s_lastNow = 0;
+	if (s_level != currentLevel || now < s_lastNow) { s_glow.Clear(); s_level = currentLevel; }
+	s_lastNow = now;
 	BloodStatIterator it(kStatExplosion);
 	while (auto actor = it.Next())
 	{
@@ -809,7 +814,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			// full while it burns (a quick swell in), then gone in about half a second
 			const float in = clamp((now - g.born) / 6.f, 0.f, 1.f);
 			const float t = (now - g.seen) / 60.f;
-			if (t >= 1.f) { gone.Push(pair->Key); continue; }
+			if (t >= 1.f || t < 0.f) { gone.Push(pair->Key); continue; }
 			const float k = (0.4f + 0.6f * in) * (1.f - t) * (1.f - t);
 			RtGameLight l;
 			l.pos[0] = g.pos.X; l.pos[1] = g.pos.Y; l.pos[2] = g.pos.Z - 16;
