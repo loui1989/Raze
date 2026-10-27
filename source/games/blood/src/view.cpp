@@ -1338,12 +1338,12 @@ CCMD(rt_lookat)
 			if (sector[si].walls.Size() == 0) continue;
 			c /= double(sector[si].walls.Size());
 			const double dd = (c - view.XY()).Length() / 32.;
-			if (dd > 25) continue;
+			if (dd > 60) continue;
 			static const char* const why[] = { "", "beyond reach", "overlap nearer", "overlap on screen", "room-over-room" };
 			if (cnt < 40) out.AppendFormat(" %u (%s, %.0f m)", si, why[code], dd);
 			cnt++;
 		}
-		Printf("  rooms within 25 m not given to the path tracer: %d%s%s\n", cnt, cnt ? ":" : "", out.GetChars());
+		Printf("  rooms within 60 m not given to the path tracer: %d%s%s\n", cnt, cnt ? ":" : "", out.GetChars());
 	}
 	C_DoCommand("rt_portal_info");
 	Printf("  your body (shadows, reflections): %s\n", g_rtViewerDrawn > 0 ?
@@ -1374,6 +1374,8 @@ CCMD(rt_lookat)
 			asin(clamp(double(g_rtSkyLight.dir[2]), -1., 1.)) * 180. / pi::pi(), atan2(g_rtSkyLight.dir[1], g_rtSkyLight.dir[0]) * 180. / pi::pi(),
 			g_rtSkyLight.color[0], g_rtSkyLight.color[1], g_rtSkyLight.color[2], g_rtSkyLight.irradiance, g_rtSkyLight.diameter);
 	else Printf("  sky light: none yet (no sky seen on this level)\n");
+	Printf("  sky portals (windows): %d lights%s\n", g_rtSkyPortalStats.count, g_rtSkyPortalStats.count ?
+		FStringf(", the strongest %.0f lumens, the nearest %.1f m away", g_rtSkyPortalStats.maxLumens, g_rtSkyPortalStats.nearest).GetChars() : "");
 	// the sprites a lantern's light is made for, near
 	{
 		TSpriteIterator<DCoreActor> lit;

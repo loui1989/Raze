@@ -16,6 +16,7 @@ bool        g_rtViewerDrawnModel = false;
 char        g_rtViewerDiag[ 320 ] = {};
 uint32_t    g_rtFrameNo = 0;
 RtSkyLight  g_rtSkyLight;
+RtSkyPortalStats g_rtSkyPortalStats;
 std::vector< uint32_t > g_rtSpriteStage[ 3 ];
 int         g_rtViewSector  = -1;
 std::vector< uint8_t > g_rtCopySector;

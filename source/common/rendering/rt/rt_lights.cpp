@@ -48,7 +48,7 @@ CVARD( Float, rt_skysun, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's o
 CVARD( Float, rt_skysun_tint, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much the sky's moon takes the sky's colour (0 white; 1 the sky's own: a red sky's red on red, no contrast)" )
 CVARD( Float, rt_skysun_size, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's moon's size, degrees (small: crisp shadows)" )
 EXTERN_CVAR( Float, rt_sky )
-CVARD( Float, rt_sky_portals, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: windows and openings to the sky light the room behind them with the sky's own light (sky portals), this strong; 0 = off" )
+CVARD( Float, rt_sky_portals, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: windows and openings to the sky light the room behind them with the sky's own light (sky portals), this strong; 0 = off" )
 CVARD( Float, rt_lightning, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a lightning flash's light from the sky, lux (Blood's storms)" )
 CVARD( Float, rt_game_light_scale, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the lights the game names (Blood: explosions, fire, flares)" )
 CVARD( Float, rt_light_reach, 40.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lights further than this (metres, walking through openings) from the view are left out; 0 = all lights" )
@@ -351,6 +351,10 @@ std::array< float, 3 > WindowTint( FTextureID texid )
 
 void UploadSkyPortals()
 {
+    if( !s_copyPass )
+    {
+        g_rtSkyPortalStats = {};
+    }
     if( *rt_sky_portals <= 0.f || !g_rtSkyLight.valid || s_copyPass )
     {
         return;
@@ -364,6 +368,11 @@ void UploadSkyPortals()
     }
     const float             c[ 3 ]   = { a[ 0 ] / mx, a[ 1 ] / mx, a[ 2 ] / mx };
     const float             radiance = lum * std::max( 0.f, float( *rt_sky ) );
+    // the light outside, on the ground: the sky's (half of it seen through an opening)
+    // and the sky's moon (rt_skysun) -- a window lets in what lights the yard
+    const float outside = 3.14159265f * radiance * 0.5f +
+                          std::max( 0.f, float( *rt_skysun ) ) * g_rtSkyLight.irradiance * std::max( 0.f, float( *rt_sky ) );
+    const RgFloat3D cam = WorldToRT( g_rtViewPos[ 0 ], g_rtViewPos[ 1 ], g_rtViewPos[ 2 ] );
     constexpr double        Piece    = 80.;   // 2.5 m: a wide opening is several lights
     for( unsigned si = 0; si < sector.Size(); si++ )
     {
@@ -431,10 +440,9 @@ void UploadSkyPortals()
                 {
                     continue;
                 }
-                // the sky seen through it: about half of it (above the horizon), a
-                // Lambertian opening -- pi * radiance * area
+                // the light outside through its area (rt_sky_portals: more, Blood's skies are dark)
                 const float area   = float( pw * h ) * ONEGAMEUNIT_IN_METERS * ONEGAMEUNIT_IN_METERS;
-                const float lumens = *rt_sky_portals * 3.14159265f * radiance * area * 0.5f * fade * ( through / through0 );
+                const float lumens = *rt_sky_portals * outside * area * fade * ( through / through0 );
                 if( lumens <= 0.05f )
                 {
                     continue;
@@ -458,6 +466,12 @@ void UploadSkyPortals()
                     .isExportable = false,
                 };
                 RG_CHECK( RT_UploadLight( &info ) );
+                g_rtSkyPortalStats.count++;
+                g_rtSkyPortalStats.maxLumens = std::max( g_rtSkyPortalStats.maxLumens, lumens );
+                const float dd = std::sqrt( ( pos.data[ 0 ] - cam.data[ 0 ] ) * ( pos.data[ 0 ] - cam.data[ 0 ] ) +
+                                            ( pos.data[ 1 ] - cam.data[ 1 ] ) * ( pos.data[ 1 ] - cam.data[ 1 ] ) +
+                                            ( pos.data[ 2 ] - cam.data[ 2 ] ) * ( pos.data[ 2 ] - cam.data[ 2 ] ) );
+                g_rtSkyPortalStats.nearest = std::min( g_rtSkyPortalStats.nearest, dd );
             }
         }
     }

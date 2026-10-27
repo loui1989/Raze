@@ -62,6 +62,9 @@ struct RtSkyLight
     float average[ 3 ]{};     // the sky's average radiance (linear, per rt_sky): its light through a window
 };
 extern RtSkyLight g_rtSkyLight;
+// the sky portals of the last frame (rt_lookat): how many, the strongest, the nearest (m)
+struct RtSkyPortalStats { int count = 0; float maxLumens = 0, nearest = 1e9f; };
+extern RtSkyPortalStats g_rtSkyPortalStats;
 extern std::vector< uint32_t > g_rtSpriteStage[ 3 ];
 inline void RT_MarkSprite( int index, int stage )
 {
