@@ -1042,7 +1042,10 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 					cache.Insert(texid.GetIndex(), v);
 					return v;
 				};
-				DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, top + (bottom - top) * brightV(actor->spr.spritetexture()));
+				// (drawn upside down -- a chained lantern stood on the floor, its chain under it --
+				// the glass is at the other end)
+				const double gv = brightV(actor->spr.spritetexture());
+				DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, top + (bottom - top) * ((actor->spr.cstat & CSTAT_SPRITE_YFLIP) ? 1. - gv : gv));
 				if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR)
 				{
 					const double cz = getceilzofslopeptr(actor->sector(), actor->spr.pos);
@@ -1082,18 +1085,24 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 					const float m = max(1e-3f, max(tblRgb[0], max(tblRgb[1], tblRgb[2])));
 					l.color[0] = tblRgb[0] / m; l.color[1] = tblRgb[1] / m; l.color[2] = tblRgb[2] / m;
 				}
-				else orbColor(actor, l.color);
-				// as bright as a candle's flame (by its size; brighter as it is drawn brighter,
-				// a fullbright one most)
+				else
+				{
+					// a flame behind glass: a candle's colour, a little paler
+					l.color[0] = 1.f; l.color[1] = 0.66f; l.color[2] = 0.36f;
+				}
+				// a candle's light (its flame, a little bigger, flickering as one): it was
+				// brighter than a fire, its picture washed white
 				const float size = clamp(float(sqrt(actor->spr.scale.X * actor->spr.scale.Y)), 0.4f, 2.f);
-				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 1.5f);
-				l.intensity = 600.f * tblStrength * size * shade * scale;
+				l.intensity = 450.f * tblStrength * size * scale * flicker(actor);
 				if (const float sw = RT_SectorSwitch(actor->sectno()); sw >= 0.f)
 				{
 					if (sw < 0.02f) continue;
 					l.intensity *= sw;
 				}
-				l.radius = 0.1f;	// (the size of its glass: the lantern itself is lit softly, not burnt white)
+				// small, in the plane of its own picture (a sprite faces the camera through its
+				// middle): the lantern is not lit by its own light, and keeps its detail -- its
+				// glass glows (the material table's lantern class)
+				l.radius = 0.02f;
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 7u;
 				l.sector = actor->sectno();
 				g_rtGameLights.push_back(l);

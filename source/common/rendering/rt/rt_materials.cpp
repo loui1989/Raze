@@ -120,6 +120,7 @@ struct MatClass
     bool        lamp  = false; // a class named lamp...: its glow follows its room's light (switched off: dark)
     uint32_t    hash  = 0;
     bool        flame = false; // a class named flame...: only its flame coloured texels glow (a candle's flame, not its wax)
+    bool        lantern = false; // a class named lantern...: as flame, its warm bright texels -- a lantern's glass, not its frame
 };
 struct MatTable
 {
@@ -203,6 +204,8 @@ const MatClass* TableClass( const std::string& texname )
             if( sscanf( line, " class %127s %f %f %f %f %f", a, &r, &m, &bu, &po, &gl ) >= 5 )
             {
                 MatClass mc{ a, r, m, bu, po, gl, strncmp( a, "lamp", 4 ) == 0, 0, strncmp( a, "flame", 5 ) == 0 };
+                mc.lantern = strncmp( a, "lantern", 7 ) == 0;
+                mc.flame   = mc.flame || mc.lantern;
                 char     key[ 256 ];
                 snprintf( key, sizeof( key ), "%s %.3f %.3f %.3f %.3f v2", a, r, m, bu, po );
                 uint32_t hsh = 2166136261u;
@@ -266,6 +269,34 @@ bool FlameTexel( const uint8_t* a )
 {
     const int b = a[ 0 ], g = a[ 1 ], r = a[ 2 ];
     return a[ 3 ] >= 128 && b <= 12 && r >= 140 && g * 4 >= r && g <= r;
+}
+
+// a lit lantern's glass: its white panes (BGRA), on the picture's widest white rows -- not
+// its frame's bars and cap (orange, dark), nor a lamp post's or chain's white highlights
+// (a narrow stripe)
+std::vector< uint8_t > LanternGlass( const uint8_t* px, int w, int h )
+{
+    std::vector< uint8_t > m( size_t( w ) * h );
+    std::vector< int >     row( h );
+    int                    widest = 1;
+    for( int y = 0; y < h; y++ )
+    {
+        for( int x = 0; x < w; x++ )
+        {
+            const uint8_t* a = &px[ ( size_t( y ) * w + x ) * 4 ];
+            m[ size_t( y ) * w + x ] = a[ 3 ] >= 128 && std::min( { a[ 0 ], a[ 1 ], a[ 2 ] } ) >= 0xd0;
+            row[ y ] += m[ size_t( y ) * w + x ];
+        }
+        widest = std::max( widest, row[ y ] );
+    }
+    for( int y = 0; y < h; y++ )
+    {
+        if( row[ y ] * 10 < widest * 6 )
+        {
+            std::fill_n( m.begin() + ptrdiff_t( y ) * w, w, uint8_t( 0 ) );
+        }
+    }
+    return m;
 }
 
 // a window tile's glass: its mask (any size: scaled to the texture's), how strongly it mirrors
@@ -523,7 +554,8 @@ float RT_TableFlame( int tile )
     char nm[ 16 ];
     snprintf( nm, sizeof( nm ), "#%05d", tile );
     const MatClass* g = TableClass( nm );
-    return g && g->flame ? g->glow : 0.f;
+    // (a lantern's light is its own -- a table light at its glass -- not one at a flame)
+    return g && g->flame && !g->lantern ? g->glow : 0.f;
 }
 
 bool RT_FlameColor( uint8_t r, uint8_t g, uint8_t b )
@@ -610,7 +642,14 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     if( const MatClass* g = TableClass( name ); g && g->glow > 0.f )
     {
         char sfx[ 32 ];
-        snprintf( sfx, sizeof( sfx ), "_e.t%08x", g->hash ^ uint32_t( g->glow * 1000.f ) ^ ( g->flame ? 0x52u : 0x51u ) );
+        snprintf( sfx, sizeof( sfx ), "_e.t%08x", g->hash ^ uint32_t( g->glow * 1000.f ) ^ ( g->lantern ? 0x53u : g->flame ? 0x52u : 0x51u ) );
+        const auto glass   = g->lantern ? LanternGlass( albedo.mBuffer, w, h ) : std::vector< uint8_t >();
+        auto       glowing = [ g, &glass, &albedo ]( int i ) {
+            const uint8_t* a = &albedo.mBuffer[ size_t( i ) * 4 ];
+            return !g->flame || ( g->lantern ? glass[ size_t( i ) ] != 0 : FlameTexel( a ) );
+        };
+        // (a lantern's glass glows as a candle behind it: warm, not white)
+        const float tint[ 3 ] = { 1.f, g->lantern ? 0.8f : 1.f, g->lantern ? 0.52f : 1.f };
         const auto pathGT = dir / ( name + sfx );
         if( regen || !Exists( pathGT ) || !Exists( pathE ) )
         {
@@ -620,7 +659,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
             for( int i = 0; i < w * h; i++ )
             {
                 const uint8_t* a = &albedo.mBuffer[ size_t( i ) * 4 ]; // BGRA
-                if( g->flame && !FlameTexel( a ) )
+                if( !glowing( i ) )
                 {
                     continue;
                 }
@@ -632,8 +671,8 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
                 const uint8_t* a = &albedo.mBuffer[ size_t( i ) * 4 ];
                 for( int k = 0; k < 3; k++ )
                 {
-                    const uint8_t c                   = a[ 3 ] < 128 || ( g->flame && !FlameTexel( a ) ) ? 0 : a[ 2 - k ];
-                    rgb[ size_t( i ) * 3 + size_t( k ) ] = uint8_t( std::clamp( c * gain + 0.5f, 0.f, 255.f ) );
+                    const uint8_t c                   = a[ 3 ] < 128 || !glowing( i ) ? 0 : a[ 2 - k ];
+                    rgb[ size_t( i ) * 3 + size_t( k ) ] = uint8_t( std::clamp( c * gain * tint[ k ] + 0.5f, 0.f, 255.f ) );
                     const double v                    = rgb[ size_t( i ) * 3 + size_t( k ) ] / 255.0;
                     sum[ k ] += v * v;
                 }
