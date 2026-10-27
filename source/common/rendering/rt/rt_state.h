@@ -59,6 +59,7 @@ struct RtSkyLight
     float color[ 3 ]{ 1, 1, 1 };
     float irradiance = 0.f;   // per rt_sky: pi * its average radiance, more for a bright moon
     float diameter   = 2.f;   // degrees: a moon's small, a bright stretch of clouds' wide
+    float average[ 3 ]{};     // the sky's average radiance (linear, per rt_sky): its light through a window
 };
 extern RtSkyLight g_rtSkyLight;
 extern std::vector< uint32_t > g_rtSpriteStage[ 3 ];

@@ -59,7 +59,7 @@ struct RTSkyDome
 	int stripUp = 0, stripDn = 0, strips = 0, stripN = 0;	// the picture's rows, each a strip
 	// its light (the dome's axes, y up): towards its brightest part, its colour
 	bool  lightOk = false;
-	float lightDir[3] = { 0, 1, 0 }, lightColor[3] = { 1, 1, 1 }, lightIrr = 0, lightDiam = 2;
+	float lightDir[3] = { 0, 1, 0 }, lightColor[3] = { 1, 1, 1 }, lightIrr = 0, lightDiam = 2, average[3] = {};
 };
 
 // a sky's light, from its picture above the horizon as the dome shows it: where its
@@ -164,6 +164,7 @@ void RTSkyLightOf(RTSkyDome& d, FGameTexture* tex, double th0, double base, cons
 	const double ratio = clamp(best / avgLum, 1., 4.);
 	d.lightIrr  = float(0.6 * pi * avgLum);
 	d.lightDiam = float(clamp(12. / ratio, 2., 6.));
+	for (int i = 0; i < 3; i++) d.average[i] = float(avg[i]);
 	d.lightOk   = true;
 }
 
@@ -330,6 +331,7 @@ void HWSkyPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 			for (int i = 0; i < 3; i++) g_rtSkyLight.color[i] = rtd->lightColor[i];
 			g_rtSkyLight.irradiance = rtd->lightIrr;
 			g_rtSkyLight.diameter = rtd->lightDiam;
+			for (int i = 0; i < 3; i++) g_rtSkyLight.average[i] = rtd->average[i];
 			g_rtSkyLight.pending = true;
 		}
 		if (rtd && rt_sky_dome)

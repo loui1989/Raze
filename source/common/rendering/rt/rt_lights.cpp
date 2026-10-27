@@ -47,6 +47,7 @@ CVARD( Float, rt_skysun, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's o
 CVARD( Float, rt_skysun_tint, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much the sky's moon takes the sky's colour (0 white; 1 the sky's own: a red sky's red on red, no contrast)" )
 CVARD( Float, rt_skysun_size, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's moon's size, degrees (small: crisp shadows)" )
 EXTERN_CVAR( Float, rt_sky )
+CVARD( Float, rt_sky_portals, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: windows and openings to the sky light the room behind them with the sky's own light (sky portals), this strong; 0 = off" )
 CVARD( Float, rt_lightning, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a lightning flash's light from the sky, lux (Blood's storms)" )
 CVARD( Float, rt_game_light_scale, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the lights the game names (Blood: explosions, fire, flares)" )
 CVARD( Float, rt_light_reach, 40.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lights further than this (metres, walking through openings) from the view are left out; 0 = all lights" )
@@ -61,6 +62,7 @@ constexpr uint64_t MapLightBase     = 0x200000000ull;
 constexpr uint64_t SurfaceLightBase = 0x300000000ull;
 constexpr uint64_t ActorLightBase   = 0x400000000ull;
 constexpr uint64_t GameLightBase    = 0x500000000ull;
+constexpr uint64_t SkyPortalBase    = 0x600000000ull;
 
 RgFloat3D WorldToRT( double x, double y, double z )
 {
@@ -284,6 +286,108 @@ void UploadSphere( uint64_t id, const RgFloat3D& pos, RgColor4DPacked32 color, f
         .isExportable = false,
     };
     RG_CHECK( RT_UploadLight( &info ) );
+}
+
+// Sky portals: an opening from a room into the open air (a window, a doorway, the edge of
+// a porch -- a wall between a sector with a roof and one with the sky above it) is a
+// soft light facing into the room, with the sky's colour and as bright as the sky seen
+// through it. The sky lit rooms before only by rays that bounced out through the opening
+// and happened to find it -- dim and grainy, the smaller the window the more so; this
+// way the path tracer aims at the windows
+void UploadSkyPortals()
+{
+    if( *rt_sky_portals <= 0.f || !g_rtSkyLight.valid || s_copyPass )
+    {
+        return;
+    }
+    const float* a   = g_rtSkyLight.average;
+    const float  lum = 0.2126f * a[ 0 ] + 0.7152f * a[ 1 ] + 0.0722f * a[ 2 ];
+    const float  mx  = std::max( { a[ 0 ], a[ 1 ], a[ 2 ] } );
+    if( lum <= 1e-5f || mx <= 0.f )
+    {
+        return;
+    }
+    const float             c[ 3 ]   = { a[ 0 ] / mx, a[ 1 ] / mx, a[ 2 ] / mx };
+    const RgColor4DPacked32 color    = PackColor( c );
+    const float             radiance = lum * std::max( 0.f, float( *rt_sky ) );
+    constexpr double        Piece    = 80.;   // 2.5 m: a wide opening is several lights
+    for( unsigned si = 0; si < sector.Size(); si++ )
+    {
+        auto& s = sector[ si ];
+        if( s.ceilingstat & CSTAT_SECTOR_SKY )
+        {
+            continue;
+        }
+        for( auto& w : s.walls )
+        {
+            if( !w.twoSided() )
+            {
+                continue;
+            }
+            auto o = w.nextSector();
+            if( !o || !( o->ceilingstat & CSTAT_SECTOR_SKY ) )
+            {
+                continue;
+            }
+            // from the room's ceiling (the sky's 'ceiling' closes nothing) down to the higher floor
+            const double top = s.ceilingz, bottom = std::min( s.floorz, o->floorz );
+            const double h   = bottom - top;
+            const DVector2 p1 = w.pos, p2 = w.point2Wall()->pos;
+            const double   width = ( p2 - p1 ).Length();
+            if( h < 8 || width < 8 )
+            {
+                continue;
+            }
+            DVector2 n = DVector2( -( p2 - p1 ).Y, ( p2 - p1 ).X ).Unit();
+            const DVector2 mid = ( p1 + p2 ) * 0.5;
+            if( inside( mid.X + n.X * 2, mid.Y + n.Y * 2, &s ) != 1 )
+            {
+                n = -n;
+            }
+            // into the room, a little down (the sky is above)
+            const float dl     = std::sqrt( float( n.X * n.X + n.Y * n.Y ) + 0.35f * 0.35f );
+            const RgFloat3D dir = { float( n.X ) / dl, float( -n.Y ) / dl, -0.35f / dl };
+            const int    pieces = std::clamp( int( width / Piece ) + 1, 1, 8 );
+            const double pw     = width / pieces;
+            for( int k = 0; k < pieces; k++ )
+            {
+                const DVector2  pc  = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces ) + n * 3.;
+                const RgFloat3D pos = WorldToRT( pc.X, pc.Y, ( top + bottom ) * 0.5 );
+                const float     fade = ReachFade( pos, int( si ) );
+                if( fade <= 0.f )
+                {
+                    continue;
+                }
+                // the sky seen through it: about half of it (above the horizon), a
+                // Lambertian opening -- pi * radiance * area
+                const float area   = float( pw * h ) * ONEGAMEUNIT_IN_METERS * ONEGAMEUNIT_IN_METERS;
+                const float lumens = *rt_sky_portals * 3.14159265f * radiance * area * 0.5f * fade;
+                if( lumens <= 0.05f )
+                {
+                    continue;
+                }
+                const float size = float( std::min( pw, h ) ) * ONEGAMEUNIT_IN_METERS;
+                auto spot = RgLightSpotEXT{
+                    .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
+                    .pNext      = nullptr,
+                    .color      = color,
+                    .intensity  = lumens,
+                    .position   = pos,
+                    .direction  = dir,
+                    .radius     = std::clamp( size * 0.4f, 0.1f, 1.2f ),
+                    .angleOuter = 85.f * 3.14159265f / 180.f,
+                    .angleInner = 35.f * 3.14159265f / 180.f,
+                };
+                auto info = RgLightInfo{
+                    .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+                    .pNext        = &spot,
+                    .uniqueID     = SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ),
+                    .isExportable = false,
+                };
+                RG_CHECK( RT_UploadLight( &info ) );
+            }
+        }
+    }
 }
 
 float FlickerScale( uint64_t key, uint32_t frames, uint32_t time )
@@ -1104,6 +1208,7 @@ void RT_UploadSceneLights( uint32_t time )
     ComputeReach();
     UploadSectorLights();
     UploadOverlayLights( time );
+    UploadSkyPortals();
     // the game's own lights
     for( const RtGameLight& l : g_rtGameLights )
     {
