@@ -206,11 +206,13 @@ CVARD( Bool, rt_voxel_alphatest, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: v
 
 static uint32_t s_aroundUntil   = 0;
 static int      s_aroundPrinted = 0;
+static std::unordered_set< uint64_t > s_aroundSeen;
 CCMD( rt_around )
 {
     s_aroundUntil   = g_rtDrawnFrames + 1;
     s_aroundPrinted = 0;
-    Printf( "RT: geometry given to the path tracer within 0.75 m of the view (next frame; small things only):\n" );
+    s_aroundSeen.clear();
+    Printf( "RT: geometry given to the path tracer within 1.5 m of the view (the next two frames; things under 10 m):\n" );
 }
 CVARD( Float, rt_mirror_reflect, 0.9f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much light a mirror reflects (1 = all)" )
 CVARD( Float, rt_emis_spot, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing surface's light where it is a spot (a lamp's picture on the ceiling, a glowing floor or wall), this strong" )
@@ -1389,7 +1391,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
 
     // rt_around: what the path tracer is given around the view (geometry the game does
     // not have -- the stone box at Blood E3M1's start)
-    if( !isUI && g_rtDrawnFrames < s_aroundUntil && s_aroundPrinted < 60 )
+    if( !isUI && g_rtDrawnFrames <= s_aroundUntil && s_aroundPrinted < 80 )
     {
         const auto& m = transform.matrix;
         float lo[ 3 ] = { 1e30f, 1e30f, 1e30f }, hi[ 3 ] = { -1e30f, -1e30f, -1e30f };
@@ -1408,10 +1410,10 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         float            ext  = 0.f;
         for( int k = 0; k < 3; k++ )
         {
-            near = near && cam.data[ k ] > lo[ k ] - 0.75f && cam.data[ k ] < hi[ k ] + 0.75f;
+            near = near && cam.data[ k ] > lo[ k ] - 1.5f && cam.data[ k ] < hi[ k ] + 1.5f;
             ext  = std::max( ext, hi[ k ] - lo[ k ] );
         }
-        if( near && ext < 6.f )
+        if( near && ext < 10.f && s_aroundSeen.insert( uniqueId ).second )
         {
             s_aroundPrinted++;
             Printf( "  %s: %u vertices, %.2f x %.2f x %.2f m (from the view %.2f %.2f %.2f), sector %d, %s%s%s%s%s%s%s, copy %d, id %llx\n",
