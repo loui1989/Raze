@@ -834,8 +834,9 @@ static void RT_FindOverlaps()
 		}
 }
 
-// per sector: given to the path tracer off screen
-static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam)
+// per sector: given to the path tracer off screen ('onscreen': the sectors the view
+// draws -- an overlapping one of those wins over any off screen)
+static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam, const BitArray* onscreen = nullptr)
 {
 	const unsigned n = sector.Size();
 	if (rt_ovlLevel != currentLevel || rt_ovlData != sector.Data() || rt_ovlCount != n)
@@ -911,6 +912,14 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam)
 			auto& t = sector[j];
 			// heights that cross (a room over a room is fine)
 			if (!(s.ceilingz < t.floorz - 0.5 && t.ceilingz < s.floorz - 0.5)) continue;
+			// the one the view sees is the room there: one off screen in the same place,
+			// though nearer by the way through (Death Wish's caves, a passage beside
+			// another in the same space), walled the doorway off -- or black, unlit
+			if (onscreen && j < int(onscreen->Size()) && (*onscreen)[j] && !(i < onscreen->Size() && (*onscreen)[i]))
+			{
+				keep[i] = 0;
+				break;
+			}
 			// unreached (behind a shut door), or a crossing one is nearer: left out
 			// (what is on screen is drawn anyway)
 			if (dist[i] >= 1e30 || dist[j] < dist[i])
@@ -930,7 +939,7 @@ void BunchDrawer::RT_ProcessRemaining(bool copyView)
 	if (copyView) rtkeep.assign(sector.Size(), 1);	// (g_rtPortalFilter decides)
 	else
 	{
-		rtkeep = RT_OffscreenSectors(g_rtViewSector, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]));
+		rtkeep = RT_OffscreenSectors(g_rtViewSector, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]), &visiblesectors);
 		// where a room-over-room view is drawn in their place
 		for (unsigned i = 0; i < rtkeep.size(); i++) if (RT_SectorHidden(int(i))) rtkeep[i] = 0;
 	}
