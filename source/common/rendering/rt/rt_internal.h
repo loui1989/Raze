@@ -142,6 +142,9 @@ void RT_UploadSceneLights( uint32_t time ); // rt_lights.cpp
 uint32_t RT_LevelGeneration();              // rt_lights.cpp: changes when a map is (re)loaded
 // rt_lights.cpp: is the point (RTGL1 space) inside the sector (true if the sector is unknown)
 bool RT_PointInSector( int sectnum, float x, float y );
+// how far (metres) a sector's ceiling is recessed above the ceilings around it (a light
+// fixture's recess): the drop to the highest neighbouring ceiling below it, 0 if none
+float RT_CeilingRecessDepth( int sectnum );
 // Duke-RT's LIGHTOVR has actor rules for this game (else glowing sprites cast lights)
 bool RT_HaveActorLightRules();
 // the sector's floor (ceiling) is at the height of an overlapping sector's ceiling (floor)

@@ -884,6 +884,29 @@ bool RT_PointInSector( int sectnum, float x, float y )
     return inside( wx, wy, &sector[ sectnum ] ) == 1;
 }
 
+float RT_CeilingRecessDepth( int sectnum )
+{
+    if( sectnum < 0 || unsigned( sectnum ) >= sector.Size() )
+    {
+        return 0.f;
+    }
+    const sectortype& sec  = sector[ sectnum ];
+    double            drop = -1;
+    for( auto& wal : sec.walls )
+    {
+        if( !wal.twoSided() )
+        {
+            continue;
+        }
+        const double d = wal.nextSector()->ceilingz - sec.ceilingz; // (z down: lower is more)
+        if( d > 0.5 && ( drop < 0 || d < drop ) )
+        {
+            drop = d;
+        }
+    }
+    return drop > 0 ? std::min( float( drop ) * ONEGAMEUNIT_IN_METERS, 2.f ) : 0.f;
+}
+
 float RT_EmissiveOverride( int sectnum, int tile, float& glow )
 {
     const ResolvedLightOverlaySet& set = GetResolvedLightOverlaySet();

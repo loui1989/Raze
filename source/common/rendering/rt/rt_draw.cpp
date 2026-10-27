@@ -203,6 +203,7 @@ CVARD( Int, rt_one_sided, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: walls and fl
 constexpr uint32_t RT_PRIMITIVE_ONE_SIDED = 1u << 28;
 CVARD( Bool, rt_voxel_alphatest, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models alpha tested, as their sprites are (slow; for comparison)" )
 
+CVARD( Float, rt_emis_ceiling_ball, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing ceiling fixture's light, a ball under it (out of its recess), this strong (0 = a spot from the panel, as before)" )
 CVARD( Bool, rt_debug_emis, false, 0, "RT: print, once per texture, how a glowing texture glows and lights (the log)" )
 uint32_t g_rtTexCreates = 0;   // rt_debug_stats: textures given to the path tracer...
 double   g_rtTexSeconds = 0;   // ...and the time it took (material files included)
@@ -1706,6 +1707,32 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
             .pNext     = nullptr,
             .color     = color,
             .intensity = lumens * 0.28f,
+            .position  = { p.X, p.Y, p.Z },
+            .radius    = std::clamp( float( std::sqrt( area ) ) * 0.25f, 0.05f, 0.3f ),
+        };
+        auto info = RgLightInfo{
+            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+            .pNext        = &sphere,
+            .uniqueID     = id,
+            .isExportable = false,
+        };
+        RG_CHECK( RT_UploadLight( &info ) );
+        return;
+    }
+
+    // a light fixture in the ceiling (Duke-RT's glow maps: the panels, the square lamps):
+    // a ball of light under it, out of its recess -- the spot just under the panel, sunk
+    // in its recess, lit a patch of floor under it and nothing round it
+    if( *rt_emis_ceiling_ball > 0.f && rtstate.is< RtPrim::CeilingPlane >() && !rtstate.is< RtPrim::Sprite >() &&
+        !rtstate.is< RtPrim::Decal >() )
+    {
+        const float    below  = RT_CeilingRecessDepth( rtstate.get_sector() ) + 0.3f;
+        const FVector3 p      = centre + n * below;
+        auto           sphere = RgLightSphericalEXT{
+            .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
+            .pNext     = nullptr,
+            .color     = color,
+            .intensity = lumens * *rt_emis_ceiling_ball,
             .position  = { p.X, p.Y, p.Z },
             .radius    = std::clamp( float( std::sqrt( area ) ) * 0.25f, 0.05f, 0.3f ),
         };
