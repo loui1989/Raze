@@ -1170,13 +1170,16 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 //
 //---------------------------------------------------------------------------
 
+// (in every game: it only uses the engine's sectors, walls and sprites -- Blood's own
+// details of a sprite, if it is Blood; it was Blood's only, Duke's sprites unlisted)
 CCMD(rt_lookat)
 {
-	DBloodPlayer* pPlayer = getPlayer(myconnectindex);
-	if (!pPlayer || !pPlayer->GetActor() || gamestate != GS_LEVEL) return;
+	DCorePlayer* pCorePlayer = myconnectindex >= 0 && myconnectindex < MAXPLAYERS ? PlayerArray[myconnectindex] : nullptr;
+	if (!pCorePlayer || !pCorePlayer->GetActor() || gamestate != GS_LEVEL) return;
+	DCoreActor* pViewActor = pCorePlayer->GetActor();
 	const DVector3 view(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
-	const DAngle yaw = pPlayer->GetActor()->spr.Angles.Yaw;
-	const double slope = pPlayer->GetActor()->spr.Angles.Pitch.Tan();
+	const DAngle yaw = pViewActor->spr.Angles.Yaw;
+	const double slope = pViewActor->spr.Angles.Pitch.Tan();
 	DVector3 dir(yaw.ToVector(), slope);
 	dir.MakeUnit();
 	auto sectorInfo = [](sectortype* s) -> FString
@@ -1185,6 +1188,13 @@ CCMD(rt_lookat)
 		return FStringf("sector %d (ceiling tile %d shade %d pal %d, floor tile %d shade %d pal %d, light switch %.2f)", sectindex(s),
 			legacyTileNum(s->ceilingtexture), s->ceilingshade, s->ceilingpal, legacyTileNum(s->floortexture), s->floorshade, s->floorpal,
 			RT_SectorSwitch(sectindex(s)));
+	};
+	// does a texture have a glow map (Duke-RT's materials), is it in the material table
+	auto glowInfo = [](FTextureID tex) -> FString
+	{
+		auto gt = TexMan.GetGameTexture(tex);
+		const bool glowmap = gt && gt->GetMaterialLayers() && gt->GetMaterialLayers()->Glowmap != nullptr;
+		return FStringf("glow map %s", glowmap ? "yes" : "no");
 	};
 	sectortype* vs = nullptr;
 	updatesector(view.XY(), &vs);
@@ -1195,17 +1205,23 @@ CCMD(rt_lookat)
 		hit.clearObj();
 		hitscan(view, vs, dir * 1024., hit, CLIPMASK1);
 		if (hit.hitWall)
-			Printf("  hits wall %d: tile %d, over tile %d, shade %d, pal %d, in %s\n", wallindex(hit.hitWall), legacyTileNum(hit.hitWall->walltexture),
-				legacyTileNum(hit.hitWall->overtexture), hit.hitWall->shade, hit.hitWall->pal, sectorInfo(hit.hitWall->sectorp()).GetChars());
+			Printf("  hits wall %d: tile %d (%s), over tile %d, shade %d, pal %d, in %s\n", wallindex(hit.hitWall), legacyTileNum(hit.hitWall->walltexture),
+				glowInfo(hit.hitWall->walltexture).GetChars(), legacyTileNum(hit.hitWall->overtexture), hit.hitWall->shade, hit.hitWall->pal, sectorInfo(hit.hitWall->sectorp()).GetChars());
 		else if (hit.hitSector)
-			Printf("  hits the %s of %s\n", hit.hitpos.Z <= getceilzofslopeptr(hit.hitSector, hit.hitpos) + 1 ? "ceiling" : "floor", sectorInfo(hit.hitSector).GetChars());
+		{
+			const bool ceil = hit.hitpos.Z <= getceilzofslopeptr(hit.hitSector, hit.hitpos) + 1;
+			Printf("  hits the %s of %s (%s)\n", ceil ? "ceiling" : "floor", sectorInfo(hit.hitSector).GetChars(),
+				glowInfo(ceil ? hit.hitSector->ceilingtexture : hit.hitSector->floortexture).GetChars());
+		}
+		if (hit.hitActor)
+			Printf("  hits sprite %d: tile %d (%s)\n", hit.hitActor->GetIndex(), legacyTileNum(hit.hitActor->spr.spritetexture()), glowInfo(hit.hitActor->spr.spritetexture()).GetChars());
 	}
-	struct Cand { double ang; DBloodActor* a; };
+	struct Cand { double ang; DCoreActor* a; };
 	TArray<Cand> cands;
-	BloodSpriteIterator it;
+	TSpriteIterator<DCoreActor> it;
 	while (auto a = it.Next())
 	{
-		if (a == pPlayer->GetActor() || !a->insector() || (a->spr.cstat & CSTAT_SPRITE_INVISIBLE)) continue;
+		if (a == pViewActor || !a->insector() || (a->spr.cstat & CSTAT_SPRITE_INVISIBLE)) continue;
 		DVector3 d = a->spr.pos - view;
 		const double len = d.Length();
 		if (len < 1 || len > 1600) continue;
@@ -1219,9 +1235,10 @@ CCMD(rt_lookat)
 		auto a = cands[i].a;
 		const int tile = legacyTileNum(a->spr.spritetexture());
 		const int vox = GetExtInfo(a->spr.spritetexture()).tiletovox;
-		Printf("  sprite %d, %.1f deg off: tile %d, pal %d, shade %d, cstat %04x, repeat %.0f x %.0f, stat %d, type %d, %.1f m; flame %.2f; voxel %d%s; in %s\n",
+		Printf("  sprite %d, %.1f deg off: tile %d, pal %d, shade %d, cstat %04x, repeat %.0f x %.0f, stat %d, type %d, %.1f m; flame %.2f; %s; voxel %d%s; in %s\n",
 			a->GetIndex(), cands[i].ang, tile, a->spr.pal, a->spr.shade, int(a->spr.cstat), a->spr.scale.X * 64., a->spr.scale.Y * 64.,
-			a->spr.statnum, a->spr.type, (a->spr.pos - view).Length() / 32., RT_TableFlame(tile), vox,
+			a->spr.statnum, int(a->spr.type), (a->spr.pos - view).Length() / 32., RT_TableFlame(tile),
+			glowInfo(a->spr.spritetexture()).GetChars(), vox,
 			vox >= 0 && vox < MAXVOXELS && voxdefined[vox] ? " (a pack's)" : vox >= 0 ? " (the game's)" : "", sectorInfo(a->sector()).GetChars());
 	}
 	for (auto& l : g_rtGameLights)
