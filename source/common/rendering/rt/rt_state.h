@@ -267,6 +267,19 @@ struct FRtState
         };
     }
 
+    // the opposite: these types off for a while (set again on pop, if they were)
+    [[nodiscard]] auto push_without( RtPrim s )
+    {
+        const uint32_t removed = uint32_t( s ) & m_state;
+        m_state &= ~uint32_t( s );
+
+        return rtdetail::AutoPop{
+            removed,
+            []( FRtState& fthis, uint32_t r ) { fthis.m_state |= r; },
+            *this,
+        };
+    }
+
     template< RtPrim Value >
     [[nodiscard]] bool is() const
     {

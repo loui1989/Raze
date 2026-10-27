@@ -979,7 +979,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				orbColor(actor, l.color);
 				// brighter as it is bigger and as its shade is (-60: as bright as can be)
 				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 2.f);
-				l.intensity = float(clamp(40. * repeat, 150., 1200.)) * shade * scale;
+				l.intensity = float(clamp(80. * repeat, 300., 2400.)) * shade * scale;
 				l.radius = 0.04f;
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 6u;
 				l.sector = actor->sectno();
