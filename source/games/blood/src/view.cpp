@@ -979,9 +979,11 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 		{
 			if (!actor->insector() || (actor->spr.cstat & CSTAT_SPRITE_INVISIBLE) || actor->spr.scale.Y == 0) continue;
 			const int tileNo = legacyTileNum(actor->spr.spritetexture());
-			// (and the round ceiling lamp, 795, and the light tube, 796 -- a breakable
-			// thing: coloured by their palette too, the add-ons' red alarm lamps)
-			const bool lampTile = tileNo == 795 || tileNo == 796;
+			// (and the light tube, 796 -- a breakable thing: coloured by its palette too)
+			// (the round lamp only glows: in the original it lights nothing, and the
+			// add-ons' red alarm lamps lit whole rooms red)
+			if (tileNo == 795) continue;
+			const bool lampTile = tileNo == 796;
 			if (stat == kStatThing && !lampTile) continue;
 			if (tileNo == 624 || tileNo == 625 || lampTile)
 			{
@@ -999,11 +1001,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				orbColor(actor, l.color);
 				// brighter as it is bigger and as its shade is (-60: as bright as can be)
 				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 2.f);
-				l.intensity = float(clamp(80. * repeat, 300., 2400.)) * shade * scale;
-				// a strongly coloured light (a red lamp: a sixth of white's brightness)
-				// looks as bright as it is meant to
-				const float lum = 0.2126f * l.color[0] + 0.7152f * l.color[1] + 0.0722f * l.color[2];
-				l.intensity /= sqrtf(clamp(lum, 0.15f, 1.f));
+				l.intensity = float(clamp(56. * repeat, 210., 1680.)) * shade * scale;
 				l.radius = 0.04f;
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 6u;
 				l.sector = actor->sectno();

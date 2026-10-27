@@ -1111,10 +1111,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // a fixture in a switched room goes out with its lights
             // (not a fullbright actor's: a fire burns in a dark alcove too)
             // (nor a candle's flame: it burns in a dark room)
-            // (nor a lamp sprite: Build drew a sprite by its own shade, a red alarm lamp
-            // glows in a room whose lights are out)
-            if( *rt_emis_follow_shade && !rtstate.is< RtPrim::Fullbright >() && !hwtex->IsFlame() &&
-                !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::Decal >() )
+            if( *rt_emis_follow_shade && !rtstate.is< RtPrim::Fullbright >() && !hwtex->IsFlame() )
             {
                 const float sw = RT_SectorSwitch( rtstate.get_sector() );
                 if( sw >= 0.f )
@@ -1138,9 +1135,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             float screenScale = 1.f;
             if( hwtex->IsLamp() )
             {
-                // (fully lit from about a third of the light up: the add-ons light their
-                // lamp rooms dimly; a room switched off, shade near the darkest, is off)
-                glowScale *= std::clamp( ( classic - 0.08f ) / 0.3f, 0.f, 1.f );
+                glowScale *= std::clamp( ( classic - 0.25f ) / 0.45f, 0.f, 1.f );
                 // its light by the class's glow; on screen softer than a sign's (it is
                 // big and white: at full brightness it outshone the room it lights)
                 emisLightScale *= hwtex->Glow();
