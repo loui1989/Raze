@@ -1015,8 +1015,32 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				double top, bottom;
 				GetActorExtents(actor, &top, &bottom);
 				RtGameLight l;
-				// its middle: a lantern's glass; on the ceiling, just under it
-				DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, (top + bottom) * 0.5);
+				// where its brightest part is in the picture (a lantern on a long chain: at
+				// the chain's foot; on a lamp post: at its top), per tile; on the ceiling,
+				// just under it
+				auto brightV = [](FTextureID texid) -> double
+				{
+					static TMap<int, double> cache;
+					if (auto v = cache.CheckKey(texid.GetIndex())) return *v;
+					double v = 0.5;
+					auto gt = TexMan.GetGameTexture(texid);
+					if (gt && gt->GetTexture())
+					{
+						auto px = gt->GetTexture()->Get8BitPixels(false);
+						const int H = gt->GetTexture()->GetHeight();
+						const int N = gt->GetTexture()->GetWidth() * H;
+						int best = 0;
+						for (int i = 0; i < N; i++)
+							if (px[i] != 255) { const PalEntry c = GPalette.BaseColors[px[i]]; best = max(best, c.r * 2 + c.g * 3 + c.b); }
+						double rows = 0; int cnt = 0;
+						for (int i = 0; i < N; i++)
+							if (px[i] != 255) { const PalEntry c = GPalette.BaseColors[px[i]]; if ((c.r * 2 + c.g * 3 + c.b) * 10 >= best * 8) { rows += (i % H) + 0.5; cnt++; } }
+						if (cnt > 0 && H > 0) v = rows / cnt / H;	// (column major)
+					}
+					cache.Insert(texid.GetIndex(), v);
+					return v;
+				};
+				DVector3 p(actor->spr.pos.X, actor->spr.pos.Y, top + (bottom - top) * brightV(actor->spr.spritetexture()));
 				if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR)
 				{
 					const double cz = getceilzofslopeptr(actor->sector(), actor->spr.pos);
