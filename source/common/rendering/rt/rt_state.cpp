@@ -16,7 +16,7 @@ std::vector< uint8_t > g_rtCopySector;
 std::vector< RtGameLight > g_rtGameLights;
 std::vector< RtSmokeSource > g_rtSmokeSources;
 std::vector< RtCopyLink >  g_rtCopyLinks;
-bool                       g_rtCopySkipWater[ RT_MAX_COPIES ] = {};
+uint8_t                    g_rtCopyWater[ RT_MAX_COPIES ] = {};
 std::vector< uint8_t >     g_rtWaterSide;
 int                        g_rtCopyUsed = 0;
 std::vector< char >        g_rtPortalFilter;

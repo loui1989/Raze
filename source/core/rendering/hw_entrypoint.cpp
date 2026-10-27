@@ -396,7 +396,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 		g_rtCopyOffset[k][0] = -c.delta.X;
 		g_rtCopyOffset[k][1] = -c.delta.Y;
 		g_rtCopyOffset[k][2] = -c.delta.Z;
-		g_rtCopySkipWater[k] = c.skipWaterFloors;
+		g_rtCopyWater[k] = c.water;
 
 		// is any of these (opening side) points under sector 'ss' (linked side) in this copy?
 		auto over = [&](const TArray<DVector2>& pts, sectortype* ss)
@@ -411,7 +411,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 		// nothing solid of this copy over another copy's openings (its own win)
 		auto keep = [&](sectortype* ss)
 		{
-			if (c.skipWaterFloors && RT_WaterSide(sectindex(ss), ss->lotag) == 1) return true; // its floor is left out anyway
+			if (c.water && RT_WaterSide(sectindex(ss), ss->lotag) == c.water) return true; // its surface is left out anyway
 			for (size_t j = 0; j < order.size(); j++)
 				if (j != k && over(holes[j], ss)) return over(holes[k], ss);
 			return true;
@@ -422,7 +422,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 		// the linked side within reach of the camera's place there, through openings
 		sectortype* start = &sector[c.start];
 		updatesector(cpos.XY() + c.delta.XY(), &start);
-		if (!start || isHole[sectindex(start)] || (c.skipWaterFloors && RT_WaterSide(sectindex(start), start->lotag) == 2)) start = &sector[c.start];
+		if (!start || isHole[sectindex(start)] || (c.water && RT_WaterSide(sectindex(start), start->lotag) == 3 - c.water)) start = &sector[c.start];
 
 		std::vector<double> dist(n, -1.);
 		std::vector<DVector2> entry(n);
@@ -444,7 +444,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 				if (!ns) continue;
 				const int ni = sectindex(ns);
 				// not back onto the opening side
-				if (isHole[ni] || (c.skipWaterFloors && RT_WaterSide(ni, ns->lotag) == 2)) continue;
+				if (isHole[ni] || (c.water && RT_WaterSide(ni, ns->lotag) == 3 - c.water)) continue;
 				const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
 				const double nd = d + (mid - entry[si]).Length();
 				if (nd > reach) continue;

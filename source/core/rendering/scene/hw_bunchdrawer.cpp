@@ -968,8 +968,10 @@ void BunchDrawer::RT_ProcessCopy()
 		// the openings are not surfaces: a sector portal's flat, and (water) the
 		// surface the room under it already draws
 		int which = SSRF_RENDERALL;
-		if (sect->portalflags == PORTAL_SECTOR_FLOOR || (g_rtCopySkipWater[copy - 1] && RT_WaterSide(sectnum, sect->lotag) == 1)) which &= ~SSRF_RENDERFLOOR;
-		if (sect->portalflags == PORTAL_SECTOR_CEILING) which &= ~SSRF_RENDERCEILING;
+		const int water = g_rtCopyWater[copy - 1];
+		const bool surface = water && RT_WaterSide(sectnum, sect->lotag) == water;
+		if (sect->portalflags == PORTAL_SECTOR_FLOOR || (surface && water == 1)) which &= ~SSRF_RENDERFLOOR;
+		if (sect->portalflags == PORTAL_SECTOR_CEILING || (surface && water == 2)) which &= ~SSRF_RENDERCEILING;
 		flat.ProcessSector(di, sect, s, which);
 		sect->exflags = (sect->exflags & ~SECTOREX_SEEN) | seen;
 	}

@@ -563,12 +563,13 @@ void renderCrystalBall()
 
 //---------------------------------------------------------------------------
 //
-// ray tracing: under water, look up through the surface. Blood's water (and goo)
-// is two places linked by markers: the pool's surface on one side, the room under
-// it somewhere else on the map, and the player is moved between the two. The path
-// tracer gets a copy of the world above the surface over the room under it (as for
-// Duke's water). A link drawn as a room over a room (the mirror tile) needs none:
-// the renderer copies those itself.
+// ray tracing: water (and goo) the rays see through. Blood's water is two places
+// linked by markers: the pool's surface on one side, the room under it somewhere
+// else on the map, and the player is moved between the two. The path tracer gets
+// a copy of the other place on the far side of the surface (as for Duke's water):
+// under water, the world above the surface over the room; above it, the room
+// under the water below the surface. A link drawn as a room over a room (the
+// mirror tile) needs none: the renderer copies those itself.
 //
 //---------------------------------------------------------------------------
 
@@ -585,65 +586,80 @@ static void RT_BloodWaterCopy(sectortype* sect, const DVector3& cpos)
 		const int t = static_cast<DBloodActor*>(a)->spr.type;
 		return lower ? (t == kMarkerLowWater || t == kMarkerLowGoo) : (t == kMarkerUpWater || t == kMarkerUpGoo);
 	};
-	auto lowerOf = [&](sectortype* s) -> DBloodActor*
+	// a sector's link through its surface (the ceiling under water, the floor above),
+	// and the marker at its other end
+	auto linkOf = [&](sectortype* s, bool lower, DBloodActor** other) -> DBloodActor*
 	{
-		auto lo = barrier_cast<DBloodActor*>(s->lowerLink);
-		if (!isWaterLink(lo, true) || s->portalflags == PORTAL_SECTOR_CEILING) return nullptr;
-		auto up = lo->GetOwner();
-		if (!up || !up->insector() || !isWaterLink(up, false)) return nullptr;
-		return lo;
+		auto m = barrier_cast<DBloodActor*>(lower ? s->lowerLink : s->upperLink);
+		if (!isWaterLink(m, lower) || s->portalflags == (lower ? PORTAL_SECTOR_CEILING : PORTAL_SECTOR_FLOOR)) return nullptr;
+		auto o = static_cast<DBloodActor*>(m->GetOwner());
+		if (!o || !o->insector() || !isWaterLink(o, !lower)) return nullptr;
+		*other = o;
+		return m;
 	};
-	if (!IsUnderwaterSector(sect) && !lowerOf(sect)) return;
 
 	const unsigned n = sector.Size();
 	g_rtWaterSide.assign(n, 0);
+	bool any = false;
 	for (unsigned i = 0; i < n; i++)
 	{
 		auto s = &sector[i];
-		if (isWaterLink(s->upperLink, false)) g_rtWaterSide[i] = 1;
+		if (isWaterLink(s->upperLink, false)) g_rtWaterSide[i] = 1, any = true;
 		if (IsUnderwaterSector(s) || isWaterLink(s->lowerLink, true)) g_rtWaterSide[i] = 2;
 	}
+	if (!any) { g_rtWaterSide.clear(); return; }
+
+	DBloodActor* o;
+	const bool under = IsUnderwaterSector(sect) || linkOf(sect, true, &o);
 
 	constexpr double reach = 1600; // 50 m
 	struct WaterCopy
 	{
-		DVector3 delta;          // below + delta = above
-		sectortype* above;
+		DVector3 delta;          // this side + delta = the other side
+		sectortype* other;
 		double dist;
-		TArray<int> seeds;       // the sectors under the surface with its links
+		TArray<int> seeds;       // the sectors on this side with links
 	};
 	TArray<WaterCopy> copies;
 	for (unsigned i = 0; i < n; i++)
 	{
 		auto s = &sector[i];
-		auto lo = lowerOf(s);
-		if (!lo) continue;
-		auto up = static_cast<DBloodActor*>(lo->GetOwner());
-		const double d = s == sect ? 0. : (lo->spr.pos.XY() - cpos.XY()).Length();
+		DBloodActor* far = nullptr;
+		auto m = linkOf(s, under, &far);
+		if (!m) continue;
+		const double d = s == sect ? 0. : (m->spr.pos.XY() - cpos.XY()).Length();
 		if (d > reach) continue;
-		const DVector3 delta(up->spr.pos.X - lo->spr.pos.X, up->spr.pos.Y - lo->spr.pos.Y,
-			up->sector()->floorz - s->ceilingz);
+		const double dz = under ? far->sector()->floorz - s->ceilingz : far->sector()->ceilingz - s->floorz;
+		const DVector3 delta(far->spr.pos.X - m->spr.pos.X, far->spr.pos.Y - m->spr.pos.Y, dz);
 
 		WaterCopy* c = nullptr;
 		for (auto& cc : copies)
 			if (fabs(cc.delta.X - delta.X) < 4 && fabs(cc.delta.Y - delta.Y) < 4 && fabs(cc.delta.Z - delta.Z) < 4) { c = &cc; break; }
 		if (!c)
 		{
-			copies.Push({ delta, up->sector(), d, {} });
+			copies.Push({ delta, far->sector(), d, {} });
 			c = &copies.Last();
 		}
 		else if (d < c->dist)
 		{
 			c->dist = d;
-			c->above = up->sector();
+			c->other = far->sector();
 		}
 		c->seeds.Push(int(i));
 	}
 	if (copies.Size() == 0) { g_rtWaterSide.clear(); return; }
 
-	// each copy's surfaces: the linked sectors, and the under-water sectors next to
-	// them with the same surface overhead (no link of their own), each going to the
-	// nearest link's copy
+	// each copy's surfaces: the linked sectors, and the sectors next to them with the
+	// same surface (no link of their own), each going to the nearest link's copy
+	auto sameSurface = [&](sectortype* a, sectortype* b)
+	{
+		if (b->portalflags || (under ? b->lowerLink != nullptr : b->upperLink != nullptr)) return false;
+		if (under)
+			return IsUnderwaterSector(b) && b->ceilingtexture == a->ceilingtexture && !(b->ceilingstat & CSTAT_SECTOR_SKY) &&
+				fabs(b->ceilingz - a->ceilingz) <= 1;
+		return !IsUnderwaterSector(b) && b->floortexture == a->floortexture && !(b->floorstat & CSTAT_SECTOR_SKY) &&
+			fabs(b->floorz - a->floorz) <= 1;
+	};
 	std::vector<int> owner(n, -1);
 	TArray<int> front, next;
 	for (unsigned k = 0; k < copies.Size(); k++)
@@ -658,9 +674,7 @@ static void RT_BloodWaterCopy(sectortype* sect, const DVector3& cpos)
 				if (!w.twoSided()) continue;
 				auto ns = w.nextSector();
 				const int ni = sectindex(ns);
-				if (owner[ni] >= 0 || !IsUnderwaterSector(ns) || ns->lowerLink != nullptr || ns->portalflags) continue;
-				if (ns->ceilingtexture != sector[si].ceilingtexture || (ns->ceilingstat & CSTAT_SECTOR_SKY) ||
-					fabs(ns->ceilingz - sector[si].ceilingz) > 1) continue;
+				if (owner[ni] >= 0 || !sameSurface(&sector[si], ns)) continue;
 				owner[ni] = owner[si];
 				next.Push(ni);
 			}
@@ -672,8 +686,8 @@ static void RT_BloodWaterCopy(sectortype* sect, const DVector3& cpos)
 	{
 		RtCopyLink l;
 		l.delta = copies[k].delta;
-		l.start = sectindex(copies[k].above);
-		l.skipWaterFloors = true;
+		l.start = sectindex(copies[k].other);
+		l.water = under ? 1 : 2;
 		for (unsigned i = 0; i < n; i++)
 			if (owner[i] == int(k)) l.holes.push_back(int(i));
 		g_rtCopyLinks.push_back(std::move(l));

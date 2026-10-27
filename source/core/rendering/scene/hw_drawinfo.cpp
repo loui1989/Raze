@@ -330,14 +330,18 @@ void HWDrawInfo::DispatchSprites()
 
 		// ray tracing: a sprite entirely under its sector's floor is out of sight in the game
 		// (Build clips sprites at the floors they are seen over: E4M1 keeps its lightning bolts
-		// down there), but to the path tracer it is real geometry, seen through water above it
-		if (RT_IsActive() && tspr->sectp && !tspr->rtcopy && (tspr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_FLOOR &&
+		// down there), but to the path tracer it is real geometry, seen through water above it.
+		// Copies too: moved under the water, the world above would bring them along.
+		if (RT_IsActive() && tspr->sectp && (tspr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_FLOOR &&
 			!(tspr->sectp->floorstat & CSTAT_SECTOR_SKY))
 		{
 			auto tex = TexMan.GetGameTexture(texid);
 			const double h = tex ? tex->GetDisplayHeight() * tspr->scale.Y : 0;
-			const double top = (tspr->cstat & CSTAT_SPRITE_YCENTER) ? tspr->pos.Z - h * 0.5 : tspr->pos.Z - h;
-			if (h > 0 && top > getflorzofslopeptr(tspr->sectp, tspr->pos.X, tspr->pos.Y) + 1) continue;
+			// (a copy's sprite is already moved: where it really is)
+			const double* ofs = RT_CopyOffset(tspr->rtcopy);
+			const DVector3 pos = tspr->pos - DVector3(ofs[0], ofs[1], ofs[2]);
+			const double top = (tspr->cstat & CSTAT_SPRITE_YCENTER) ? pos.Z - h * 0.5 : pos.Z - h;
+			if (h > 0 && top > getflorzofslopeptr(tspr->sectp, pos.X, pos.Y) + 1) continue;
 		}
 
 		if (i < rtHiddenSpriteStart) actor->spr.cstat2 |= CSTAT2_SPRITE_MAPPED;	// not for what only the path tracer sees
@@ -1060,7 +1064,7 @@ void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 			const int copy = ++g_rtCopyUsed;
 			const double ofs[3] = { -pd->delta.X, -pd->delta.Y, -pd->delta.Z };
 			for (int i = 0; i < 3; i++) g_rtCopyOffset[copy - 1][i] = ofs[i] + rtstate.get_copyoffset()[i];
-			g_rtCopySkipWater[copy - 1] = false;
+			g_rtCopyWater[copy - 1] = 0;
 			// its sectors, for their lights
 			if (g_rtCopySector.size() != n) g_rtCopySector.assign(n, 0);
 			for (unsigned i = 0; i < n; i++)

@@ -74,9 +74,11 @@ inline int RT_CopySector( int sectnum )
 {
     return sectnum >= 0 && size_t( sectnum ) < g_rtCopySector.size() ? g_rtCopySector[ size_t( sectnum ) ] : 0;
 }
-// per copy: the linked side's above-water floors (Duke's lotag 1) are the water
-// surface itself, already drawn by the room under it: left out of the copy
-extern bool g_rtCopySkipWater[ RT_MAX_COPIES ];
+// per copy, a water copy: 1 = the world above a surface (seen from under it): its
+// above-water floors (Duke's lotag 1) are the surface itself, already drawn by the
+// room under it, so they are left out of the copy; 2 = the room under a surface
+// (seen from above it): its ceilings that are the surface are left out. 0 = neither.
+extern uint8_t g_rtCopyWater[ RT_MAX_COPIES ];
 // Which side of a water surface each sector is on, for the water copies: 1 = above
 // (its floor is the surface), 2 = under water, 0 = neither. Set by a game whose
 // sector lotags mean something else (Blood: its water links) each frame, or empty:
@@ -98,7 +100,7 @@ struct RtCopyLink
     DVector3           delta;                   // hole side + delta = linked side (game units)
     int                start           = -1;    // a sector of the linked side
     std::vector< int > holes;                   // the openings' sectors (this side)
-    bool               skipWaterFloors = false; // see g_rtCopySkipWater
+    uint8_t            water           = 0;     // see g_rtCopyWater
 };
 extern std::vector< RtCopyLink > g_rtCopyLinks;
 

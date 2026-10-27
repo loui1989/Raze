@@ -307,7 +307,7 @@ static void RT_SetupWaterCopy(sectortype* sect, const DVector3& cpos)
 		RtCopyLink l;
 		l.delta = copies[k].delta;
 		l.start = sectindex(copies[k].above);
-		l.skipWaterFloors = true;
+		l.water = 1;
 		for (unsigned i = 0; i < n; i++)
 			if (owner[i] == int(k)) l.holes.push_back(int(i));
 		g_rtCopyLinks.push_back(std::move(l));
