@@ -330,6 +330,8 @@ public:
     IDataBuffer*      CreateDataBuffer( int bindingpoint, bool ssbo, bool needsresize ) override;
     IHardwareTexture* CreateHardwareTexture( int numchannels ) override;
     void              PrecacheMaterial( FMaterial* mat, int translation ) override;
+    // a level's precaching begins: its own budget (see rt_precache_budget)
+    void              StartPrecaching() override;
 
     void SetVSync( bool vsync ) override { m_vsync = vsync; }
     void SetTextureFilterMode() override {}

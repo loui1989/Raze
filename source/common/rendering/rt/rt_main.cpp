@@ -109,7 +109,8 @@ CVARD( Float, rt_flashlight_angle, 46.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 
 CVARD( Float, rt_flashlight_radius, 0.02f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: flashlight source size, metres" )
 CVARD( Color, rt_flashlight_color, 0xffbe82, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: flashlight colour" )
 CVARD( Bool, rt_precache, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: give RTGL1 the level's textures when it loads, not when first seen" )
-CVARD( Int, rt_precache_budget, 2000, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: at most this many textures precached per session (RTGL1 holds 4096)" )
+CVARD( Int, rt_precache_budget, 4000, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: at most this many new textures precached per level (RTGL1 holds 16384 images; a texture is 1 to 3)" )
+CVARD( Int, rt_precache_session, 7000, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: and at most this many in a session (nothing is freed between levels)" )
 CVARD( Int, rt_config_version, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: settings version (old defaults are updated once)" )
 CVARD( Int, rt_debug_uniqueid, 0, 0, "RT: print draws the scene code did not give an id" )
 CVARD( Bool, rt_debug_stats, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: print the slowest frame of every few seconds and what went into it (and, from the next start, the GPU's timeline)" )
@@ -532,10 +533,19 @@ IHardwareTexture* RTFrameBuffer::CreateHardwareTexture( int numchannels )
     return new RTHardwareTexture{};
 }
 
+// Raze RT: a budget per level (2000 for the session: a Marrow level wanted more than that
+// at its start, and every level after the first got nothing -- its textures were made as
+// they came into view, a frame of 10-40 ms now and then), and one for the session
+static int s_precachedLevel = 0, s_precachedSession = 0;
+
+void RTFrameBuffer::StartPrecaching()
+{
+    s_precachedLevel = 0;
+}
+
 void RTFrameBuffer::PrecacheMaterial( FMaterial* mat, int translation )
 {
-    static int precached = 0;
-    if( !mat || !*rt_precache || precached >= *rt_precache_budget )
+    if( !mat || !*rt_precache || s_precachedLevel >= *rt_precache_budget || s_precachedSession >= *rt_precache_session )
     {
         return;
     }
@@ -553,7 +563,8 @@ void RTFrameBuffer::PrecacheMaterial( FMaterial* mat, int translation )
     {
         if( !hwtex->GetRTName() )
         {
-            precached++;
+            s_precachedLevel++;
+            s_precachedSession++;
         }
         hwtex->CreateIfWasnt( *gametex, translation, mat->GetScaleFlags(), LegacyRenderStyles[ STYLE_Normal ] );
     }
