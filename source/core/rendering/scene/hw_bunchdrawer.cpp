@@ -41,6 +41,7 @@
 #include "automap.h"
 #include "gamefuncs.h"
 #include "hw_portal.h"
+#include "render.h"
 #include "gamestruct.h"
 #include "hw_voxels.h"
 #include "mapinfo.h"
@@ -866,6 +867,23 @@ static void RT_FindOverlaps()
 
 // per sector: given to the path tracer off screen ('onscreen': the sectors the view
 // draws -- an overlapping one of those wins over any off screen)
+// a sector's room-over-room links (a floor or ceiling that shows the room linked to it):
+// each sector on the other side, with the point the way leaves from (here: the middle of
+// the sector) and where it arrives (there)
+template<class F> static void RT_PortalNeighbours(int si, const DVector2& entry, F&& f)
+{
+	auto& s = sector[si];
+	if (s.portalflags != PORTAL_SECTOR_FLOOR && s.portalflags != PORTAL_SECTOR_CEILING) return;
+	if (s.portalnum < 0 || unsigned(s.portalnum) >= allPortals.Size()) return;
+	const auto& pt = allPortals[s.portalnum];
+	if (s.walls.Size() == 0) return;
+	DVector2 c(0, 0);
+	for (auto& w : s.walls) c += w.pos;
+	c /= double(s.walls.Size());
+	for (int t : pt.targets)
+		if (unsigned(t) < sector.Size()) f(t, c, c + pt.delta.XY());
+}
+
 static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam, const BitArray* onscreen = nullptr)
 {
 	const unsigned n = sector.Size();
@@ -902,6 +920,14 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam, c
 				if (nd > reach || nd >= dist[ni]) continue;
 				dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni });
 			}
+			// and through a room-over-room link (Blood's stacked rooms: the yard under the
+			// mortuary is elsewhere on the map) -- reflections and light reach there too
+			RT_PortalNeighbours(si, entry[si], [&](int ni, const DVector2& from, const DVector2& to)
+			{
+				const double nd = d + (from - entry[si]).Length();
+				if (nd > reach || nd >= dist[ni]) return;
+				dist[ni] = nd; entry[ni] = to; q.push({ nd, ni });
+			});
 		}
 		for (unsigned i = 0; i < n; i++) if (dist[i] > reach) { keep[i] = 0; rt_why[i] = 1; }
 	}
@@ -935,6 +961,11 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam, c
 			const double nd = d + (mid - entry[si]).Length();
 			if (nd < dist[ni]) { dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni }); }
 		}
+		RT_PortalNeighbours(si, entry[si], [&](int ni, const DVector2& from, const DVector2& to)
+		{
+			const double nd = d + (from - entry[si]).Length();
+			if (nd < dist[ni]) { dist[ni] = nd; entry[ni] = to; q.push({ nd, ni }); }
+		});
 	}
 	for (unsigned i = 0; i < n; i++)
 	{

@@ -43,6 +43,8 @@ extern const void* g_rtViewerActor;
 // what of it was drawn the last frame (rt_lookat): how many times, its tile, as a model
 extern int  g_rtViewerDrawn, g_rtViewerDrawnTile;
 extern bool g_rtViewerDrawnModel;
+// how the backend drew it last (rt_lookat): its texture, glow, flags
+extern char g_rtViewerDiag[ 320 ];
 // per sprite (its actor's index), the frame it last got to each stage of drawing
 // (rt_lookat): 0 processed (the game gave it), 1 placed (a picture or model made), 2 drawn
 extern uint32_t g_rtFrameNo;

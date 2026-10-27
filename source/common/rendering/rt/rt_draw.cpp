@@ -1421,6 +1421,14 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                     emissive, alpha, int( ( primFlags & RG_MESH_PRIMITIVE_TRANSLUCENT ) != 0 ) );
         }
     }
+    // the player's own body, for rt_lookat
+    if( rtstate.is< RtPrim::Viewer >() && !isUI )
+    {
+        snprintf( g_rtViewerDiag, sizeof( g_rtViewerDiag ),
+                  "texture %s, model %d, emission map %d, glowing texture %d, fullbright %d, emissive %.2f, alpha %.2f, flags %x, %zu vertices",
+                  texname ? texname : "(none)", int( isModel ), int( emissionMap ), int( glowTex ), int( rtstate.is< RtPrim::Fullbright >() ),
+                  emissive, alpha, unsigned( primFlags ), verts.size() );
+    }
     // (a flame class's light is the game's, placed at its flame: this one would be at the
     // middle of the picture, a candelabra's stem)
     if( ( emissionMap || glowTex ) && *rt_emis_lights && ( !rtstate.is< RtPrim::Sprite >() || spriteGlow ) && !isUI && !isSky &&
