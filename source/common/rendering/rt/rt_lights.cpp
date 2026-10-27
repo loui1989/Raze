@@ -1640,6 +1640,31 @@ CCMD( rt_sky_portal_info )
 {
     const DVector2 cam( g_rtViewPos[ 0 ], g_rtViewPos[ 1 ] );
     int            shown = 0;
+    // (for any game -- Duke has no rt_lookat: what the window lights go by)
+    Printf( "  sky light: %s (rt_sky %g, rt_sky_portals %g); %d window lights last frame\n",
+            g_rtSkyLight.valid ? FStringf( "from the sky's picture, colour %.2f %.2f %.2f", g_rtSkyLight.average[ 0 ], g_rtSkyLight.average[ 1 ],
+                                           g_rtSkyLight.average[ 2 ] ).GetChars()
+                               : "none yet (no sky drawn on this level since it started: no window lights)",
+            float( *rt_sky ), float( *rt_sky_portals ), g_rtSkyPortalStats.count );
+    if( g_rtViewSector >= 0 && unsigned( g_rtViewSector ) < sector.Size() )
+    {
+        auto& vs = sector[ g_rtViewSector ];
+        Printf( "  view in sector %d: %s\n", g_rtViewSector, ( vs.ceilingstat & CSTAT_SECTOR_SKY ) ? "open to the sky" : "roofed" );
+    }
+    // the windows near: walls with a picture between two sectors, and what is on each side
+    for( unsigned si = 0; si < sector.Size(); si++ )
+    {
+        for( auto& w : sector[ si ].walls )
+        {
+            if( !w.twoSided() || !( w.cstat & ( CSTAT_WALL_MASKED | CSTAT_WALL_1WAY ) ) || w.nextsector < int( si ) ) continue;
+            const DVector2 mid = ( w.pos + w.point2Wall()->pos ) * 0.5;
+            if( ( mid - cam ).Length() / 32. > 6. ) continue;
+            auto o = w.nextSector();
+            Printf( "  window (wall %d, tile %d): sector %u (%s) | sector %d (%s), %.1f m away\n", wallindex( &w ), legacyTileNum( w.overtexture ), si,
+                    ( sector[ si ].ceilingstat & CSTAT_SECTOR_SKY ) ? "sky" : "roofed", sectindex( o ), ( o->ceilingstat & CSTAT_SECTOR_SKY ) ? "sky" : "roofed",
+                    ( mid - cam ).Length() / 32. );
+        }
+    }
     for( unsigned si = 0; si < sector.Size() && shown < 24; si++ )
     {
         auto& s = sector[ si ];
