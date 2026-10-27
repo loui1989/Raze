@@ -1695,7 +1695,7 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
             .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
             .pNext     = nullptr,
             .color     = color,
-            .intensity = lumens * 0.5f,
+            .intensity = lumens * 0.38f,
             .position  = { p.X, p.Y, p.Z },
             .radius    = std::clamp( float( std::sqrt( area ) ) * 0.25f, 0.05f, 0.3f ),
         };

@@ -388,6 +388,15 @@ void HWDrawInfo::DispatchSprites()
 			if (h > 0 && top > getflorzofslopeptr(tspr->sectp, pos.X, pos.Y) + 1) continue;
 		}
 
+		// ray tracing: Blood's glow orbs' see-through halos (624, 625) are a light, not a
+		// thing -- the game gives them their light (view.cpp); drawn, the path tracer made
+		// them a solid coloured ball
+		if (RT_IsActive() && isBlood() && (tspr->cstat & (CSTAT_SPRITE_TRANSLUCENT | CSTAT_SPRITE_TRANS_FLIP)))
+		{
+			const int t = legacyTileNum(texid);
+			if (t == 624 || t == 625) continue;
+		}
+
 		if (i < rtHiddenSpriteStart) actor->spr.cstat2 |= CSTAT2_SPRITE_MAPPED;	// not for what only the path tracer sees
 
 		if (!(tspr->cstat2 & CSTAT2_SPRITE_NOANIMATE))
