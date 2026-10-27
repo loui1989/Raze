@@ -2243,6 +2243,7 @@ OptionMenu "RTOptions" protected
 	Slider "Cavity shading (next start)",	"rt_cavity", 0, 1, 0.1, 1
 	Option "Voxel models in sight at any distance",	"rt_voxel_insight", "OnOff"
 	Slider "Voxel model distance (metres)",	"rt_voxel_distance", 0, 40, 1, 0
+	Slider "Voxel model budget (thousand vertices, 0 = all)",	"rt_voxel_budget", 0, 4000, 100, 0
 	Option "Walls seen from one side",	"rt_one_sided", "RtOneSided"
 	StaticText " "
 

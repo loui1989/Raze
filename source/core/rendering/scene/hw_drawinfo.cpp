@@ -68,6 +68,12 @@ BitArray gotsector;
 
 CVARD(Bool, rt_voxel_insight, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models in sight are models at any distance (rt_voxel_distance is then for those only reflections and shadows see)")
 
+// ray tracing: all of a frame's voxel models together, at most this many thousand
+// vertices -- the nearest first, the rest drawn as their sprites. Each instance is its
+// own mesh, built and handed over every frame: Marrow's graveyards and woods have
+// some 160 voxel trees in sight, 85 000 vertices each (14 million: 4 fps)
+CVARD(Int, rt_voxel_budget, 600, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: thousands of voxel model vertices a frame, the nearest models first, the rest drawn as sprites (0 = no limit)")
+
 bool RT_VoxelTooFar(int vox, const tspritetype* spr, const DVector3& view)
 {
 	if (vox < 0 || !RT_IsActive()) return false;
@@ -320,6 +326,44 @@ HWPortal * HWDrawInfo::FindPortal(const void * src)
 
 void HWDrawInfo::DispatchSprites()
 {
+	// ray tracing: the voxel models over the frame's budget (rt_voxel_budget), the
+	// furthest first, are drawn as their sprites
+	std::vector<char> rtVoxOver;
+	if (RT_IsActive() && r_voxels && *rt_voxel_budget > 0)
+	{
+		const DVector3 view(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
+		struct Cand { double d; unsigned i; unsigned cost; };
+		std::vector<Cand> cands;
+		uint64_t total = 0;
+		for (unsigned i = 0; i < tsprites.Size(); i++)
+		{
+			auto tspr = tsprites.get(i);
+			if (!tspr->ownerActor || tspr->scale.X == 0 || tspr->scale.Y == 0) continue;
+			const auto texid = tspr->spritetexture();
+			if (!texid.isValid()) continue;
+			const int vox = GetExtInfo(texid).tiletovox;
+			if (vox < 0 || !voxmodels[vox] || !voxmodels[vox]->model) continue;
+			// (the games' own voxels stay: their sprites are not made to stand in)
+			if (!isDuke() && !voxdefined[vox]) continue;
+			if (RT_VoxelTooFar(vox, tspr, view)) continue;
+			const unsigned cost = voxmodels[vox]->model->GetNumIndices();
+			cands.push_back({ (tspr->pos - view).LengthSquared(), i, cost });
+			total += cost;
+		}
+		const uint64_t budget = uint64_t(*rt_voxel_budget) * 1000;
+		if (total > budget)
+		{
+			std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.d < b.d; });
+			rtVoxOver.assign(tsprites.Size(), 0);
+			uint64_t used = 0;
+			for (auto& c : cands)
+			{
+				used += c.cost;
+				if (used > budget) rtVoxOver[c.i] = 1;
+			}
+		}
+	}
+
 	for (unsigned i = 0; i < tsprites.Size(); i++)
 	{
 		auto tspr = tsprites.get(i);
@@ -368,6 +412,7 @@ void HWDrawInfo::DispatchSprites()
 				if (vox >= 0 && voxmodels[vox])
 				{
 					if (RT_VoxelTooFar(vox, tspr, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]))) vox = -1;
+					if (i < rtVoxOver.size() && rtVoxOver[i]) vox = -1;
 					// a sprite with a glowmap of its own (Duke-RT's neon signs): the sprite, glowing
 					// as drawn -- the voxel model has only the palette's fullbright colours to glow
 					if (vox >= 0 && RT_IsActive())

@@ -67,6 +67,7 @@ public:
 	virtual void RenderFrame(FModelRenderer *renderer, FGameTexture * skin, int frame, int frame2, double inter, FTranslationID translation, const FTextureID* surfaceskinids, const TArray<VSMatrix>& boneData, int boneStartPosition) override;
 	virtual void AddSkins(uint8_t *hitlist, const FTextureID* surfaceskinids) override;
 	FTextureID GetPaletteTexture() const { return mPalette; }
+	unsigned GetNumIndices() const { return mNumIndices; }
 	void BuildVertexBuffer(FModelRenderer *renderer) override;
 	float getAspectFactor(float vscale) override;
 };
