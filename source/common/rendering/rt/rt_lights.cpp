@@ -427,6 +427,19 @@ void UploadSkyPortals()
             // (the light's strength: the window's share of the sky's, by the brightness of its tint)
             const float through = 0.2126f * lc[ 0 ] + 0.7152f * lc[ 1 ] + 0.0722f * lc[ 2 ];
             const float through0 = std::max( 1e-4f, 0.2126f * c[ 0 ] + 0.7152f * c[ 1 ] + 0.0722f * c[ 2 ] );
+            // (a recess's inner face: a wall of it, into another roofed room, parallel to the opening)
+            const walltype* inner = nullptr;
+            for( auto& w2 : s.walls )
+            {
+                auto r = w2.nextSector();
+                if( &w2 == &w || !r || ( r->ceilingstat & CSTAT_SECTOR_SKY ) ) continue;
+                const DVector2 d2 = ( w2.point2Wall()->pos - w2.pos ).Unit();
+                const DVector2 d1 = ( p2 - p1 ).Unit();
+                if( std::abs( d1.X * d2.X + d1.Y * d2.Y ) < 0.95 ) continue;
+                const DVector2 m2 = ( w2.pos + w2.point2Wall()->pos ) * 0.5;
+                const double   depth = ( m2 - mid ) | n;
+                if( depth > 2. && depth < 64. ) { inner = &w2; break; }   // (up to 2 m deep)
+            }
             // into the room, a little down (the sky is above)
             const float dl     = std::sqrt( float( n.X * n.X + n.Y * n.Y ) + 0.35f * 0.35f );
             const RgFloat3D dir = { float( n.X ) / dl, float( -n.Y ) / dl, -0.35f / dl };
@@ -434,7 +447,19 @@ void UploadSkyPortals()
             const double pw     = width / pieces;
             for( int k = 0; k < pieces; k++ )
             {
-                const DVector2  pc  = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces ) + n * 3.;
+                DVector2 pc = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces ) + n * 3.;
+                // a window in a recess (a thin roofed sector, the glass on its outer face): the
+                // light at its inner face, in the room -- in the recess it lit mostly the recess
+                if( inner )
+                {
+                    const DVector2 q1 = inner->pos, q2 = inner->point2Wall()->pos, qd = q2 - q1;
+                    const double   ql = qd.LengthSquared();
+                    if( ql > 1e-6 )
+                    {
+                        const double t = std::clamp( ( ( pc - q1 ) | qd ) / ql, 0., 1. );
+                        pc = q1 + qd * t + n * 6.;
+                    }
+                }
                 const RgFloat3D pos = WorldToRT( pc.X, pc.Y, ( top + bottom ) * 0.5 );
                 const float     fade = ReachFade( pos, int( si ) );
                 if( fade <= 0.f )

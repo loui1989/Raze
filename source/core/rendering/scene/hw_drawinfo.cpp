@@ -105,6 +105,7 @@ bool VoxelTopZ(tspritetype* spr, double& top)
 }
 
 static void RT_PlanPortalViews(HWDrawInfo* di, unsigned seen);
+static bool RT_PortalPlanned(const PortalDesc* pd);
 
 //==========================================================================
 //
@@ -542,7 +543,15 @@ void HWDrawInfo::CreateScene(bool portal)
 		rtHiddenSpriteStart = tsprites.Size();
 		mDrawer.RT_ProcessRemaining(rtCopyView);
 		// openings found there are not seen: no views through them
-		for (unsigned i = seen; i < Portals.Size(); i++) Portals[i]->rtOffscreen = true;
+		// (but those planned near it: rt_portal_offscreen)
+		for (unsigned i = seen; i < Portals.Size(); i++)
+		{
+			HWPortal* gp = Portals[i];
+			const int type = gp->GetType();
+			const bool planned = (type == PORTAL_SECTOR_FLOOR || type == PORTAL_SECTOR_CEILING) &&
+				RT_PortalPlanned(static_cast<HWSectorStackPortal*>(gp)->GetPortalDesc());
+			gp->rtOffscreen = !planned;
+		}
 		if (rtMain) mDrawer.RT_ProcessCopy();
 	}
 
@@ -810,6 +819,7 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 //
 //==========================================================================
 
+CVARD(Float, rt_portal_offscreen, 24.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: room-over-room openings within this many metres' walk are drawn though off screen (reflections, light through them); 0 = only those seen")
 CVARD(Float, rt_portal_near, 24.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: room-over-room views: real rooms within this many metres' walk count as the viewer's surroundings")
 
 // per sector, its bounding box (min x, min y, max x, max y) and some points inside it
@@ -976,6 +986,12 @@ struct RtPortalPlan
 	unsigned candidates, nearClash, hidden;
 };
 static std::vector<RtPortalPlan> rt_portalPlans;
+static bool RT_PortalPlanned(const PortalDesc* pd)
+{
+	for (auto& pl : rt_portalPlans)
+		if (pl.pd == pd && !pl.allow.empty()) return true;
+	return false;
+}
 
 // the openings the view sees (found by the clipper): which part of each linked place
 // is drawn, and which real sectors are left out for it (g_rtHiddenSector). Before the
@@ -991,13 +1007,31 @@ static void RT_PlanPortalViews(HWDrawInfo* di, unsigned seen)
 	std::vector<int> clashes;
 	const DVector3 cam(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
 	const double nearDist = max(0.f, *rt_portal_near) * 32.0;	// 32 map units a metre
+	// the openings the view sees, and those near it off screen (behind it: a reflection
+	// of the room-over-room place, light through it) -- a mortuary's blown wall showed
+	// a reflection of the yard with the part only the linked place has missing
+	std::vector<std::pair<const PortalDesc*, int>> openings;
 	for (unsigned i = 0; i < seen && i < di->Portals.Size(); i++)
 	{
 		HWPortal* gp = di->Portals[i];
 		const int type = gp->GetType();
 		if (type != PORTAL_SECTOR_FLOOR && type != PORTAL_SECTOR_CEILING) continue;
-		const PortalDesc* pd = static_cast<HWSectorStackPortal*>(gp)->GetPortalDesc();
-		if (!pd) continue;
+		if (auto pd = static_cast<HWSectorStackPortal*>(gp)->GetPortalDesc()) openings.push_back({ pd, type });
+	}
+	if (*rt_portal_offscreen > 0)
+	{
+		if (near.empty()) { RT_SectorShapes(); near = RT_ViewDistance(); }
+		const double offDist = double(*rt_portal_offscreen) * 32.0;
+		for (unsigned si = 0; si < n; si++)
+		{
+			auto& os = sector[si];
+			if (os.portalflags != PORTAL_SECTOR_FLOOR && os.portalflags != PORTAL_SECTOR_CEILING) continue;
+			if (os.portalnum < 0 || unsigned(os.portalnum) >= allPortals.Size() || near[si] > offDist) continue;
+			openings.push_back({ &allPortals[os.portalnum], int(os.portalflags) });
+		}
+	}
+	for (auto [pd, type] : openings)
+	{
 		bool dup = false;
 		for (auto& pl : rt_portalPlans) dup |= pl.pd == pd;
 		if (dup) continue;
