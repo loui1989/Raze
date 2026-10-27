@@ -712,6 +712,15 @@ void GameInterface::loadPalette(void)
 
 void GameInterface::app_init()
 {
+	// ray tracing: Blood's levels have pitch black corners -- its own default for the
+	// faint floor of light every surface has (rt_ambient; Duke's 0.04)
+	if (auto v = FindCVar("rt_ambient", nullptr))
+	{
+		UCVarValue val;
+		val.Float = 0.10f;
+		v->SetGenericRepDefault(val, CVAR_Float);
+	}
+
 	// Initialise player array.
 	for (unsigned i = 0; i < MAXPLAYERS; i++)
 	{
