@@ -1089,11 +1089,11 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 						const double dist = (p.XY() - c).Length();
 						if (dist < best) { best = dist; bestC = c; bestD = d; }
 					}
-					if (best < 6 || (best < 1e8 && inside(p.X, p.Y, sect) != 1))
+					if (best < 10 || (best < 1e8 && inside(p.X, p.Y, sect) != 1))
 					{
 						DVector2 n = DVector2(-bestD.Y, bestD.X).Unit();
 						if (inside(bestC.X + n.X * 2, bestC.Y + n.Y * 2, sect) != 1) n = -n;
-						p = DVector3(bestC + n * 6, p.Z);
+						p = DVector3(bestC + n * 10, p.Z);	// (a third of a metre: nearer, a white patch on the wall)
 					}
 				}
 				l.pos[0] = p.X; l.pos[1] = p.Y; l.pos[2] = p.Z;
@@ -1209,7 +1209,9 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				{
 					DVector2 n = DVector2(-bestD.Y, bestD.X).Unit();
 					if (inside(bestC.X + n.X * 2, bestC.Y + n.Y * 2, sect) != 1) n = -n;
-					p = DVector3(bestC + n * 10, p.Z);
+					// (half a metre: nearer, the wall round a wall torch burned white -- light falls
+					// off with the square of the distance)
+					p = DVector3(bestC + n * 16, p.Z);
 				}
 			}
 			const float lumens = 900.f * max(glow >= 0.02f ? sqrtf(min(glow / 0.2f, 1.5f)) : 0.f, flameLight) * scale * flicker(actor) *

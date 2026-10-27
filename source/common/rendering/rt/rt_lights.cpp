@@ -700,7 +700,7 @@ void UploadSkyPortals()
                 static const float magenta[ 3 ] = { 1.f, 0.f, 1.f };
                 // a small ball (RTGL1's spot lights lit almost nothing here -- a ball of the
                 // same strength lit the room: rt_sky_portal_debug 1 and 2 showed it)
-                if( glassLit && !dbg )
+                if( glassLit )
                 {
                     // three quarters of a metre outside the opening, in the middle of its piece,
                     // a little above the middle (the light comes in from the sky: down onto the
@@ -709,8 +709,16 @@ void UploadSkyPortals()
                     const RgFloat3D spos  = WorldToRT( onp.X, onp.Y, top + ( bottom - top ) * 0.35 );
                     const FVector3  down  = FVector3( float( n.X ), float( -n.Y ), -0.35f ).Unit();
                     const float     sky   = *rt_sky_portals * outside * area * fade * open;
-                    UploadSpotLight( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), spos, { down.X, down.Y, down.Z },
-                                     PackColor( c ), sky * 0.6f, 75.f, 45.f );
+                    if( dbg )
+                    {
+                        // (rt_sky_portal_debug: a magenta ball where the light outside is)
+                        UploadSphere( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), spos, PackColor( magenta ), 5000.f, 0.05f );
+                    }
+                    else
+                    {
+                        UploadSpotLight( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), spos, { down.X, down.Y, down.Z },
+                                         PackColor( c ), sky * 0.6f, 75.f, 45.f );
+                    }
                 }
                 else
                 {
@@ -1624,6 +1632,15 @@ CCMD( rt_sky_portal_info )
             }
             Printf( "    opening: wall %d, sector %u (roofed) to %d (sky), %.1f m away, %.1f m wide, %.1f m high%s%s\n", wallindex( &w ), si,
                     sectindex( o ), d, wd / 32., h / 32., t.GetChars(), h < 8 || wd < 8 ? " -- too small, no light" : "" );
+            // (the pictures in its sector's other walls: bars or glass a recess in)
+            for( auto& w2 : s.walls )
+            {
+                if( &w2 == &w ) continue;
+                const walltype* m2 = ( w2.cstat & CSTAT_WALL_MASKED ) ? &w2 : ( w2.nextWall() && ( w2.nextWall()->cstat & CSTAT_WALL_MASKED ) ) ? w2.nextWall() : nullptr;
+                if( m2 && m2->overtexture.isValid() )
+                    Printf( "      its sector's wall %d has a picture: tile %d%s, to sector %d (cstat %x)\n", wallindex( &w2 ), legacyTileNum( m2->overtexture ),
+                            RT_TableGlass( legacyTileNum( m2->overtexture ) ) ? " (glass)" : "", w2.nextsector, unsigned( m2->cstat ) );
+            }
             shown++;
         }
     }
