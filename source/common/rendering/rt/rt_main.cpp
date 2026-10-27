@@ -89,7 +89,7 @@ CVARD( Color, rt_muzzleflash_color, 0xffa860, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, 
 CVARD( Float, rt_emis_boost, 50.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: RTGL1's emission map boost (bounce light from glowing surfaces)" )
 CVARD( Float, rt_emis_screen, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: on-screen brightness of glowing surfaces" )
 CVARD( Int, rt_texture_filter, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0 nearest (pixelated), 1 linear" )
-CVARD( Float, rt_ev100_min, 2.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adaptation, darkest exposure (lower = dark scenes brighter)" )
+CVARD( Float, rt_ev100_min, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adaptation, darkest exposure (lower = dark scenes brighter)" )
 CVARD( Float, rt_ev100_max, 7.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adaptation, brightest exposure" )
 CVARD( Float, rt_white_point, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping white point" )
 CVARD( Float, rt_contrast, 0.1f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping contrast" )

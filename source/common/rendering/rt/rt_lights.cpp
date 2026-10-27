@@ -619,6 +619,35 @@ void UploadSkyPortals()
             // (bars and grates too: their shadows on the floor -- a picture with holes casts
             // shadows; glass only colours its light with rt_glass_shadows)
             bool glassLit = !glassWalls.empty();
+            // (not where the outside sees a picture in the opening -- a one-way wall: Blood
+            // E3M1's windows are glass from inside and a painted window from the street; lit
+            // from outside, the street saw the light on the front round them, red)
+            const bool oneWay = ( w.cstat & CSTAT_WALL_1WAY ) || ( w.nextWall() && ( w.nextWall()->cstat & CSTAT_WALL_1WAY ) );
+            if( oneWay ) glassLit = false;
+            // (bars that are a sprite standing in the opening -- a wall sprite flat in it, as
+            // Blood's mortuary windows have: lit from outside too, for their shadows)
+            if( !glassLit && !oneWay )
+            {
+                const DVector2 ud = ( p2 - p1 ).Unit();
+                for( sectortype* ss : { &s, o } )
+                {
+                    CoreSectIterator it( ss );
+                    while( auto ac = it.Next() )
+                    {
+                        const auto& sp = ac->spr;
+                        if( ( sp.cstat & CSTAT_SPRITE_ALIGNMENT_MASK ) != CSTAT_SPRITE_ALIGNMENT_WALL || ( sp.cstat & CSTAT_SPRITE_INVISIBLE ) ) continue;
+                        const DVector2 q     = sp.pos.XY();
+                        const double   dn    = ( q - mid ) | n;
+                        const double   along = ( q - p1 ) | ud;
+                        if( dn < -24. || dn > 24. || along < -8. || along > width + 8. ) continue;
+                        const DVector2 face = sp.Angles.Yaw.ToVector();
+                        if( std::abs( face | n ) < 0.9 ) continue;	// (flat in the opening)
+                        glassLit = true;
+                        break;
+                    }
+                    if( glassLit ) break;
+                }
+            }
             for( const walltype* mw : glassWalls )
                 if( RT_TableGlass( legacyTileNum( mw->overtexture ) ) && !*rt_glass_shadows ) glassLit = false;
             const int    pieces = std::clamp( int( width / ( glassWalls.empty() || glassLit ? Piece : Piece * 0.5 ) ) + 1, 1, 8 );
@@ -705,8 +734,17 @@ void UploadSkyPortals()
                     // three quarters of a metre outside the opening, in the middle of its piece,
                     // a little above the middle (the light comes in from the sky: down onto the
                     // floor), facing into the room; its colour the sky's (the glass gives its own)
-                    const DVector2  onp   = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces ) - n * 24.;
+                    // (not past the sky's sector: a window whose 'outside' is a narrow gap behind a
+                    // building's front -- Blood E3M1's -- put it out in the street, lighting the
+                    // front round the window red, and none of it came in)
+                    const DVector2 onOpen = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces );
+                    double         out    = 3.;
+                    for( double tryOut : { 24., 16., 10., 6. } )
+                        if( inside( onOpen.X - n.X * tryOut, onOpen.Y - n.Y * tryOut, o ) == 1 ) { out = tryOut; break; }
+                    const DVector2  onp   = onOpen - n * out;
                     const RgFloat3D spos  = WorldToRT( onp.X, onp.Y, top + ( bottom - top ) * 0.35 );
+                    // (its cone through the opening, a little wider: not the wall round it)
+                    const float coneOut = std::clamp( float( std::atan2( std::max( pw, h ) * 0.5, out ) * 180. / 3.14159265 ) + 8.f, 35.f, 80.f );
                     const FVector3  down  = FVector3( float( n.X ), float( -n.Y ), -0.35f ).Unit();
                     const float     sky   = *rt_sky_portals * outside * area * fade * open;
                     if( dbg )
@@ -717,7 +755,7 @@ void UploadSkyPortals()
                     else
                     {
                         UploadSpotLight( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), spos, { down.X, down.Y, down.Z },
-                                         PackColor( c ), sky * 0.6f, 75.f, 45.f );
+                                         PackColor( c ), sky * 0.6f, coneOut, coneOut - 25.f );
                     }
                 }
                 else
