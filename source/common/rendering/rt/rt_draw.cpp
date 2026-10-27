@@ -5,6 +5,7 @@
 // Adapted from gzdoom-rt's rt_draw.cpp / rt_buffers.h (Doom 64 RT), without the
 // Doom 64 specific parts.
 
+#include "animtexture.h"
 #include "rt_backend.h"
 
 #include <chrono>
@@ -207,6 +208,14 @@ double   g_rtTexSeconds = 0;   // ...and the time it took (material files includ
 auto RTHardwareTexture::MakeTextureName( FGameTexture& gametex, int translation ) -> std::string
 {
     const std::string suffix = TranslationSuffix( translation );
+
+    // a movie's frame (AnimTexture: "AnimTextureFrame1" / "2", the same two textures
+    // for every frame, their content replaced): no name, so each frame is given anew
+    // (named, RTGL1 would keep the first frame for good: a black screen)
+    if( dynamic_cast< AnimTexture* >( gametex.GetTexture() ) )
+    {
+        return {};
+    }
 
     // an HD replacement of a tile (a texture pack): named after its tile, so the material
     // table, the window glass and the glow know it ("#01234~hd0": its own name, not the
