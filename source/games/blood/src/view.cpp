@@ -1000,6 +1000,10 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				// brighter as it is bigger and as its shade is (-60: as bright as can be)
 				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 2.f);
 				l.intensity = float(clamp(80. * repeat, 300., 2400.)) * shade * scale;
+				// a strongly coloured light (a red lamp: a sixth of white's brightness)
+				// looks as bright as it is meant to
+				const float lum = 0.2126f * l.color[0] + 0.7152f * l.color[1] + 0.0722f * l.color[2];
+				l.intensity /= sqrtf(clamp(lum, 0.15f, 1.f));
 				l.radius = 0.04f;
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 6u;
 				l.sector = actor->sectno();
@@ -1063,6 +1067,75 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			g_rtGameLights.push_back(l);
 		}
 		}
+	}
+}
+
+//---------------------------------------------------------------------------
+//
+// rt_lookat: what the view points at -- the wall or flat (its tile, shades, the
+// sector's light switch) and the sprites nearest the crosshair, with what the path
+// tracer makes of them. For finding the tile of something that should glow.
+//
+//---------------------------------------------------------------------------
+
+CCMD(rt_lookat)
+{
+	DBloodPlayer* pPlayer = getPlayer(myconnectindex);
+	if (!pPlayer || !pPlayer->GetActor() || gamestate != GS_LEVEL) return;
+	const DVector3 view(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
+	const DAngle yaw = pPlayer->GetActor()->spr.Angles.Yaw;
+	const double slope = pPlayer->GetActor()->spr.Angles.Pitch.Tan();
+	DVector3 dir(yaw.ToVector(), slope);
+	dir.MakeUnit();
+	auto sectorInfo = [](sectortype* s) -> FString
+	{
+		if (!s) return "-";
+		return FStringf("sector %d (ceiling tile %d shade %d pal %d, floor tile %d shade %d pal %d, light switch %.2f)", sectindex(s),
+			legacyTileNum(s->ceilingtexture), s->ceilingshade, s->ceilingpal, legacyTileNum(s->floortexture), s->floorshade, s->floorpal,
+			RT_SectorSwitch(sectindex(s)));
+	};
+	sectortype* vs = nullptr;
+	updatesector(view.XY(), &vs);
+	Printf("view: %s\n", sectorInfo(vs).GetChars());
+	if (vs)
+	{
+		HitInfoBase hit;
+		hit.clearObj();
+		hitscan(view, vs, dir * 1024., hit, CLIPMASK1);
+		if (hit.hitWall)
+			Printf("  hits wall %d: tile %d, over tile %d, shade %d, pal %d, in %s\n", wallindex(hit.hitWall), legacyTileNum(hit.hitWall->walltexture),
+				legacyTileNum(hit.hitWall->overtexture), hit.hitWall->shade, hit.hitWall->pal, sectorInfo(hit.hitWall->sectorp()).GetChars());
+		else if (hit.hitSector)
+			Printf("  hits the %s of %s\n", hit.hitpos.Z <= getceilzofslopeptr(hit.hitSector, hit.hitpos) + 1 ? "ceiling" : "floor", sectorInfo(hit.hitSector).GetChars());
+	}
+	struct Cand { double ang; DBloodActor* a; };
+	TArray<Cand> cands;
+	BloodSpriteIterator it;
+	while (auto a = it.Next())
+	{
+		if (a == pPlayer->GetActor() || !a->insector() || (a->spr.cstat & CSTAT_SPRITE_INVISIBLE)) continue;
+		DVector3 d = a->spr.pos - view;
+		const double len = d.Length();
+		if (len < 1 || len > 1600) continue;
+		const double c = (d / len) | dir;
+		if (c < 0.978) continue;	// (within 12 degrees)
+		cands.Push({ acos(clamp(c, -1., 1.)) * 180. / pi::pi(), a });
+	}
+	std::sort(cands.begin(), cands.end(), [](const Cand& x, const Cand& y) { return x.ang < y.ang; });
+	for (unsigned i = 0; i < cands.Size() && i < 4; i++)
+	{
+		auto a = cands[i].a;
+		const int tile = legacyTileNum(a->spr.spritetexture());
+		Printf("  sprite %d, %.1f deg off: tile %d, pal %d, shade %d, cstat %04x, repeat %.0f x %.0f, stat %d, type %d, %.1f m; flame %.2f; in %s\n",
+			a->GetIndex(), cands[i].ang, tile, a->spr.pal, a->spr.shade, int(a->spr.cstat), a->spr.scale.X * 64., a->spr.scale.Y * 64.,
+			a->spr.statnum, a->spr.type, (a->spr.pos - view).Length() / 32., RT_TableFlame(tile), sectorInfo(a->sector()).GetChars());
+	}
+	for (auto& l : g_rtGameLights)
+	{
+		const DVector3 p(l.pos[0], l.pos[1], l.pos[2]);
+		if ((p - view).Length() < 640)
+			Printf("  light %llx: colour %.2f %.2f %.2f, intensity %.0f, %.1f m away\n", (unsigned long long)l.id, l.color[0], l.color[1], l.color[2],
+				l.intensity, (p - view).Length() / 32.);
 	}
 }
 
