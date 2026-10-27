@@ -48,7 +48,7 @@ CVARD( Float, rt_skysun, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's o
 CVARD( Float, rt_skysun_tint, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much the sky's moon takes the sky's colour (0 white; 1 the sky's own: a red sky's red on red, no contrast)" )
 CVARD( Float, rt_skysun_size, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's moon's size, degrees (small: crisp shadows)" )
 EXTERN_CVAR( Float, rt_sky )
-CVARD( Int, rt_sky_portal_debug, 0, 0, "RT: sky portals as bright magenta lights, 1 as spot lights (as they are), 2 as small balls -- to see where they are and what they light" )
+CVARD( Int, rt_sky_portal_debug, 0, 0, "RT: sky portals as bright magenta lights (1) -- to see where they are and what they light" )
 CVARD( Float, rt_sky_portals, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: windows and openings to the sky light the room behind them with the sky's own light (sky portals), this strong; 0 = off" )
 CVARD( Float, rt_lightning, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a lightning flash's light from the sky, lux (Blood's storms)" )
 CVARD( Float, rt_game_light_scale, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the lights the game names (Blood: explosions, fire, flares)" )
@@ -440,14 +440,12 @@ void UploadSkyPortals()
                 const double   depth = ( m2 - mid ) | n;
                 if( depth > 2. && depth < 64. ) { inner = &w2; break; }   // (up to 2 m deep)
             }
-            // into the room, a little down (the sky is above)
-            const float dl     = std::sqrt( float( n.X * n.X + n.Y * n.Y ) + 0.35f * 0.35f );
-            const RgFloat3D dir = { float( n.X ) / dl, float( -n.Y ) / dl, -0.35f / dl };
             const int    pieces = std::clamp( int( width / Piece ) + 1, 1, 8 );
             const double pw     = width / pieces;
             for( int k = 0; k < pieces; k++ )
             {
-                DVector2 pc = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces ) + n * 3.;
+                // (a little way into the room: right at the opening, it lit the wall round it)
+                DVector2 pc = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces ) + n * 12.;
                 // a window in a recess (a thin roofed sector, the glass on its outer face): the
                 // light at its inner face, in the room -- in the recess it lit mostly the recess
                 if( inner )
@@ -457,7 +455,7 @@ void UploadSkyPortals()
                     if( ql > 1e-6 )
                     {
                         const double t = std::clamp( ( ( pc - q1 ) | qd ) / ql, 0., 1. );
-                        pc = q1 + qd * t + n * 6.;
+                        pc = q1 + qd * t + n * 12.;
                     }
                 }
                 const RgFloat3D pos = WorldToRT( pc.X, pc.Y, ( top + bottom ) * 0.5 );
@@ -476,31 +474,10 @@ void UploadSkyPortals()
                 const float size = float( std::min( pw, h ) ) * ONEGAMEUNIT_IN_METERS;
                 const int   dbg  = *rt_sky_portal_debug;
                 static const float magenta[ 3 ] = { 1.f, 0.f, 1.f };
-                if( dbg == 2 )
-                {
-                    UploadSphere( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), pos, PackColor( magenta ), 5000.f, 0.05f );
-                    g_rtSkyPortalStats.count++;
-                    continue;
-                }
-                // (a small source: a big one stood out of a window's recess into its walls)
-                auto spot = RgLightSpotEXT{
-                    .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
-                    .pNext      = nullptr,
-                    .color      = dbg == 1 ? PackColor( magenta ) : wcolor,
-                    .intensity  = dbg == 1 ? 5000.f : lumens,
-                    .position   = pos,
-                    .direction  = dir,
-                    .radius     = std::clamp( size * 0.15f, 0.05f, 0.3f ),
-                    .angleOuter = 85.f * 3.14159265f / 180.f,
-                    .angleInner = 35.f * 3.14159265f / 180.f,
-                };
-                auto info = RgLightInfo{
-                    .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
-                    .pNext        = &spot,
-                    .uniqueID     = SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ),
-                    .isExportable = false,
-                };
-                RG_CHECK( RT_UploadLight( &info ) );
+                // a small ball (RTGL1's spot lights lit almost nothing here -- a ball of the
+                // same strength lit the room: rt_sky_portal_debug 1 and 2 showed it)
+                UploadSphere( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), pos,
+                              dbg ? PackColor( magenta ) : wcolor, dbg ? 5000.f : lumens, std::clamp( size * 0.1f, 0.05f, 0.2f ) );
                 g_rtSkyPortalStats.count++;
                 g_rtSkyPortalStats.maxLumens = std::max( g_rtSkyPortalStats.maxLumens, lumens );
                 const float dd = std::sqrt( ( pos.data[ 0 ] - cam.data[ 0 ] ) * ( pos.data[ 0 ] - cam.data[ 0 ] ) +
