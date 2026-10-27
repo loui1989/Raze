@@ -624,6 +624,18 @@ void viewProcessSprites(tspriteArray& tsprites, const DVector3& cPos, DAngle cA,
 			if (RT_IsActive() && (const void*)owneractor == g_rtViewerActor)
 			{
 				pTSprite->cstat &= ~CSTAT_SPRITE_XFLIP;
+				// a frame with no voxel model (the voxel pack has all but one of Caleb's walking
+				// frames): the nearest frame that has one -- drawn as a flat picture, his
+				// reflection flickered into a glowing cut-out as he walked
+				if (r_voxels && !tilehasmodelorvoxel(pTSprite->spritetexture(), pTSprite->pal))
+				{
+					const int t = legacyTileNum(pTSprite->spritetexture());
+					for (int dd : { -5, 5, -10, 10, -15, 15, -20, 20, -25, 25, -30, 30 })
+					{
+						const auto id = tileGetTextureID(t + dd);
+						if (id.isValid() && tilehasmodelorvoxel(id, pTSprite->pal)) { pTSprite->setspritetexture(id); break; }
+					}
+				}
 				break;
 			}
 			nAnim = GetOctant(DVector2(cPos.XY() - pTSprite->pos).Rotated(DAngle22_5 - pTSprite->Angles.Yaw));

@@ -43,7 +43,7 @@ CVARD( Bool, rt_lightovr_fixtures, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
 CVARD( Float, rt_moon, 8.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a faint moonlight in games without Duke-RT's lights (Blood), lux; 0 = none" )
 CVARD( Float, rt_moon_angle, 35.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the moon's direction, degrees around" )
-CVARD( Float, rt_skysun, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's own moon or sun -- from the brightest part of the sky in view, tinted by it, as strong as the sky is bright; 0 = the fixed rt_moon instead" )
+CVARD( Float, rt_skysun, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's own moon or sun -- from the brightest part of the sky in view, tinted by it, as strong as the sky is bright; 0 = the fixed rt_moon instead" )
 CVARD( Float, rt_skysun_tint, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much the sky's moon takes the sky's colour (0 white; 1 the sky's own: a red sky's red on red, no contrast)" )
 CVARD( Float, rt_skysun_size, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's moon's size, degrees (small: crisp shadows)" )
 EXTERN_CVAR( Float, rt_sky )

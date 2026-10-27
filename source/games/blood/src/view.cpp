@@ -49,9 +49,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "palettecontainer.h"
 
 EXTERN_CVAR(Float, rt_sprite_light_scale)
+EXTERN_CVAR(Bool, rt_emis_lights)
 
 
 FString RT_SectorWhy(int s);	// hw_bunchdrawer.cpp (rt_lookat)
+int RT_SectorWhyCode(int s);
 TArray<int> RT_SectorOverlapList(int s);
 
 BEGIN_BLD_NS
@@ -1130,6 +1132,10 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				{
 					const float lum = 0.2126f * l.color[0] + 0.7152f * l.color[1] + 0.0722f * l.color[2];
 					if (lum < 0.5f || actor->spr.shade > 16) continue;
+					// flat on the ceiling, its glowing picture casts its light already (rt_emis_lights,
+					// the material table's lamp): a second light under it doubled it -- a room with
+					// sixteen of them (E3M1) blazed white
+					if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR && *rt_emis_lights) continue;
 				}
 				// a lamp on the ceiling: the light just under it, in the room
 				if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR)
@@ -1316,6 +1322,27 @@ CCMD(rt_lookat)
 		for (int si : secs)
 			Printf("  sector %d: %s%s\n", si, RT_SectorWhy(si).GetChars(),
 				RT_CopySector(si) ? FStringf("; drawn again as room-over-room view %d (of %d)", RT_CopySector(si), g_rtCopyUsed).GetChars() : "");
+	}
+	// rooms near (straight line) that the path tracer was not given: what reflections and
+	// light through openings cannot see
+	{
+		FString out;
+		int cnt = 0;
+		for (unsigned si = 0; si < sector.Size(); si++)
+		{
+			const int code = RT_SectorWhyCode(int(si));
+			if (code < 1 || code > 4) continue;
+			DVector2 c(0, 0);
+			for (auto& w : sector[si].walls) c += w.pos;
+			if (sector[si].walls.Size() == 0) continue;
+			c /= double(sector[si].walls.Size());
+			const double dd = (c - view.XY()).Length() / 32.;
+			if (dd > 25) continue;
+			static const char* const why[] = { "", "beyond reach", "overlap nearer", "overlap on screen", "room-over-room" };
+			if (cnt < 40) out.AppendFormat(" %u (%s, %.0f m)", si, why[code], dd);
+			cnt++;
+		}
+		Printf("  rooms within 25 m not given to the path tracer: %d%s%s\n", cnt, cnt ? ":" : "", out.GetChars());
 	}
 	C_DoCommand("rt_portal_info");
 	Printf("  your body (shadows, reflections): %s\n", g_rtViewerDrawn > 0 ?

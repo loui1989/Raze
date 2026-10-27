@@ -803,6 +803,8 @@ TArray<int> RT_SectorOverlapList(int s)
 	if (s >= 0 && unsigned(s) < rt_overlaps.size()) for (int o : rt_overlaps[s]) r.Push(o);
 	return r;
 }
+int RT_SectorWhyCode(int s) { return s < 0 || unsigned(s) >= rt_why.size() ? -1 : rt_why[s]; }
+
 FString RT_SectorWhy(int s)
 {
 	if (s < 0 || unsigned(s) >= rt_why.size()) return "no record";
