@@ -1009,7 +1009,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				// (an orb's halo is not drawn -- its light is all of it -- softer: 1200 washed
 				// the walls by a lamp post out to white; the round lamp a little softer too)
 				l.intensity = tileNo == 624 || tileNo == 625 ? float(clamp(18. * repeat, 80., 600.)) * shade * scale :
-					float(clamp(40. * repeat, 150., 1200.)) * shade * scale * (tileNo == 795 ? 0.8f : 1.f);
+					float(clamp(40. * repeat, 150., 1200.)) * shade * scale * (tileNo == 795 ? 0.6f : 1.f);
 				l.radius = 0.04f;
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 6u;
 				l.sector = actor->sectno();

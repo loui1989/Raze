@@ -1688,6 +1688,11 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
     // a lamp in the ceiling (the material table's lamps: Blood's light panels): a ball
     // of light a little under it, lighting the room all round -- the spot from the panel
     // itself, sunk in its recess, lit the floor under it and little else
+    // (a lamp sprite on the ceiling, Blood's round lamp: softer -- its own light is the game's)
+    if( m_curLampFlat && rtstate.is< RtPrim::Decal >() )
+    {
+        lumens *= 0.6f;
+    }
     if( m_curLampFlat && rtstate.is< RtPrim::CeilingPlane >() )
     {
         const FVector3 p      = centre + n * 0.45f;
@@ -1695,7 +1700,7 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
             .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
             .pNext     = nullptr,
             .color     = color,
-            .intensity = lumens * 0.38f,
+            .intensity = lumens * 0.28f,
             .position  = { p.X, p.Y, p.Z },
             .radius    = std::clamp( float( std::sqrt( area ) ) * 0.25f, 0.05f, 0.3f ),
         };
