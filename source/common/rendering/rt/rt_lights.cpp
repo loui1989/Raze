@@ -350,6 +350,39 @@ std::array< float, 3 > WindowTint( FTextureID texid )
     return t;
 }
 
+// a shut door in the way of a sky opening: a solid sector (a door's panel -- Blood's
+// rotating and sliding doors are a closed sector turning or sliding in the doorway) next
+// to the room or to the sky's sector, one of whose walls crosses the way from 'from' to 'to'
+static bool SkyPortalBlocked( const sectortype& room, const sectortype& sky, const DVector2& from, const DVector2& to )
+{
+    auto crosses = []( const DVector2& a, const DVector2& b, const DVector2& c, const DVector2& d ) {
+        auto side = []( const DVector2& p, const DVector2& q, const DVector2& r ) {
+            return ( q.X - p.X ) * ( r.Y - p.Y ) - ( q.Y - p.Y ) * ( r.X - p.X );
+        };
+        const double d1 = side( c, d, a ), d2 = side( c, d, b ), d3 = side( a, b, c ), d4 = side( a, b, d );
+        return ( ( d1 > 0 ) != ( d2 > 0 ) ) && ( ( d3 > 0 ) != ( d4 > 0 ) );
+    };
+    for( const sectortype* side : { &room, &sky } )
+    {
+        for( auto& w : side->walls )
+        {
+            const sectortype* t = w.nextSector();
+            if( !t || t == &room || t == &sky || t->floorz - t->ceilingz > 4 )
+            {
+                continue;
+            }
+            for( auto& tw : t->walls )
+            {
+                if( crosses( from, to, tw.pos, tw.point2Wall()->pos ) )
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 void UploadSkyPortals()
 {
     if( !s_copyPass )
@@ -393,8 +426,10 @@ void UploadSkyPortals()
             {
                 continue;
             }
-            // from the room's ceiling (the sky's 'ceiling' closes nothing) down to the higher floor
-            const double top = s.ceilingz, bottom = std::min( s.floorz, o->floorz );
+            // from the lower ceiling down to the higher floor (an open sky's 'ceiling' is high
+            // and closes nothing -- but a door under the sky comes down to its floor: shut,
+            // its light glowed on in the room, red on the door's inside)
+            const double top = std::max( s.ceilingz, o->ceilingz ), bottom = std::min( s.floorz, o->floorz );
             const double h   = bottom - top;
             const DVector2 p1 = w.pos, p2 = w.point2Wall()->pos;
             const double   width = ( p2 - p1 ).Length();
@@ -456,6 +491,14 @@ void UploadSkyPortals()
                     {
                         const double t = std::clamp( ( ( pc - q1 ) | qd ) / ql, 0., 1. );
                         pc = q1 + qd * t + n * 12.;
+                    }
+                }
+                // (shut: its door in the way, from the light out to a metre and a half outside)
+                {
+                    const DVector2 onOpening = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces );
+                    if( SkyPortalBlocked( s, *o, pc, onOpening - n * 48. ) )
+                    {
+                        continue;
                     }
                 }
                 const RgFloat3D pos = WorldToRT( pc.X, pc.Y, ( top + bottom ) * 0.5 );
