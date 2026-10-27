@@ -52,6 +52,7 @@ EXTERN_CVAR(Float, rt_sprite_light_scale)
 
 
 FString RT_SectorWhy(int s);	// hw_bunchdrawer.cpp (rt_lookat)
+TArray<int> RT_SectorOverlapList(int s);
 
 BEGIN_BLD_NS
 
@@ -1258,10 +1259,14 @@ CCMD(rt_lookat)
 			if (hit.hitWall) { addSec(hit.hitWall->sectorp()); if (hit.hitWall->twoSided()) addSec(hit.hitWall->nextSector()); }
 			if (hit.hitSector) addSec(hit.hitSector);
 		}
+		// and the rooms in the same place as those
+		for (unsigned k = 0, n0 = secs.Size(); k < n0; k++)
+			for (int o : RT_SectorOverlapList(secs[k])) if (secs.Find(o) == secs.Size()) secs.Push(o);
 		for (int si : secs)
 			Printf("  sector %d: %s%s\n", si, RT_SectorWhy(si).GetChars(),
 				RT_CopySector(si) ? FStringf("; drawn again as room-over-room view %d (of %d)", RT_CopySector(si), g_rtCopyUsed).GetChars() : "");
 	}
+	C_DoCommand("rt_portal_info");
 	Printf("  your body (shadows, reflections): %s\n", g_rtViewerDrawn > 0 ?
 		FStringf("drawn %d time(s) last frame, tile %d, as %s", g_rtViewerDrawn, g_rtViewerDrawnTile, g_rtViewerDrawnModel ? "a voxel model" : "a sprite").GetChars() :
 		"not drawn last frame");

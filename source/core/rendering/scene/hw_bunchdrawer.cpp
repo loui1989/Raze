@@ -797,6 +797,12 @@ static std::vector<std::vector<int>> rt_overlaps;
 // and the overlapping room of 2 and 3
 static std::vector<uint8_t> rt_why;
 static std::vector<int> rt_whyOther;
+TArray<int> RT_SectorOverlapList(int s)
+{
+	TArray<int> r;
+	if (s >= 0 && unsigned(s) < rt_overlaps.size()) for (int o : rt_overlaps[s]) r.Push(o);
+	return r;
+}
 FString RT_SectorWhy(int s)
 {
 	if (s < 0 || unsigned(s) >= rt_why.size()) return "no record";
@@ -804,6 +810,7 @@ FString RT_SectorWhy(int s)
 		"left out: an overlapping room is nearer (rt_hide_overlaps)", "left out: an overlapping room is on screen (rt_hide_overlaps)",
 		"left out: a room-over-room view drawn in its place (rt_portal_views)", "on screen" };
 	FString r = what[std::min<int>(rt_why[s], 5)];
+	r.AppendFormat(" [ceiling %.0f, floor %.0f]", sector[s].ceilingz, sector[s].floorz);
 	if ((rt_why[s] == 2 || rt_why[s] == 3) && unsigned(s) < rt_whyOther.size()) r.AppendFormat(" (%d)", rt_whyOther[s]);
 	if (unsigned(s) < rt_overlaps.size() && !rt_overlaps[s].empty())
 	{
