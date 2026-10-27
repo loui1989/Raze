@@ -14,6 +14,7 @@ const void* g_rtViewerActor = nullptr;
 int         g_rtViewerDrawn = 0, g_rtViewerDrawnTile = -1;
 bool        g_rtViewerDrawnModel = false;
 uint32_t    g_rtFrameNo = 0;
+RtSkyLight  g_rtSkyLight;
 std::vector< uint32_t > g_rtSpriteStage[ 3 ];
 int         g_rtViewSector  = -1;
 std::vector< uint8_t > g_rtCopySector;

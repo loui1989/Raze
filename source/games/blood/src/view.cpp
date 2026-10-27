@@ -1339,6 +1339,12 @@ CCMD(rt_lookat)
 			}
 		}
 	}
+	// the sky's own light (rt_skysun)
+	if (g_rtSkyLight.valid)
+		Printf("  sky light: %.0f deg up, %.0f deg around, colour %.2f %.2f %.2f, %.2f x rt_sky x rt_skysun, %.1f deg wide\n",
+			asin(clamp(double(g_rtSkyLight.dir[2]), -1., 1.)) * 180. / pi::pi(), atan2(g_rtSkyLight.dir[1], g_rtSkyLight.dir[0]) * 180. / pi::pi(),
+			g_rtSkyLight.color[0], g_rtSkyLight.color[1], g_rtSkyLight.color[2], g_rtSkyLight.irradiance, g_rtSkyLight.diameter);
+	else Printf("  sky light: none yet (no sky seen on this level)\n");
 	// the sprites a lantern's light is made for, near
 	{
 		TSpriteIterator<DCoreActor> lit;

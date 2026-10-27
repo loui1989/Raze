@@ -938,6 +938,23 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     }
 
     RgTransform transform = isUI ? RT_TRANSFORM_IDENTITY : MakeTransform( isSky, isModel );
+    // the sky's light: its direction from the dome's axes to the world's
+    if( isSky && g_rtSkyLight.pending )
+    {
+        float d[ 3 ];
+        for( int i = 0; i < 3; i++ )
+        {
+            d[ i ] = transform.matrix[ i ][ 0 ] * g_rtSkyLight.local[ 0 ] + transform.matrix[ i ][ 1 ] * g_rtSkyLight.local[ 1 ] +
+                     transform.matrix[ i ][ 2 ] * g_rtSkyLight.local[ 2 ];
+        }
+        const float len = std::sqrt( d[ 0 ] * d[ 0 ] + d[ 1 ] * d[ 1 ] + d[ 2 ] * d[ 2 ] );
+        if( len > 1e-6f )
+        {
+            for( int i = 0; i < 3; i++ ) g_rtSkyLight.dir[ i ] = d[ i ] / len;
+            g_rtSkyLight.valid = true;
+        }
+        g_rtSkyLight.pending = false;
+    }
     // a voxel model drawn twice at the same place (two passes reach its sprite) is the
     // same mesh twice: twice the triangles, all of them overlapping
     if( isModel )

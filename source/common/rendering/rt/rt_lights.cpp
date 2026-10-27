@@ -43,6 +43,8 @@ CVARD( Bool, rt_lightovr_fixtures, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 
 CVARD( Bool, rt_sector_lights_outdoor, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sector lights under the sky too" )
 CVARD( Float, rt_moon, 8.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a faint moonlight in games without Duke-RT's lights (Blood), lux; 0 = none" )
 CVARD( Float, rt_moon_angle, 35.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the moon's direction, degrees around" )
+CVARD( Float, rt_skysun, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's own moon or sun -- from the brightest part of the sky in view, in its colour -- times the sky's light on the ground; 0 = the fixed rt_moon instead" )
+EXTERN_CVAR( Float, rt_sky )
 CVARD( Float, rt_lightning, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a lightning flash's light from the sky, lux (Blood's storms)" )
 CVARD( Float, rt_game_light_scale, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the lights the game names (Blood: explosions, fire, flares)" )
 CVARD( Float, rt_light_reach, 40.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lights further than this (metres, walking through openings) from the view are left out; 0 = all lights" )
@@ -552,7 +554,42 @@ void UploadOverlayLights( uint32_t time )
     // comes from everywhere: flat)
     // (a lightning flash is this light too, many times brighter: RTGL1 has one sun)
     const float flash = std::clamp( g_rtSkyFlash, 0.f, 1.f ) * std::max( 0.f, float( *rt_lightning ) );
-    if( set.directionalRules.Size() == 0 && set.actorRules.Size() == 0 && !s_copyPass && *rt_moon + flash > 0.f )
+    // the sky's own light (any game, unless the map has its own sun): from where the sky
+    // in view is brightest -- Blood's moon, a glowing stretch of clouds -- in its colour
+    // (a red sky's is red), as strong as the sky is bright; a level's own (it keeps it
+    // indoors, where the sky is not drawn)
+    static uint32_t s_skyGen = ~0u;
+    if( s_skyGen != RT_LevelGeneration() )
+    {
+        s_skyGen            = RT_LevelGeneration();
+        g_rtSkyLight.valid  = false;
+    }
+    if( set.directionalRules.Size() == 0 && !s_copyPass && *rt_skysun > 0.f && g_rtSkyLight.valid &&
+        g_rtSkyLight.irradiance > 0.f )
+    {
+        const float sun = *rt_skysun * g_rtSkyLight.irradiance * std::max( 0.f, float( *rt_sky ) );
+        const float mf  = flash / ( flash + sun + 1e-3f );
+        const float flashc[ 3 ] = { 0.92f, 0.95f, 1.f };
+        float c[ 3 ];
+        for( int i = 0; i < 3; i++ ) c[ i ] = g_rtSkyLight.color[ i ] * ( 1.f - mf ) + flashc[ i ] * mf;
+        const float* d = g_rtSkyLight.dir;
+        auto dir = RgLightDirectionalEXT{
+            .sType                  = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
+            .pNext                  = nullptr,
+            .color                  = PackColor( c ),
+            .intensity              = sun + flash,
+            .direction              = { -d[ 0 ], -d[ 1 ], -d[ 2 ] },
+            .angularDiameterDegrees = g_rtSkyLight.diameter,
+        };
+        auto info = RgLightInfo{
+            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+            .pNext        = &dir,
+            .uniqueID     = MapLightBase - 2,
+            .isExportable = false,
+        };
+        RG_CHECK( RT_UploadLight( &info ) );
+    }
+    else if( set.directionalRules.Size() == 0 && set.actorRules.Size() == 0 && !s_copyPass && *rt_moon + flash > 0.f )
     {
         const float  az = float( *rt_moon_angle ) * 3.14159265f / 180.f, el = 50.f * 3.14159265f / 180.f;
         const RgFloat3D toLight = { std::cos( el ) * std::cos( az ), std::cos( el ) * std::sin( az ), std::sin( el ) };

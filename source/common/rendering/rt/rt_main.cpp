@@ -94,6 +94,8 @@ CVARD( Float, rt_ev100_max, 7.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye ada
 CVARD( Float, rt_white_point, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping white point" )
 CVARD( Float, rt_contrast, 0.1f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping contrast" )
 CVARD( Float, rt_sky_saturation, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky saturation" )
+CVARD( Bool, rt_sun_require_sky, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sun or moon lights only what can see the sky (not rooms it reaches through gaps in the walls; the sky must be drawn there, nearby)" )
+CVARD( Bool, rt_sun_split, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sun or moon gets its own shadow ray per pixel (cleaner shadows, a little slower)" )
 CVARD( Int, rt_bounces, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: indirect light bounces" )
 CVARD( Bool, rt_volumetrics, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: volumetric light (haze, light shafts) and smoke" )
 CVARD( Float, rt_volume_far, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres the volume reaches (the reach of haze and smoke)" )
@@ -913,11 +915,11 @@ void RTFrameBuffer::RT_DrawFrame()
         .skyViewerPosition           = { 0, 0, 0 },
         .pSkyCubemapTextureName      = nullptr,
         .skyCubemapRotationTransform = {},
-        .sunRequireSky               = 0.0f,
+        .sunRequireSky               = *rt_sun_require_sky ? 1.0f : 0.0f,
         .sunLeakDebug                = 0.0f,
         .sunLeakDebugMul             = 1.0f,
         .sunSkyProbeMaxDist          = 10000.0f,
-        .sunSplit                    = 0.0f,
+        .sunSplit                    = *rt_sun_split ? 1.0f : 0.0f,
     };
 
     auto textures = RgDrawFrameTexturesParams{

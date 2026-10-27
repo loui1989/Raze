@@ -46,6 +46,19 @@ extern bool g_rtViewerDrawnModel;
 // per sprite (its actor's index), the frame it last got to each stage of drawing
 // (rt_lookat): 0 processed (the game gave it), 1 placed (a picture or model made), 2 drawn
 extern uint32_t g_rtFrameNo;
+// The light of the sky in view (a Build sky's picture): from its brightest part, its
+// colour. The sky's draw gives the direction in the dome's own axes (pending); the
+// backend turns it into the world's (dir: towards the light, z up) as it draws the sky
+struct RtSkyLight
+{
+    bool  pending = false, valid = false;
+    float local[ 3 ]{};
+    float dir[ 3 ]{ 0, 0, 1 };
+    float color[ 3 ]{ 1, 1, 1 };
+    float irradiance = 0.f;   // per rt_sky: pi * its average radiance, more for a bright moon
+    float diameter   = 2.f;   // degrees: a moon's small, a bright stretch of clouds' wide
+};
+extern RtSkyLight g_rtSkyLight;
 extern std::vector< uint32_t > g_rtSpriteStage[ 3 ];
 inline void RT_MarkSprite( int index, int stage )
 {

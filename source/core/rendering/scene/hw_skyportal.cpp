@@ -26,6 +26,7 @@
 #include "rt_state.h"
 #include "hw_renderstate.h"
 #include "skyboxtexture.h"
+#include "bitmap.h"
 #include "v_video.h"
 #include "hwrenderer/data/buffers.h"
 #include <map>
@@ -56,7 +57,114 @@ struct RTSkyDome
 	IVertexBuffer* vb = nullptr;
 	int capUp = 0, capDn = 0, capN = 0;		// the two cap fans
 	int stripUp = 0, stripDn = 0, strips = 0, stripN = 0;	// the picture's rows, each a strip
+	// its light (the dome's axes, y up): towards its brightest part, its colour
+	bool  lightOk = false;
+	float lightDir[3] = { 0, 1, 0 }, lightColor[3] = { 1, 1, 1 }, lightIrr = 0, lightDiam = 2;
 };
+
+// a sky's light, from its picture above the horizon as the dome shows it: where its
+// brightest part is (a moon; a glowing stretch of clouds), how bright, what colour
+void RTSkyLightOf(RTSkyDome& d, FGameTexture* tex, double th0, double base, const std::function<double(double)>& tOf, double thTop)
+{
+	constexpr double pi = 3.14159265358979;
+	FBitmap bm = tex->GetTexture()->GetBgraBitmap(nullptr);
+	const int W = bm.GetWidth(), H = bm.GetHeight();
+	const uint8_t* px = bm.GetPixels();
+	if (!px || W <= 0 || H <= 0) return;
+	// the elevation of each row of the picture (its rows go up the sky as t falls)
+	constexpr int N = 400;
+	double rowAt[N + 1];
+	for (int i = 0; i <= N; i++) rowAt[i] = (tOf(thTop * i / N) - base) * H;
+	auto thOfRow = [&](double row) -> double
+	{
+		if (row >= rowAt[0]) return -1;	// under the horizon
+		for (int i = 0; i < N; i++)
+			if (row <= rowAt[i] && row >= rowAt[i + 1])
+			{
+				const double f = rowAt[i] - rowAt[i + 1] > 1e-9 ? (rowAt[i] - row) / (rowAt[i] - rowAt[i + 1]) : 0;
+				return thTop * (i + f) / N;
+			}
+		return thTop;
+	};
+	double linLut[256];
+	for (int i = 0; i < 256; i++) linLut[i] = pow(i / 255., 2.2);
+	auto lin = [&](uint8_t c) { return linLut[c]; };
+	// the sky in 10 degree patches: how bright each is on average, its colour, where its
+	// light comes from within it
+	constexpr int AZ = 36, EL = 9;
+	struct Patch { double lum = 0, area = 0, rgb[3] = {}, dir[3] = {}; };
+	Patch patch[EL][AZ];
+	double avg[3] = {}, area = 0;
+	for (int y = 0; y < H; y++)
+	{
+		const double th = thOfRow(y + 0.5);
+		if (th < 0) continue;
+		const double dth = fabs(thOfRow(y + 1.) - thOfRow(double(y))) + 1e-9;
+		const double dOmega = cos(th) * dth * 2 * pi / W;
+		const int e = min(EL - 1, int(th * 180 / pi / 10));
+		for (int x = 0; x < W; x++)
+		{
+			const uint8_t* c = &px[(size_t(y) * W + x) * 4];	// BGRA
+			if (c[3] < 128) continue;
+			const double r = lin(c[2]), g = lin(c[1]), b = lin(c[0]);
+			const double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+			const double phi = (0.5 - (x + 0.5) / W) * 2 * pi;
+			const int a = (int(floor(phi * 180 / pi / 10)) % AZ + AZ) % AZ;
+			auto& pt = patch[e][a];
+			pt.lum += lum * dOmega; pt.area += dOmega;
+			pt.rgb[0] += r * dOmega; pt.rgb[1] += g * dOmega; pt.rgb[2] += b * dOmega;
+			pt.dir[0] += lum * dOmega * cos(th) * cos(phi); pt.dir[1] += lum * dOmega * sin(th); pt.dir[2] += lum * dOmega * cos(th) * sin(phi);
+			avg[0] += r * dOmega; avg[1] += g * dOmega; avg[2] += b * dOmega; area += dOmega;
+		}
+	}
+	if (area <= 0) return;
+	for (auto& v : avg) v /= area;
+	const double avgLum = 0.2126 * avg[0] + 0.7152 * avg[1] + 0.0722 * avg[2];
+	if (avgLum <= 1e-6) return;
+	// the brightest stretch of sky (a patch with its neighbours: some 30 degrees across)
+	double best = -1;
+	int be = 0, ba = 0;
+	for (int e = 0; e < EL; e++)
+		for (int a = 0; a < AZ; a++)
+		{
+			double l = 0, o = 0;
+			for (int de = -1; de <= 1; de++)
+				for (int da = -1; da <= 1; da++)
+				{
+					const int ee = e + de;
+					if (ee < 0 || ee >= EL) continue;
+					const auto& pt = patch[ee][(a + da + AZ) % AZ];
+					l += pt.lum; o += pt.area;
+				}
+			if (o > 0 && l / o > best) { best = l / o; be = e; ba = a; }
+		}
+	double dir[3] = {}, rgb[3] = {}, o = 0;
+	for (int de = -1; de <= 1; de++)
+		for (int da = -1; da <= 1; da++)
+		{
+			const int ee = be + de;
+			if (ee < 0 || ee >= EL) continue;
+			const auto& pt = patch[ee][(ba + da + AZ) % AZ];
+			for (int i = 0; i < 3; i++) { dir[i] += pt.dir[i]; rgb[i] += pt.rgb[i]; }
+			o += pt.area;
+		}
+	const double len = sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+	if (len <= 0 || o <= 0) return;
+	// up the sky enough to light the ground and cast shadows of a sensible length (a
+	// glow on the horizon lit rooms sideways through their windows), not straight down
+	const double az = atan2(dir[2], dir[0]);
+	const double el = clamp(atan2(dir[1], sqrt(dir[0] * dir[0] + dir[2] * dir[2])), 30. * pi / 180., 60. * pi / 180.);
+	d.lightDir[0] = float(cos(el) * cos(az)); d.lightDir[1] = float(sin(el)); d.lightDir[2] = float(cos(el) * sin(az));
+	const double mx = max({ rgb[0], rgb[1], rgb[2] });
+	if (mx <= 0) return;
+	for (int i = 0; i < 3; i++) d.lightColor[i] = float(0.9 * rgb[i] / mx + 0.1);
+	// as bright as the sky's light on the ground (pi times its average radiance), more
+	// the more its bright stretch stands out; softer shadows from a wide, even glow
+	const double ratio = clamp(best / avgLum, 1., 4.);
+	d.lightIrr  = float(pi * avgLum * sqrt(ratio));
+	d.lightDiam = float(clamp(12. / ratio, 2., 6.));
+	d.lightOk   = true;
+}
 
 std::map<std::tuple<const void*, float, float, float>, RTSkyDome> s_rtDomes;
 
@@ -117,6 +225,7 @@ const RTSkyDome& RTBuildDome(FGameTexture* tex, float texh, float repeat_fac, fl
 		v.Push(sv);
 	};
 	RTSkyDome d;
+	RTSkyLightOf(d, tex, th0, floor(th0 - 1e-4), [&](double th) { return th0 - (th0 - tTopUp) * min(1., hUp(th)); }, thTop);
 	// the caps: a fan from the pole
 	d.capN = cols + 2;
 	for (int up = 1; up >= 0; up--)
@@ -211,9 +320,20 @@ void HWSkyPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 			repeat_fac = 336.f / texh;
 			texh = 336;
 		}
-		if (RT_IsActive() && rt_sky_dome)
+		const RTSkyDome* rtd = RT_IsActive() ? &RTBuildDome(tex, texh, repeat_fac, -40.f + texskyoffset * skyoffsetfactor) : nullptr;
+		if (rtd && rtd->lightOk)
 		{
-			const auto& d = RTBuildDome(tex, texh, repeat_fac, -40.f + texskyoffset * skyoffsetfactor);
+			// its light: in the dome's axes (the backend turns it into the world's with the
+			// dome's own transform -- its rotation -- when it draws the sky)
+			for (int i = 0; i < 3; i++) g_rtSkyLight.local[i] = rtd->lightDir[i];
+			for (int i = 0; i < 3; i++) g_rtSkyLight.color[i] = rtd->lightColor[i];
+			g_rtSkyLight.irradiance = rtd->lightIrr;
+			g_rtSkyLight.diameter = rtd->lightDiam;
+			g_rtSkyLight.pending = true;
+		}
+		if (rtd && rt_sky_dome)
+		{
+			const auto& d = *rtd;
 			state.SetVertexBuffer(d.vb, 0, 0);
 			state.SetIndexBuffer(nullptr);
 			modelMatrix.loadIdentity();
