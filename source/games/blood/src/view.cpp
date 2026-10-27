@@ -50,6 +50,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 EXTERN_CVAR(Float, rt_sprite_light_scale)
 EXTERN_CVAR(Bool, rt_emis_lights)
+// torches, braziers, candelabras: a flame's light (1 = as before: it blew the walls by a
+// wall torch out to white)
+CVARD(Float, rt_torch_light, 0.6f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how bright a torch's or a brazier's flame lights its surroundings")
 
 
 FString RT_SectorWhy(int s);	// hw_bunchdrawer.cpp (rt_lookat)
@@ -1209,7 +1212,8 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 					p = DVector3(bestC + n * 10, p.Z);
 				}
 			}
-			const float lumens = 900.f * max(glow >= 0.02f ? sqrtf(min(glow / 0.2f, 1.5f)) : 0.f, flameLight) * scale * flicker(actor);
+			const float lumens = 900.f * max(glow >= 0.02f ? sqrtf(min(glow / 0.2f, 1.5f)) : 0.f, flameLight) * scale * flicker(actor) *
+				max(0.f, float(*rt_torch_light));
 			RtGameLight l;
 			l.pos[0] = p.X; l.pos[1] = p.Y; l.pos[2] = p.Z;
 			l.color[0] = 1.f; l.color[1] = 0.6f; l.color[2] = 0.28f;

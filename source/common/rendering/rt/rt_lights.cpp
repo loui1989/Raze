@@ -300,10 +300,17 @@ void UploadSphere( uint64_t id, const RgFloat3D& pos, RgColor4DPacked32 color, f
 // opening): through its see-through texels all of it; through stained glass its
 // colours, as the path tracer filters a view through it (darker texels -- the
 // leading -- less); through the solid texels of bars and grates none
-std::array< float, 3 > WindowTint( FTextureID texid )
+// per column of the picture: what comes through it (summed over the column), so a part
+// of a window -- one of a wide window's lights -- gets the colours of its own panes
+struct WindowCols
 {
-    static std::unordered_map< int, std::array< float, 3 > > cache;
-    static uint32_t                                          gen = ~0u;
+    std::vector< std::array< float, 3 > > col;	// per texel column, the mean over its height
+    float                                 tileWidth = 1.f;	// the picture's width in tile texels (panning, repeats)
+};
+static const WindowCols& WindowColumns( FTextureID texid )
+{
+    static std::unordered_map< int, WindowCols > cache;
+    static uint32_t                              gen = ~0u;
     if( gen != RT_LevelGeneration() )
     {
         cache.clear();
@@ -313,41 +320,74 @@ std::array< float, 3 > WindowTint( FTextureID texid )
     {
         return it->second;
     }
-    std::array< float, 3 > t = { 1.f, 1.f, 1.f };
+    WindowCols wc;
     auto gt = TexMan.GetGameTexture( texid );
     if( gt && gt->GetTexture() )
     {
+        wc.tileWidth     = std::max( 1.f, float( gt->GetDisplayWidth() ) );
         const bool glass = RT_TableGlass( legacyTileNum( texid ) );
         FBitmap    bm    = gt->GetTexture()->GetBgraBitmap( nullptr );
         const uint8_t* px = bm.GetPixels();
-        const int      n  = bm.GetWidth() * bm.GetHeight();
-        if( px && n > 0 )
+        const int      w  = bm.GetWidth(), h = bm.GetHeight();
+        if( px && w > 0 && h > 0 )
         {
-            double sum[ 3 ] = {};
-            for( int i = 0; i < n; i++ )
+            wc.col.assign( size_t( w ), { 0.f, 0.f, 0.f } );
+            for( int x = 0; x < w; x++ )
             {
-                const uint8_t* c = &px[ size_t( i ) * 4 ];   // BGRA
-                if( c[ 3 ] < 128 )
+                double sum[ 3 ] = {};
+                for( int y = 0; y < h; y++ )
                 {
-                    sum[ 0 ] += 1; sum[ 1 ] += 1; sum[ 2 ] += 1;
-                    continue;
+                    const uint8_t* c = &px[ ( size_t( y ) * size_t( w ) + size_t( x ) ) * 4 ];   // BGRA
+                    if( c[ 3 ] < 128 )
+                    {
+                        sum[ 0 ] += 1; sum[ 1 ] += 1; sum[ 2 ] += 1;
+                        continue;
+                    }
+                    if( !glass )
+                    {
+                        continue;
+                    }
+                    const double r = std::pow( c[ 2 ] / 255., 2.2 ), g = std::pow( c[ 1 ] / 255., 2.2 ), b = std::pow( c[ 0 ] / 255., 2.2 );
+                    const double m = std::max( { r, g, b } );
+                    const double hue[ 3 ] = { r / std::max( m, 0.002 ), g / std::max( m, 0.002 ), b / std::max( m, 0.002 ) };
+                    const double s = std::clamp( ( m - 0.015 ) / ( 0.22 - 0.015 ), 0., 1. );
+                    const double through = s * s * ( 3 - 2 * s );
+                    for( int k = 0; k < 3; k++ ) sum[ k ] += ( 0.1 + 0.9 * hue[ k ] ) * through;
                 }
-                if( !glass )
-                {
-                    continue;
-                }
-                const double r = std::pow( c[ 2 ] / 255., 2.2 ), g = std::pow( c[ 1 ] / 255., 2.2 ), b = std::pow( c[ 0 ] / 255., 2.2 );
-                const double m = std::max( { r, g, b } );
-                const double hue[ 3 ] = { r / std::max( m, 0.002 ), g / std::max( m, 0.002 ), b / std::max( m, 0.002 ) };
-                const double s = std::clamp( ( m - 0.015 ) / ( 0.22 - 0.015 ), 0., 1. );
-                const double through = s * s * ( 3 - 2 * s );
-                for( int k = 0; k < 3; k++ ) sum[ k ] += ( 0.1 + 0.9 * hue[ k ] ) * through;
+                for( int k = 0; k < 3; k++ ) wc.col[ size_t( x ) ][ k ] = float( sum[ k ] / h );
             }
-            for( int k = 0; k < 3; k++ ) t[ k ] = float( sum[ k ] / n );
         }
     }
-    cache[ texid.GetIndex() ] = t;
+    return cache[ texid.GetIndex() ] = std::move( wc );
+}
+
+// through the columns from u0 to u1 (tile texels; wrapping), or the whole picture
+static std::array< float, 3 > WindowTintSpan( FTextureID texid, double u0, double u1 )
+{
+    const WindowCols& wc = WindowColumns( texid );
+    std::array< float, 3 > t = { 1.f, 1.f, 1.f };
+    const int w = int( wc.col.size() );
+    if( w == 0 )
+    {
+        return t;
+    }
+    if( u1 < u0 ) std::swap( u0, u1 );
+    const double scale = w / double( wc.tileWidth );
+    int x0 = int( std::floor( u0 * scale ) ), x1 = int( std::ceil( u1 * scale ) );
+    if( x1 - x0 >= w || x1 <= x0 ) { x0 = 0; x1 = w; }
+    double sum[ 3 ] = {};
+    for( int x = x0; x < x1; x++ )
+    {
+        const auto& c = wc.col[ size_t( ( ( x % w ) + w ) % w ) ];
+        for( int k = 0; k < 3; k++ ) sum[ k ] += c[ k ];
+    }
+    for( int k = 0; k < 3; k++ ) t[ k ] = float( sum[ k ] / ( x1 - x0 ) );
     return t;
+}
+
+std::array< float, 3 > WindowTint( FTextureID texid )
+{
+    return WindowTintSpan( texid, 0., 1e9 );
 }
 
 // a shut door in the way of a sky opening: a sector next to the room, to the sky's sector
@@ -457,39 +497,92 @@ void UploadSkyPortals()
             {
                 n = -n;
             }
-            // a window's picture in it: its colour (stained glass), less through bars
-            std::array< float, 3 > tint = { 1.f, 1.f, 1.f };
+            // (a recess's inner face: a wall of it, into another roofed room, parallel to the
+            // opening -- and on through recesses behind it: Blood E4M1's stained glass is the
+            // wall between two thin sectors, one in from the opening, the room one further)
+            const walltype*              inner = nullptr;
+            std::vector< const walltype* > layers;	// the walls the light comes in through
             {
-                const walltype* mw = ( w.cstat & CSTAT_WALL_MASKED ) ? &w : nullptr;
-                if( !mw && w.nextWall() && ( w.nextWall()->cstat & CSTAT_WALL_MASKED ) ) mw = w.nextWall();
-                if( mw && mw->overtexture.isValid() ) tint = WindowTint( mw->overtexture );
+                const sectortype* cur   = &s;
+                double            depth0 = 0.;
+                const DVector2    d1     = ( p2 - p1 ).Unit();
+                for( int level = 0; level < 3 && cur; level++ )
+                {
+                    // (on only through a recess: a thin sector, not the room itself)
+                    if( level > 0 )
+                    {
+                        double lo = 1e30, hi = -1e30;
+                        for( auto& w3 : cur->walls )
+                        {
+                            const double dd = ( w3.pos - mid ) | n;
+                            lo = std::min( lo, dd );
+                            hi = std::max( hi, dd );
+                        }
+                        if( hi - lo > 64. ) break;
+                    }
+                    const walltype* found = nullptr;
+                    double          fd    = 0.;
+                    for( auto& w2 : cur->walls )
+                    {
+                        auto r = w2.nextSector();
+                        if( &w2 == &w || !r || r == &s || ( r->ceilingstat & CSTAT_SECTOR_SKY ) ) continue;
+                        if( inner && w2.nextWall() == inner ) continue;
+                        const DVector2 d2 = ( w2.point2Wall()->pos - w2.pos ).Unit();
+                        if( std::abs( d1.X * d2.X + d1.Y * d2.Y ) < 0.95 ) continue;
+                        const DVector2 m2    = ( w2.pos + w2.point2Wall()->pos ) * 0.5;
+                        const double   depth = ( m2 - mid ) | n;
+                        if( depth > depth0 + 2. && depth < depth0 + 64. ) { found = &w2; fd = depth; break; }   // (up to 2 m deep)
+                    }
+                    if( !found ) break;
+                    inner  = found;
+                    depth0 = fd;
+                    layers.push_back( found );
+                    cur = found->nextSector();
+                }
             }
-            const float tmax = std::max( { tint[ 0 ], tint[ 1 ], tint[ 2 ] } );
-            if( tmax <= 0.01f )
+            // a window's picture in it, or in a recess's wall behind it: its colour (stained
+            // glass), less through bars -- per light, the panes in front of it
+            std::vector< const walltype* > glassWalls;
             {
-                continue;
+                auto add = [ & ]( const walltype& lw ) {
+                    const walltype* mw = ( lw.cstat & CSTAT_WALL_MASKED ) ? &lw : nullptr;
+                    if( !mw && lw.nextWall() && ( lw.nextWall()->cstat & CSTAT_WALL_MASKED ) ) mw = lw.nextWall();
+                    if( mw && mw->overtexture.isValid() ) glassWalls.push_back( mw );
+                };
+                add( w );
+                for( const walltype* lw : layers ) add( *lw );
             }
-            const float             lc[ 3 ] = { c[ 0 ] * tint[ 0 ], c[ 1 ] * tint[ 1 ], c[ 2 ] * tint[ 2 ] };
-            const float             lm      = std::max( { lc[ 0 ], lc[ 1 ], lc[ 2 ], 1e-4f } );
-            const float             ln[ 3 ] = { lc[ 0 ] / lm, lc[ 1 ] / lm, lc[ 2 ] / lm };
-            const RgColor4DPacked32 wcolor  = PackColor( ln );
-            // (the light's strength: the window's share of the sky's, by the brightness of its tint)
-            const float through = 0.2126f * lc[ 0 ] + 0.7152f * lc[ 1 ] + 0.0722f * lc[ 2 ];
+            // through the part of a picture over the stretch of the opening from a to b
+            auto tintOver = [ & ]( const DVector2& a, const DVector2& b ) {
+                std::array< float, 3 > t = { 1.f, 1.f, 1.f };
+                for( const walltype* mw : glassWalls )
+                {
+                    const DVector2 q1 = mw->pos, qd = mw->point2Wall()->pos - q1;
+                    const double   ql = qd.LengthSquared();
+                    double         u0 = 0., u1 = 1e9;
+                    if( ql > 1e-6 )
+                    {
+                        // Build's wall mapping: the repeat is 8 texels a unit, from the panning
+                        const double ta = ( ( a - q1 ) | qd ) / ql, tb = ( ( b - q1 ) | qd ) / ql;
+                        u0 = mw->xpan_ + std::clamp( ta, 0., 1. ) * mw->xrepeat * 8.;
+                        u1 = mw->xpan_ + std::clamp( tb, 0., 1. ) * mw->xrepeat * 8.;
+                    }
+                    const auto wt = WindowTintSpan( mw->overtexture, u0, u1 );
+                    for( int i = 0; i < 3; i++ ) t[ i ] *= wt[ i ];
+                }
+                return t;
+            };
             const float through0 = std::max( 1e-4f, 0.2126f * c[ 0 ] + 0.7152f * c[ 1 ] + 0.0722f * c[ 2 ] );
-            // (a recess's inner face: a wall of it, into another roofed room, parallel to the opening)
-            const walltype* inner = nullptr;
-            for( auto& w2 : s.walls )
             {
-                auto r = w2.nextSector();
-                if( &w2 == &w || !r || ( r->ceilingstat & CSTAT_SECTOR_SKY ) ) continue;
-                const DVector2 d2 = ( w2.point2Wall()->pos - w2.pos ).Unit();
-                const DVector2 d1 = ( p2 - p1 ).Unit();
-                if( std::abs( d1.X * d2.X + d1.Y * d2.Y ) < 0.95 ) continue;
-                const DVector2 m2 = ( w2.pos + w2.point2Wall()->pos ) * 0.5;
-                const double   depth = ( m2 - mid ) | n;
-                if( depth > 2. && depth < 64. ) { inner = &w2; break; }   // (up to 2 m deep)
+                const auto  tw   = tintOver( p1, p2 );
+                const float tmax = std::max( { tw[ 0 ], tw[ 1 ], tw[ 2 ] } );
+                if( tmax <= 0.01f )
+                {
+                    continue;
+                }
             }
-            const int    pieces = std::clamp( int( width / Piece ) + 1, 1, 8 );
+            // (stained glass: smaller lights, each with the colours of its own panes)
+            const int    pieces = std::clamp( int( width / ( glassWalls.empty() ? Piece : Piece * 0.5 ) ) + 1, 1, 8 );
             const double pw     = width / pieces;
             for( int k = 0; k < pieces; k++ )
             {
@@ -551,6 +644,13 @@ void UploadSkyPortals()
                 }
                 // the light outside through its area (rt_sky_portals: more, Blood's skies are dark)
                 const float area   = float( pw * h ) * ONEGAMEUNIT_IN_METERS * ONEGAMEUNIT_IN_METERS;
+                // (its colour and share: the panes in front of this light)
+                const auto              tint    = tintOver( p1 + ( p2 - p1 ) * ( double( k ) / pieces ), p1 + ( p2 - p1 ) * ( double( k + 1 ) / pieces ) );
+                const float             lc[ 3 ] = { c[ 0 ] * tint[ 0 ], c[ 1 ] * tint[ 1 ], c[ 2 ] * tint[ 2 ] };
+                const float             lm      = std::max( { lc[ 0 ], lc[ 1 ], lc[ 2 ], 1e-4f } );
+                const float             ln[ 3 ] = { lc[ 0 ] / lm, lc[ 1 ] / lm, lc[ 2 ] / lm };
+                const RgColor4DPacked32 wcolor  = PackColor( ln );
+                const float             through = 0.2126f * lc[ 0 ] + 0.7152f * lc[ 1 ] + 0.0722f * lc[ 2 ];
                 const float lumens = *rt_sky_portals * outside * area * fade * open * ( through / through0 );
                 if( lumens <= 0.05f )
                 {
