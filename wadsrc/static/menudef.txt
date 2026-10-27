@@ -2234,6 +2234,7 @@ OptionMenu "RTOptions" protected
 	Slider "Light reach (metres, 0 = all)",	"rt_light_reach", 0, 100, 5, 0
 	Slider "Rooms off screen within (metres, 0 = all)",	"rt_offscreen_reach", 0, 200, 10, 0
 	Slider "Bounce light paths per pixel",	"rt_samples_indirect", 1, 4, 1, 0
+	Option "Half-rate bounce light (faster)",	"rt_gi_halfrate", "OnOff"
 	Slider "Light bounces",				"rt_bounces", 1, 4, 1, 0
 	Slider "Minimum roughness",			"rt_min_roughness", 0, 1, 0.05, 2
 	Option "Mirror-like polished surfaces",	"rt_polish", "OnOff"

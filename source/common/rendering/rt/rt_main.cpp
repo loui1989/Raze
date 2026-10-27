@@ -71,6 +71,7 @@ CVARD( Float, rt_denoise_sens_indirect, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, 
 // more samples per pixel: less noise to clean up, so newly seen places settle faster
 CVARD( Int, rt_samples_direct, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: direct light samples per pixel (1..8; each costs a shadow ray)" )
 CVARD( Int, rt_samples_indirect, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bounce light paths per pixel (1..8; costly)" )
+CVARD( Bool, rt_gi_halfrate, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: bounce light traced for half of the pixels each frame (alternating; the rest reuse it) -- faster, a little softer and slower to settle" )
 CVARD( Float, rt_water_waves, 0.8f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strongly water and slime ripple (0 = flat)" )
 CVARD( Float, rt_water_wave_speed, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how fast the ripples move" )
 CVARD( Float, rt_water_wave_size, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ripple size (smaller = finer ripples)" )
@@ -801,7 +802,8 @@ void RTFrameBuffer::RT_DrawFrame()
         .restirTemporalJitter                        = 2.0f,
         .rrSpecularHitDistance                       = true,
         .directSamples                               = uint32_t( std::clamp( int( *rt_samples_direct ), 1, 8 ) ),
-        .indirectSamples                             = uint32_t( std::clamp( int( *rt_samples_indirect ), 1, 8 ) ),
+        // (0: half rate, see rt_gi_halfrate -- one path for half of the pixels)
+        .indirectSamples                             = *rt_gi_halfrate ? 0u : uint32_t( std::clamp( int( *rt_samples_indirect ), 1, 8 ) ),
         .restirInitialSamples                        = uint32_t( std::clamp( int( *rt_restir_initial ), 1, 64 ) ),
         .restirSpatialSamples                        = uint32_t( std::clamp( int( *rt_restir_spatial ), 1, 16 ) ),
         .restirSpatialRadius                         = 30.0f,
