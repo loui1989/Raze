@@ -48,6 +48,7 @@ CVARD( Float, rt_skysun, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's o
 CVARD( Float, rt_skysun_tint, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much the sky's moon takes the sky's colour (0 white; 1 the sky's own: a red sky's red on red, no contrast)" )
 CVARD( Float, rt_skysun_size, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's moon's size, degrees (small: crisp shadows)" )
 EXTERN_CVAR( Float, rt_sky )
+int RT_SectorWhyCode( int s );	// hw_bunchdrawer.cpp: why a sector was or was not given (5: on screen)
 EXTERN_CVAR( Bool, rt_glass_shadows )
 CVARD( Int, rt_sky_portal_debug, 0, 0, "RT: sky portals as bright magenta lights (1) -- to see where they are and what they light" )
 CVARD( Float, rt_sky_portals, 35.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: windows and openings to the sky light the room behind them with the sky's own light (sky portals), this strong; 0 = off" )
@@ -234,6 +235,16 @@ float ReachFade( const RgFloat3D& p, int sect )
     const float    reach = *rt_light_reach;
     const FVector3 pp{ p.data[ 0 ], p.data[ 1 ], p.data[ 2 ] };
     float          d;
+    // a light in a room on screen: as far as can be seen, straight (a torch across a yard,
+    // a long walk round, was out -- its fire burned and nothing round it was lit)
+    if( RT_SectorWhyCode( sect ) == 5 )
+    {
+        const RgFloat3D cam  = WorldToRT( g_rtViewPos[ 0 ], g_rtViewPos[ 1 ], g_rtViewPos[ 2 ] );
+        const float     far_ = reach * 2.5f;
+        const float     ds   = ( pp - FVector3{ cam.data[ 0 ], cam.data[ 1 ], cam.data[ 2 ] } ).Length();
+        const float     t    = std::clamp( ( far_ - ds ) / ( far_ * 0.33f ), 0.f, 1.f );
+        return t * t * ( 3.f - 2.f * t );
+    }
     if( sect >= 0 && size_t( sect ) < s_reachDist.size() )
     {
         if( s_reachDist[ sect ] < 0.f )

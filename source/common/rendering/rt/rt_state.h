@@ -69,6 +69,20 @@ extern RtSkyLight g_rtSkyLight;
 struct RtSkyPortalStats { int count = 0; float maxLumens = 0, nearest = 1e9f; };
 extern RtSkyPortalStats g_rtSkyPortalStats;
 extern std::vector< uint32_t > g_rtSpriteStage[ 3 ];
+// per sprite (its actor's index), the frame the game last gave it a light of its own (Blood's
+// torches, braziers, lanterns, lamps): its glowing picture or model casts none as well -- a
+// brazier drawn as a voxel model near the view had both, twice as bright as far away
+extern std::vector< uint32_t > g_rtGameLitAt;
+inline void RT_MarkGameLit( int index )
+{
+    if( index < 0 || index > 1 << 20 ) return;
+    if( size_t( index ) >= g_rtGameLitAt.size() ) g_rtGameLitAt.resize( size_t( index ) + 256, 0 );
+    g_rtGameLitAt[ size_t( index ) ] = g_rtFrameNo;
+}
+inline bool RT_GameLit( int index )
+{
+    return index >= 0 && size_t( index ) < g_rtGameLitAt.size() && g_rtGameLitAt[ size_t( index ) ] == g_rtFrameNo && g_rtFrameNo != 0;
+}
 inline void RT_MarkSprite( int index, int stage )
 {
     if( index < 0 || index > 1 << 20 ) return;
@@ -259,6 +273,7 @@ enum class RtPrim : uint32_t
     CeilingPlane   = 1 << 16, // a sector's ceiling
     BloodPool      = 1 << 17, // a pool of blood (Blood): the stylized liquid, red
     OneSided       = 1 << 18, // a solid wall part, a floor or ceiling: seen only from its sector's side
+    GameLit        = 1 << 19, // a sprite whose light the game gives (Blood's torches, lanterns): none from its glow too
 };
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it

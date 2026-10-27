@@ -20,6 +20,7 @@ uint32_t    g_rtDrawGen = 0;
 RtSkyLight  g_rtSkyLight;
 RtSkyPortalStats g_rtSkyPortalStats;
 std::vector< uint32_t > g_rtSpriteStage[ 3 ];
+std::vector< uint32_t > g_rtGameLitAt;
 int         g_rtViewSector  = -1;
 std::vector< uint8_t > g_rtCopySector;
 std::vector< RtGameLight > g_rtGameLights;

@@ -1498,7 +1498,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     // (a flame class's light is the game's, placed at its flame: this one would be at the
     // middle of the picture, a candelabra's stem)
     if( ( emissionMap || glowTex ) && *rt_emis_lights && ( !rtstate.is< RtPrim::Sprite >() || spriteGlow ) && !isUI && !isSky &&
-        glowScale > 0.01f && !hwtex->IsFlame() )
+        glowScale > 0.01f && !hwtex->IsFlame() && !rtstate.is< RtPrim::GameLit >() )
     {
         if( isModel )
         {

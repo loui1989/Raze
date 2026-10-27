@@ -1121,6 +1121,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				// glass glows (the material table's lantern class)
 				l.radius = 0.02f;
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 7u;
+				RT_MarkGameLit(actor->GetIndex());
 				l.sector = actor->sectno();
 				g_rtGameLights.push_back(l);
 				continue;
@@ -1162,6 +1163,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				}
 				l.radius = 0.04f;
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 6u;
+				RT_MarkGameLit(actor->GetIndex());
 				l.sector = actor->sectno();
 				g_rtGameLights.push_back(l);
 				continue;
@@ -1222,6 +1224,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			l.intensity = lumens;
 			l.radius = 0.06f;
 			l.id = (uint64_t(actor->GetIndex()) << 4) | 5u;
+				RT_MarkGameLit(actor->GetIndex());
 			l.sector = actor->sectno();
 			g_rtGameLights.push_back(l);
 		}
