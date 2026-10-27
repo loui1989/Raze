@@ -72,7 +72,7 @@ CVARD(Bool, rt_voxel_insight, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel
 // vertices -- the nearest first, the rest drawn as their sprites. Each instance is its
 // own mesh, built and handed over every frame: Marrow's graveyards and woods have
 // some 160 voxel trees in sight, 85 000 vertices each (14 million: 4 fps)
-CVARD(Int, rt_voxel_budget, 600, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: thousands of voxel model vertices a frame, the nearest models first, the rest drawn as sprites (0 = no limit)")
+CVARD(Int, rt_voxel_budget, 1500, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: thousands of voxel model indices a frame, the nearest models in sight first, the rest drawn as sprites (0 = no limit)")
 
 bool RT_VoxelTooFar(int vox, const tspritetype* spr, const DVector3& view)
 {
@@ -335,6 +335,10 @@ void HWDrawInfo::DispatchSprites()
 	if (RT_IsActive() && r_voxels && *rt_voxel_budget > 0)
 	{
 		const DVector3 view(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]);
+		// (a model drawn as one the last frame keeps its place against one a little nearer:
+		// at the budget's edge, two models flipped between model and sprite at every step)
+		static TMap<const void*, bool> s_wasModel, s_isModel;
+		s_isModel.Clear();
 		struct Cand { double d; unsigned i; unsigned cost; bool off; };
 		std::vector<Cand> cands;
 		uint64_t total = 0;
@@ -350,7 +354,8 @@ void HWDrawInfo::DispatchSprites()
 			if (!isDuke() && !voxdefined[vox]) continue;
 			if (RT_VoxelTooFar(vox, tspr, view)) continue;
 			const unsigned cost = voxmodels[vox]->model->GetNumIndices();
-			cands.push_back({ (tspr->pos - view).LengthSquared(), i, cost, !!tspr->rtoffscreen });
+			const double d2 = (tspr->pos - view).LengthSquared() * (s_wasModel.CheckKey(tspr->ownerActor) ? 0.6 : 1.0);
+			cands.push_back({ d2, i, cost, !!tspr->rtoffscreen });
 			total += cost;
 		}
 		const uint64_t budget = uint64_t(*rt_voxel_budget) * 1000;
@@ -363,8 +368,14 @@ void HWDrawInfo::DispatchSprites()
 			{
 				used += c.cost;
 				if (used > budget) rtVoxOver[c.i] = 1;
+				else s_isModel.Insert(tsprites.get(c.i)->ownerActor, true);
 			}
 		}
+		else
+		{
+			for (auto& c : cands) s_isModel.Insert(tsprites.get(c.i)->ownerActor, true);
+		}
+		std::swap(s_wasModel, s_isModel);
 	}
 
 	for (unsigned i = 0; i < tsprites.Size(); i++)
