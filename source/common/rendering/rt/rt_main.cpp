@@ -853,11 +853,14 @@ void RTFrameBuffer::RT_DrawFrame()
         // slime: Duke-RT's "sludge.viscous" (FLUIDOVR) -- a dark green body with
         // dull green crests. Duke's slime tile is far brighter than Doom 64's
         // near-black liquid flats, so nearly all of it counts as crest
-        .stylizedLiquidTint                    = { l_rgb( 1, 6, 14 ), l_rgb( 5, 18, 5 ), l_rgb( 9, 3, 1 ), l_rgb( 20, 1, 1 ) },
-        .stylizedLiquidCrest                   = { l_rgb( 140, 204, 255 ), l_rgb( 23, 51, 14 ), l_rgb( 120, 78, 38 ), l_rgb( 255, 115, 102 ) },
+        // blood (liquid 3): Blood's pools are a bright red tile (the water tile through a red
+        // palette), so most of it is crest, as Duke's slime: a pink crest (Doom 64's, for
+        // its near-black blood flats) made them a pale pink -- a deep red, a darker body
+        .stylizedLiquidTint                    = { l_rgb( 1, 6, 14 ), l_rgb( 5, 18, 5 ), l_rgb( 9, 3, 1 ), l_rgb( 14, 1, 1 ) },
+        .stylizedLiquidCrest                   = { l_rgb( 140, 204, 255 ), l_rgb( 23, 51, 14 ), l_rgb( 120, 78, 38 ), l_rgb( 120, 14, 10 ) },
         .stylizedLiquidRelief                  = { 0.f, 0.f, 1.f, 1.f },
         .stylizedLiquidFlow                    = { 0.f, 0.f, 0.f, 1.f },
-        .stylizedLiquidRefl                    = { 1.f, 0.5f, 0.f, 1.f },
+        .stylizedLiquidRefl                    = { 1.f, 0.5f, 0.f, 0.5f }, // (blood: half -- full, a pool washed out by the lights in it)
         .stylizedLiquidRough                   = { 0.f, 0.24f, 0.8f, 0.f },
         .liquidNoSplit                         = 0.f,
         .stylizedLiquidCaustics                = { 1.f, 0.f, 0.f, 0.f },
