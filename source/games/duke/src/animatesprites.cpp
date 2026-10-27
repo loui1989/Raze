@@ -33,11 +33,16 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "models/modeldata.h"
 
 #include "buildtiles.h"
+#include "rt_state.h"
 
 BEGIN_DUKE_NS
 
 void drawshadows(tspriteArray& tsprites, tspritetype* t, DDukeActor* h)
 {
+	// ray tracing: the path tracer casts the real shadows (the player's own too: his body is
+	// kept for them); the flattened dark copy of the sprite at the floor's height hung in
+	// the air past a ledge's edge
+	if (RT_IsActive()) return;
 	if (r_shadows && !(h->flags1 & SFLAG_NOSHADOW) && !(h->spr.cstat2 & CSTAT2_SPRITE_NOSHADOW))
 	{
 		auto sectp = t->sectp;

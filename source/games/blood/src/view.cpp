@@ -1362,9 +1362,13 @@ void viewDrawScreen(bool sceneonly)
 		if (!sceneonly) hudDraw(pPlayer, pSector, shakeX, shakeY, zDelta, cAngles.Roll, basepal, interpfrac);
 		DAngle deliriumPitchI = interpolatedvalue(maphoriz(deliriumPitchO), maphoriz(deliriumPitch), interpfrac);
 		auto bakCstat = pPlayer->GetActor()->spr.cstat;
-		pPlayer->GetActor()->spr.cstat |= (gViewPos == 0) ? CSTAT_SPRITE_INVISIBLE : CSTAT_SPRITE_TRANSLUCENT | CSTAT_SPRITE_TRANS_FLIP;
+		// ray tracing: in first person Caleb's body stays, drawn only into shadows and
+		// reflections (g_rtViewerActor: RG_MESH_FIRST_PERSON_VIEWER), as Duke's -- he had none
+		const bool rtBody = RT_IsActive() && gViewPos == 0 && pPlayer->GetActor()->xspr.health > 0;
+		if (!rtBody) pPlayer->GetActor()->spr.cstat |= (gViewPos == 0) ? CSTAT_SPRITE_INVISIBLE : CSTAT_SPRITE_TRANSLUCENT | CSTAT_SPRITE_TRANS_FLIP;
 		cAngles.Pitch -= deliriumPitchI;
 		if (RT_IsActive()) { RT_BloodLights(pPlayer, pSector); RT_BloodWaterCopy(pSector, cPos); }
+		if (rtBody) g_rtViewerActor = pPlayer->GetActor();
 		render_drawrooms(pPlayer->GetActor(), cPos, pSector, cAngles, interpfrac);
 		pPlayer->GetActor()->spr.cstat = bakCstat;
 		bDeliriumOld = bDelirium && gDeliriumBlur;

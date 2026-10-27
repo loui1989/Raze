@@ -619,6 +619,13 @@ void viewProcessSprites(tspriteArray& tsprites, const DVector3& cPos, DAngle cA,
 				pTSprite->cstat &= ~CSTAT_SPRITE_XFLIP;
 				break;
 			}
+			// ray tracing: the player's own body (seen only in shadows and reflections, which
+			// face him): the frame seen from in front, not his back as the camera sees it
+			if (RT_IsActive() && (const void*)owneractor == g_rtViewerActor)
+			{
+				pTSprite->cstat &= ~CSTAT_SPRITE_XFLIP;
+				break;
+			}
 			nAnim = GetOctant(DVector2(cPos.XY() - pTSprite->pos).Rotated(DAngle22_5 - pTSprite->Angles.Yaw));
 			if (nAnim <= 4)
 			{
