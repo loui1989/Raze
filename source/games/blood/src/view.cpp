@@ -1015,9 +1015,9 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				double top, bottom;
 				GetActorExtents(actor, &top, &bottom);
 				RtGameLight l;
-				// where its brightest part is in the picture (a lantern on a long chain: at
-				// the chain's foot; on a lamp post: at its top), per tile; on the ceiling,
-				// just under it
+				// where its glass is in the picture -- its warm, bright part, not a highlight on
+				// its chain (a lantern on a long chain: at the chain's foot; on a lamp post: at
+				// its top), per tile; on the ceiling, just under it
 				auto brightV = [](FTextureID texid) -> double
 				{
 					static TMap<int, double> cache;
@@ -1029,12 +1029,14 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 						auto px = gt->GetTexture()->Get8BitPixels(false);
 						const int H = gt->GetTexture()->GetHeight();
 						const int N = gt->GetTexture()->GetWidth() * H;
+						// warm and bright: yellow to cream glass (a grey chain's highlight has no warmth)
+						auto warm = [](const PalEntry& c) { return c.r >= c.b + 24 && c.g >= c.b ? (c.r + c.g) * (c.r - c.b) : 0; };
 						int best = 0;
 						for (int i = 0; i < N; i++)
-							if (px[i] != 255) { const PalEntry c = GPalette.BaseColors[px[i]]; best = max(best, c.r * 2 + c.g * 3 + c.b); }
+							if (px[i] != 255) best = max(best, warm(GPalette.BaseColors[px[i]]));
 						double rows = 0; int cnt = 0;
-						for (int i = 0; i < N; i++)
-							if (px[i] != 255) { const PalEntry c = GPalette.BaseColors[px[i]]; if ((c.r * 2 + c.g * 3 + c.b) * 10 >= best * 8) { rows += (i % H) + 0.5; cnt++; } }
+						for (int i = 0; i < N && best > 0; i++)
+							if (px[i] != 255 && warm(GPalette.BaseColors[px[i]]) * 10 >= best * 5) { rows += (i % H) + 0.5; cnt++; }
 						if (cnt > 0 && H > 0) v = rows / cnt / H;	// (column major)
 					}
 					cache.Insert(texid.GetIndex(), v);
@@ -1049,12 +1051,16 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				}
 				else
 				{
-					// a lantern on a wall: a little off it, into the room (in the wall it lights the wall)
+					// a lantern on a wall: a little off it, into the room (in the wall it lights the wall).
+					// Solid walls only: a doorway's frame is a thin sector, and its open edges pushed
+					// a lantern hanging in it along the passage -- lit white from one side, dark
+					// from the other
 					auto sect = actor->sector();
 					double best = 1e9;
 					DVector2 bestC(0, 0), bestD(1, 0);
 					for (auto& wal : sect->walls)
 					{
+						if (wal.twoSided()) continue;
 						const DVector2 a2 = wal.pos, b2 = wal.point2Wall()->pos, d = b2 - a2;
 						const double len2 = d.LengthSquared();
 						if (len2 < 1e-6) continue;
@@ -1063,7 +1069,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 						const double dist = (p.XY() - c).Length();
 						if (dist < best) { best = dist; bestC = c; bestD = d; }
 					}
-					if (best < 6 || inside(p.X, p.Y, sect) != 1)
+					if (best < 6 || (best < 1e8 && inside(p.X, p.Y, sect) != 1))
 					{
 						DVector2 n = DVector2(-bestD.Y, bestD.X).Unit();
 						if (inside(bestC.X + n.X * 2, bestC.Y + n.Y * 2, sect) != 1) n = -n;
@@ -1087,7 +1093,7 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 					if (sw < 0.02f) continue;
 					l.intensity *= sw;
 				}
-				l.radius = 0.05f;
+				l.radius = 0.1f;	// (the size of its glass: the lantern itself is lit softly, not burnt white)
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 7u;
 				l.sector = actor->sectno();
 				g_rtGameLights.push_back(l);
