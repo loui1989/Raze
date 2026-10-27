@@ -461,6 +461,32 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 		sectortype* start = &sector[c.start];
 		updatesector(cpos.XY() + c.delta.XY(), &start);
 		if (!start || isHole[sectindex(start)] || (c.water && RT_WaterSide(sectindex(start), start->lotag) == 3 - c.water)) start = &sector[c.start];
+		// (and only a place joined to the linked side: the camera's place moved over there
+		// can fall in a room of its own -- Blood E3M1's start, moved by its pool's link,
+		// fell in a closed stone box off the map, and the box was copied round the camera)
+		if (start != &sector[c.start])
+		{
+			std::vector<char> seenL(n, 0);
+			std::vector<int> todo{ c.start };
+			seenL[c.start] = 1;
+			bool joined = false;
+			while (!todo.empty() && !joined)
+			{
+				const int si = todo.back();
+				todo.pop_back();
+				if (&sector[si] == start) { joined = true; break; }
+				for (auto& w : sector[si].walls)
+				{
+					auto ns = w.nextSector();
+					if (!w.twoSided() || !ns) continue;
+					const int ni = sectindex(ns);
+					if (seenL[ni] || isHole[ni] || (c.water && RT_WaterSide(ni, ns->lotag) == 3 - c.water)) continue;
+					seenL[ni] = 1;
+					todo.push_back(ni);
+				}
+			}
+			if (!joined) start = &sector[c.start];
+		}
 
 		std::vector<double> dist(n, -1.);
 		std::vector<DVector2> entry(n);
