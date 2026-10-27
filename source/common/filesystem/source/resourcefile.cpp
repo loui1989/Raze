@@ -293,6 +293,10 @@ FResourceEntry* FResourceFile::AllocateEntries(int count)
 	NumLumps = count;
 	Entries = (FResourceEntry*)stringpool->Alloc(count * sizeof(FResourceEntry));
 	memset(Entries, 0, count * sizeof(FResourceEntry));
+	// no resource id unless the format gives one (RFF): with 0, every file of a zip or
+	// a folder was resource 0 -- Blood's voxel 0 (the basic armour) became the last
+	// KVX loaded (a voxel pack's gun), and a name's ".{id}" was never read
+	for (int i = 0; i < count; i++) Entries[i].ResourceID = -1;
 	return Entries;
 }
 
