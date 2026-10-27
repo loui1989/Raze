@@ -1376,6 +1376,7 @@ CCMD(rt_lookat)
 	else Printf("  sky light: none yet (no sky seen on this level)\n");
 	Printf("  sky portals (windows): %d lights%s\n", g_rtSkyPortalStats.count, g_rtSkyPortalStats.count ?
 		FStringf(", the strongest %.0f lumens, the nearest %.1f m away", g_rtSkyPortalStats.maxLumens, g_rtSkyPortalStats.nearest).GetChars() : "");
+	C_DoCommand("rt_sky_portal_info");
 	// the sprites a lantern's light is made for, near
 	{
 		TSpriteIterator<DCoreActor> lit;

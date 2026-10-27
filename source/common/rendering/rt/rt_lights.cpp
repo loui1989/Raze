@@ -48,6 +48,7 @@ CVARD( Float, rt_skysun, 4.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's o
 CVARD( Float, rt_skysun_tint, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much the sky's moon takes the sky's colour (0 white; 1 the sky's own: a red sky's red on red, no contrast)" )
 CVARD( Float, rt_skysun_size, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sky's moon's size, degrees (small: crisp shadows)" )
 EXTERN_CVAR( Float, rt_sky )
+CVARD( Int, rt_sky_portal_debug, 0, 0, "RT: sky portals as bright magenta lights, 1 as spot lights (as they are), 2 as small balls -- to see where they are and what they light" )
 CVARD( Float, rt_sky_portals, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: windows and openings to the sky light the room behind them with the sky's own light (sky portals), this strong; 0 = off" )
 CVARD( Float, rt_lightning, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a lightning flash's light from the sky, lux (Blood's storms)" )
 CVARD( Float, rt_game_light_scale, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the lights the game names (Blood: explosions, fire, flares)" )
@@ -448,14 +449,23 @@ void UploadSkyPortals()
                     continue;
                 }
                 const float size = float( std::min( pw, h ) ) * ONEGAMEUNIT_IN_METERS;
+                const int   dbg  = *rt_sky_portal_debug;
+                static const float magenta[ 3 ] = { 1.f, 0.f, 1.f };
+                if( dbg == 2 )
+                {
+                    UploadSphere( SkyPortalBase + ( uint64_t( wallindex( &w ) ) << 3 ) + uint64_t( k ), pos, PackColor( magenta ), 5000.f, 0.05f );
+                    g_rtSkyPortalStats.count++;
+                    continue;
+                }
+                // (a small source: a big one stood out of a window's recess into its walls)
                 auto spot = RgLightSpotEXT{
                     .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
                     .pNext      = nullptr,
-                    .color      = wcolor,
-                    .intensity  = lumens,
+                    .color      = dbg == 1 ? PackColor( magenta ) : wcolor,
+                    .intensity  = dbg == 1 ? 5000.f : lumens,
                     .position   = pos,
                     .direction  = dir,
-                    .radius     = std::clamp( size * 0.4f, 0.1f, 1.2f ),
+                    .radius     = std::clamp( size * 0.15f, 0.05f, 0.3f ),
                     .angleOuter = 85.f * 3.14159265f / 180.f,
                     .angleInner = 35.f * 3.14159265f / 180.f,
                 };
@@ -1324,6 +1334,61 @@ void RT_UploadSceneLights( uint32_t time )
         }
         s_copyPass  = false;
         s_copyGroup = 0;
+    }
+}
+
+// rt_lookat: the openings near the view -- what made a sky portal of each, or not
+CCMD( rt_sky_portal_info )
+{
+    const DVector2 cam( g_rtViewPos[ 0 ], g_rtViewPos[ 1 ] );
+    int            shown = 0;
+    for( unsigned si = 0; si < sector.Size() && shown < 24; si++ )
+    {
+        auto& s = sector[ si ];
+        for( auto& w : s.walls )
+        {
+            if( !w.twoSided() || shown >= 24 )
+            {
+                continue;
+            }
+            auto o = w.nextSector();
+            if( !o )
+            {
+                continue;
+            }
+            const DVector2 p1 = w.pos, p2 = w.point2Wall()->pos, mid = ( p1 + p2 ) * 0.5;
+            const double   d  = ( mid - cam ).Length() / 32.;
+            if( d > 12. )
+            {
+                continue;
+            }
+            const bool inSky = ( s.ceilingstat & CSTAT_SECTOR_SKY ) != 0, outSky = ( o->ceilingstat & CSTAT_SECTOR_SKY ) != 0;
+            if( inSky == outSky )
+            {
+                continue;   // (both roofed or both open: no opening to the sky)
+            }
+            if( inSky )
+            {
+                continue;   // (listed from the roofed side)
+            }
+            const double h  = std::min( s.floorz, o->floorz ) - s.ceilingz;
+            const double wd = ( p2 - p1 ).Length();
+            const walltype* mw = ( w.cstat & CSTAT_WALL_MASKED ) ? &w : ( w.nextWall() && ( w.nextWall()->cstat & CSTAT_WALL_MASKED ) ) ? w.nextWall() : nullptr;
+            FString t;
+            if( mw && mw->overtexture.isValid() )
+            {
+                auto tint = WindowTint( mw->overtexture );
+                t.Format( ", window tile %d%s, lets through %.2f %.2f %.2f", legacyTileNum( mw->overtexture ),
+                          RT_TableGlass( legacyTileNum( mw->overtexture ) ) ? " (glass)" : "", tint[ 0 ], tint[ 1 ], tint[ 2 ] );
+            }
+            Printf( "    opening: wall %d, sector %u (roofed) to %d (sky), %.1f m away, %.1f m wide, %.1f m high%s%s\n", wallindex( &w ), si,
+                    sectindex( o ), d, wd / 32., h / 32., t.GetChars(), h < 8 || wd < 8 ? " -- too small, no light" : "" );
+            shown++;
+        }
+    }
+    if( !shown )
+    {
+        Printf( "    no openings to the sky within 12 m\n" );
     }
 }
 

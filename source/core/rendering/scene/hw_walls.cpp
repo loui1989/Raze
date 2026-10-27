@@ -931,6 +931,30 @@ void HWWall::DoMidTexture(HWDrawInfo* di, walltype* wal,
 	if (topleft<=bottomleft && topright<=bottomright) return;
 	type = seg->cstat & CSTAT_WALL_1WAY ? RENDERWALL_M1S : RENDERWALL_M2S;
 
+	// ray tracing: a masked wall whose other side is masked too (a window's glass, a
+	// grate) is the same picture twice, in one place -- the path tracer sees both: two
+	// panes of glass, their leading crossed (each side's own panning, one mirrored), a
+	// lattice that shimmered as the view moved. One of the two, whichever comes first.
+	// (not counted for a side that is not drawn: its room left out)
+	if (RT_IsActive() && type == RENDERWALL_M2S && !RT_SkipSector(front ? sectindex(front) : -1))
+	{
+		auto nw = seg->nextWall();
+		if (nw && (nw->cstat & CSTAT_WALL_MASKED) && !(nw->cstat & CSTAT_WALL_1WAY))
+		{
+			static std::vector<uint32_t> gen;
+			static std::vector<uint64_t> copies;
+			const size_t k = size_t(min(wallindex(seg), wallindex(nw)));
+			if (gen.size() < wall.Size()) { gen.assign(wall.Size(), 0); copies.assign(wall.Size(), 0); }
+			if (k < gen.size())
+			{
+				if (gen[k] != g_rtDrawGen) { gen[k] = g_rtDrawGen; copies[k] = 0; }
+				const uint64_t bit = uint64_t(1) << (rtCopy & 63);
+				if (copies[k] & bit) return;
+				copies[k] |= bit;
+			}
+		}
+	}
+
 	// todo: transparency.
 
 	DoTexture(di, wal, wal, refheight, topleft, topright, bottomleft, bottomright);

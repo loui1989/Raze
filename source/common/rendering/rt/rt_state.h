@@ -48,6 +48,8 @@ extern char g_rtViewerDiag[ 320 ];
 // per sprite (its actor's index), the frame it last got to each stage of drawing
 // (rt_lookat): 0 processed (the game gave it), 1 placed (a picture or model made), 2 drawn
 extern uint32_t g_rtFrameNo;
+// a new number for each view drawn (render_drawrooms): what was drawn already in it
+extern uint32_t g_rtDrawGen;
 // The light of the sky in view (a Build sky's picture): from its brightest part, its
 // colour. The sky's draw gives the direction in the dome's own axes (pending); the
 // backend turns it into the world's (dir: towards the light, z up) as it draws the sky

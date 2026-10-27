@@ -15,6 +15,7 @@ int         g_rtViewerDrawn = 0, g_rtViewerDrawnTile = -1;
 bool        g_rtViewerDrawnModel = false;
 char        g_rtViewerDiag[ 320 ] = {};
 uint32_t    g_rtFrameNo = 0;
+uint32_t    g_rtDrawGen = 0;
 RtSkyLight  g_rtSkyLight;
 RtSkyPortalStats g_rtSkyPortalStats;
 std::vector< uint32_t > g_rtSpriteStage[ 3 ];
