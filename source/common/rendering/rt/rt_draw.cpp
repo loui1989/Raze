@@ -1142,6 +1142,11 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                 // (on as it looks: the add-ons' lit panels are shade 38 of 64 -- light grey on
                 // screen, but lit: fully on from there; only a nearly black one is off)
                 glowScale *= std::clamp( ( classic - 0.05f ) / 0.3f, 0.f, 1.f );
+                // and off with its room's light switch (Blood's switched lighting)
+                if( const float sw = RT_SectorSwitch( rtstate.get_sector() ); sw >= 0.f )
+                {
+                    glowScale *= sw;
+                }
                 // its light by the class's glow; on screen softer than a sign's (it is
                 // big and white: at full brightness it outshone the room it lights)
                 emisLightScale *= hwtex->Glow();

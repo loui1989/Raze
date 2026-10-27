@@ -740,6 +740,18 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 	g_rtCameraUnderwater = pSector && IsUnderwaterSector(pSector);
 	g_rtViewerActor = nullptr;
 	g_rtSectorSwitch.clear();
+	// the light switches: a sector whose lighting effect runs with its state, not always
+	// (a switch turns it on and off): on as far as the effect has gone (busy), the
+	// amplitude's way (negative: brighter when on). Lamps go out with it.
+	for (auto pSect : shadeList)
+	{
+		if (!pSect->hasX()) continue;
+		auto& x = pSect->xs();
+		if (x.shadeAlways || x.amplitude == 0) continue;
+		if (g_rtSectorSwitch.size() != sector.Size()) g_rtSectorSwitch.assign(sector.Size(), -1.f);
+		const float b = clamp(float(x.busy) / 65536.f, 0.f, 1.f);
+		g_rtSectorSwitch[sectindex(pSect)] = x.amplitude < 0 ? b : 1.f - b;
+	}
 	g_rtGameLights.clear();
 	g_rtSmokeSources.clear();
 
@@ -1015,6 +1027,12 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				// the walls by a lamp post out to white; the round lamp a little softer too)
 				l.intensity = tileNo == 624 || tileNo == 625 ? float(clamp(18. * repeat, 80., 600.)) * shade * scale :
 					float(clamp(40. * repeat, 150., 1200.)) * shade * scale * (tileNo == 795 ? 0.6f : 1.f);
+				// (in a switched room: out with its lights)
+				if (const float sw = RT_SectorSwitch(actor->sectno()); sw >= 0.f)
+				{
+					if (sw < 0.02f) continue;
+					l.intensity *= sw;
+				}
 				l.radius = 0.04f;
 				l.id = (uint64_t(actor->GetIndex()) << 4) | 6u;
 				l.sector = actor->sectno();
