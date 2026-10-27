@@ -1269,12 +1269,6 @@ CCMD(rt_lookat)
 		if (hit.hitActor)
 			Printf("  hits sprite %d: tile %d, cstat %04x, stat %d (%s)\n", hit.hitActor->GetIndex(), legacyTileNum(hit.hitActor->spr.spritetexture()),
 				int(hit.hitActor->spr.cstat), int(hit.hitActor->spr.statnum), glowInfo(hit.hitActor->spr.spritetexture()).GetChars());
-			{
-				auto ha = hit.hitActor;
-				auto gt = TexMan.GetGameTexture(ha->spr.spritetexture());
-				Printf("    in sector %d, at height %.2f m, %.2f m tall (its sector's floor %.2f m, ceiling %.2f m)\n", ha->sectno(), -ha->spr.pos.Z / 16.,
-					gt ? gt->GetDisplayHeight() * ha->spr.scale.Y / 16. : 0., -getflorzofslopeptr(ha->sector(), ha->spr.pos) / 16., -getceilzofslopeptr(ha->sector(), ha->spr.pos) / 16.);
-			}
 	}
 	struct Cand { double ang; DCoreActor* a; };
 	TArray<Cand> cands;
@@ -1330,8 +1324,33 @@ CCMD(rt_lookat)
 	{
 		const DVector3 p(l.pos[0], l.pos[1], l.pos[2]);
 		if ((p - view).Length() < 640)
+		{
 			Printf("  light %llx: colour %.2f %.2f %.2f, intensity %.0f, %.1f m away\n", (unsigned long long)l.id, l.color[0], l.color[1], l.color[2],
 				l.intensity, (p - view).Length() / 32.);
+			// a table light (a lantern): its sprite, and where it is against the floor and
+			// ceiling there (heights in the map's z: down is more)
+			if ((l.id & 15) == 7)
+			{
+				sectortype* ls = nullptr;
+				updatesector(p.XY(), &ls);
+				Printf("    from sprite %d; at z %.1f, its spot's sector %d (floor z %.1f, ceiling z %.1f)\n", int(l.id >> 4), p.Z,
+					ls ? sectindex(ls) : -1, ls ? getflorzofslopeptr(ls, p.XY()) : 0., ls ? getceilzofslopeptr(ls, p.XY()) : 0.);
+			}
+		}
+	}
+	// the sprites a lantern's light is made for, near
+	{
+		TSpriteIterator<DCoreActor> lit;
+		while (auto a = lit.Next())
+		{
+			float st, rgb[3];
+			if (!RT_TableLight(legacyTileNum(a->spr.spritetexture()), st, rgb) || (a->spr.pos - view).Length() > 320) continue;
+			auto gt = TexMan.GetGameTexture(a->spr.spritetexture());
+			Printf("  lantern sprite %d: tile %d, cstat %04x, stat %d, in sector %d, at z %.1f, %.1f tall (its sector's floor z %.1f, ceiling z %.1f), %.1f m away\n",
+				a->GetIndex(), legacyTileNum(a->spr.spritetexture()), int(a->spr.cstat), int(a->spr.statnum), a->sectno(), a->spr.pos.Z,
+				gt ? gt->GetDisplayHeight() * a->spr.scale.Y : 0., a->sector() ? getflorzofslopeptr(a->sector(), a->spr.pos) : 0.,
+				a->sector() ? getceilzofslopeptr(a->sector(), a->spr.pos) : 0., (a->spr.pos - view).Length() / 32.);
+		}
 	}
 }
 
