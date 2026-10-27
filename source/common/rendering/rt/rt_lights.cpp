@@ -616,9 +616,11 @@ void UploadSkyPortals()
             // through it -- the path tracer colours it texel by texel, the window's pattern
             // on the floor (a light in the room, its colour the panes' mean, threw none);
             // without: smaller lights, each with the colours of its own panes
-            bool glassLit = false;
-            if( *rt_glass_shadows )
-                for( const walltype* mw : glassWalls ) glassLit |= RT_TableGlass( legacyTileNum( mw->overtexture ) );
+            // (bars and grates too: their shadows on the floor -- a picture with holes casts
+            // shadows; glass only colours its light with rt_glass_shadows)
+            bool glassLit = !glassWalls.empty();
+            for( const walltype* mw : glassWalls )
+                if( RT_TableGlass( legacyTileNum( mw->overtexture ) ) && !*rt_glass_shadows ) glassLit = false;
             const int    pieces = std::clamp( int( width / ( glassWalls.empty() || glassLit ? Piece : Piece * 0.5 ) ) + 1, 1, 8 );
             const double pw     = width / pieces;
             for( int k = 0; k < pieces; k++ )
