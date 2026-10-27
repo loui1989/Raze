@@ -9,6 +9,7 @@
 #include "rt_backend.h"
 
 #include <chrono>
+#include <unordered_set>
 #include "texturemanager.h"
 #include "tiletexture.h"
 
@@ -202,6 +203,7 @@ CVARD( Int, rt_one_sided, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: walls and fl
 constexpr uint32_t RT_PRIMITIVE_ONE_SIDED = 1u << 28;
 CVARD( Bool, rt_voxel_alphatest, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models alpha tested, as their sprites are (slow; for comparison)" )
 
+CVARD( Bool, rt_debug_emis, false, 0, "RT: print, once per texture, how a glowing texture glows and lights (the log)" )
 uint32_t g_rtTexCreates = 0;   // rt_debug_stats: textures given to the path tracer...
 double   g_rtTexSeconds = 0;   // ...and the time it took (material files included)
 
@@ -1137,7 +1139,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             float screenScale = 1.f;
             if( hwtex->IsLamp() )
             {
-                glowScale *= std::clamp( ( classic - 0.25f ) / 0.45f, 0.f, 1.f );
+                // (on as it looks: the add-ons' lit panels are shade 38 of 64 -- light grey on
+                // screen, but lit: fully on from there; only a nearly black one is off)
+                glowScale *= std::clamp( ( classic - 0.05f ) / 0.3f, 0.f, 1.f );
                 // its light by the class's glow; on screen softer than a sign's (it is
                 // big and white: at full brightness it outshone the room it lights)
                 emisLightScale *= hwtex->Glow();
@@ -1359,6 +1363,20 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     // (sprites: Duke-RT's LIGHTOVR names the lights of Duke's actors; in the other
     // games a glowing sprite -- a candle, a torch -- casts its own)
     const bool spriteGlow = rtstate.is< RtPrim::Sprite >() && *rt_sprite_lights && !RT_HaveActorLightRules();
+    // rt_debug_emis: once per texture, why a glowing one casts its light or not
+    if( *rt_debug_emis && ( emissionMap || glowTex ) && !isUI && !isSky && texname )
+    {
+        static std::unordered_set< std::string > seen;
+        if( seen.insert( texname ).second )
+        {
+            const float* a = hwtex->EmissionAverage();
+            Printf( "RT emis: %s: map %d glowtex %d lamp %d flame %d sprite %d decal %d model %d, glow %.2f light x%.2f, "
+                    "classic %.2f, sector %d switch %.2f, average %.3f %.3f %.3f\n",
+                    texname, int( emissionMap ), int( glowTex ), int( hwtex->IsLamp() ), int( hwtex->IsFlame() ),
+                    int( rtstate.is< RtPrim::Sprite >() ), int( rtstate.is< RtPrim::Decal >() ), int( isModel ), glowScale,
+                    emisLightScale, classic, rtstate.get_sector(), RT_SectorSwitch( rtstate.get_sector() ), a[ 0 ], a[ 1 ], a[ 2 ] );
+        }
+    }
     // (a flame class's light is the game's, placed at its flame: this one would be at the
     // middle of the picture, a candelabra's stem)
     if( ( emissionMap || glowTex ) && *rt_emis_lights && ( !rtstate.is< RtPrim::Sprite >() || spriteGlow ) && !isUI && !isSky &&

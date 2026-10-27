@@ -44,6 +44,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "render.h"
 #include "razefont.h"
 #include "rt_state.h"
+#include "hw_voxels.h"
 #include "colormatcher.h"
 #include "palettecontainer.h"
 
@@ -980,10 +981,9 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 			if (!actor->insector() || (actor->spr.cstat & CSTAT_SPRITE_INVISIBLE) || actor->spr.scale.Y == 0) continue;
 			const int tileNo = legacyTileNum(actor->spr.spritetexture());
 			// (and the light tube, 796 -- a breakable thing: coloured by its palette too)
-			// (the round lamp: the material table's lamp, its light is its glow's -- on as
-			// it looks; the add-ons' dark red alarm lamps light nothing)
-			if (tileNo == 795) continue;
-			const bool lampTile = tileNo == 796;
+			// (and the round ceiling lamp, 795, when it looks lit: drawn bright -- a white
+			// one; the add-ons' dark red alarm lamps light nothing)
+			const bool lampTile = tileNo == 796 || tileNo == 795;
 			if (stat == kStatThing && !lampTile) continue;
 			if (tileNo == 624 || tileNo == 625 || lampTile)
 			{
@@ -991,6 +991,12 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				if (stat == kStatFX || repeat < 6) continue;
 				RtGameLight l;
 				l.pos[0] = actor->spr.pos.X; l.pos[1] = actor->spr.pos.Y; l.pos[2] = actor->spr.pos.Z;
+				orbColor(actor, l.color);
+				if (tileNo == 795)
+				{
+					const float lum = 0.2126f * l.color[0] + 0.7152f * l.color[1] + 0.0722f * l.color[2];
+					if (lum < 0.5f || actor->spr.shade > 16) continue;
+				}
 				// a lamp on the ceiling: the light just under it, in the room
 				if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR)
 				{
@@ -998,7 +1004,6 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 					const double fz = getflorzofslopeptr(actor->sector(), actor->spr.pos);
 					l.pos[2] = actor->spr.pos.Z - cz < fz - actor->spr.pos.Z ? actor->spr.pos.Z + 6 : actor->spr.pos.Z - 6;
 				}
-				orbColor(actor, l.color);
 				// brighter as it is bigger and as its shade is (-60: as bright as can be)
 				const float shade = clamp(1.f - float(actor->spr.shade) / 64.f, 0.3f, 2.f);
 				l.intensity = float(clamp(40. * repeat, 150., 1200.)) * shade * scale;
@@ -1124,9 +1129,11 @@ CCMD(rt_lookat)
 	{
 		auto a = cands[i].a;
 		const int tile = legacyTileNum(a->spr.spritetexture());
-		Printf("  sprite %d, %.1f deg off: tile %d, pal %d, shade %d, cstat %04x, repeat %.0f x %.0f, stat %d, type %d, %.1f m; flame %.2f; in %s\n",
+		const int vox = GetExtInfo(a->spr.spritetexture()).tiletovox;
+		Printf("  sprite %d, %.1f deg off: tile %d, pal %d, shade %d, cstat %04x, repeat %.0f x %.0f, stat %d, type %d, %.1f m; flame %.2f; voxel %d%s; in %s\n",
 			a->GetIndex(), cands[i].ang, tile, a->spr.pal, a->spr.shade, int(a->spr.cstat), a->spr.scale.X * 64., a->spr.scale.Y * 64.,
-			a->spr.statnum, a->spr.type, (a->spr.pos - view).Length() / 32., RT_TableFlame(tile), sectorInfo(a->sector()).GetChars());
+			a->spr.statnum, a->spr.type, (a->spr.pos - view).Length() / 32., RT_TableFlame(tile), vox,
+			vox >= 0 && vox < MAXVOXELS && voxdefined[vox] ? " (a pack's)" : vox >= 0 ? " (the game's)" : "", sectorInfo(a->sector()).GetChars());
 	}
 	for (auto& l : g_rtGameLights)
 	{
