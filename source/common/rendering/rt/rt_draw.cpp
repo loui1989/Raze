@@ -1371,10 +1371,11 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         {
             const float* a = hwtex->EmissionAverage();
             Printf( "RT emis: %s: map %d glowtex %d lamp %d flame %d sprite %d decal %d model %d, glow %.2f light x%.2f, "
-                    "classic %.2f, sector %d switch %.2f, average %.3f %.3f %.3f\n",
+                    "classic %.2f, sector %d switch %.2f, average %.3f %.3f %.3f; emissive %.2f, alpha %.2f, translucent %d\n",
                     texname, int( emissionMap ), int( glowTex ), int( hwtex->IsLamp() ), int( hwtex->IsFlame() ),
                     int( rtstate.is< RtPrim::Sprite >() ), int( rtstate.is< RtPrim::Decal >() ), int( isModel ), glowScale,
-                    emisLightScale, classic, rtstate.get_sector(), RT_SectorSwitch( rtstate.get_sector() ), a[ 0 ], a[ 1 ], a[ 2 ] );
+                    emisLightScale, classic, rtstate.get_sector(), RT_SectorSwitch( rtstate.get_sector() ), a[ 0 ], a[ 1 ], a[ 2 ],
+                    emissive, alpha, int( ( primFlags & RG_MESH_PRIMITIVE_TRANSLUCENT ) != 0 ) );
         }
     }
     // (a flame class's light is the game's, placed at its flame: this one would be at the
@@ -1611,6 +1612,15 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
     // by the square root of the average brightness: a neon sign is mostly dark
     // texels, and its few bright tubes must still light the wall it is on
     float lumens = scale * *rt_emis_light_scale * std::sqrt( lum ) * float( area );
+    if( *rt_debug_emis )
+    {
+        static std::unordered_set< uint64_t > seenIds;
+        if( seenIds.size() < 2000 && seenIds.insert( id ).second )
+        {
+            Printf( "RT emis light: id %llx lum %.3f area %.2f m2 scale %.2f -> %.0f lumens (sprite %d), sector %d\n",
+                    (unsigned long long)id, lum, area, scale, lumens, int( rtstate.is< RtPrim::Sprite >() ), rtstate.get_sector() );
+        }
+    }
     if( rtstate.is< RtPrim::Sprite >() )
     {
         // a glowing billboard (a candle flame): a small ball just in front of it, and
