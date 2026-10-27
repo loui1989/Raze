@@ -738,7 +738,9 @@ void RTFrameBuffer::RT_UploadLights()
             .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
             .pNext      = nullptr,
             .color      = rt.rgUtilPackColorByte4D( RPART( c ), GPART( c ), BPART( c ), 255 ),
-            .intensity  = *rt_flashlight_intensity,
+            // (as bright as it was tuned: RTGL1 read every spot as 5 cm across but made it
+            // bright for its own size -- 0.02 m: 6x -- until its fix, rtgl1-lib 0012)
+            .intensity  = *rt_flashlight_intensity * std::pow( 0.05f / std::max( *rt_flashlight_radius, 0.005f ), 2.f ),
             .position   = p,
             .direction  = m_camForward,
             .radius     = *rt_flashlight_radius,

@@ -203,6 +203,7 @@ CVARD( Int, rt_one_sided, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: walls and fl
 constexpr uint32_t RT_PRIMITIVE_ONE_SIDED = 1u << 28;
 CVARD( Bool, rt_voxel_alphatest, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models alpha tested, as their sprites are (slow; for comparison)" )
 
+CVARD( Float, rt_emis_spot, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing surface's light where it is a spot (a lamp's picture on the ceiling, a glowing floor or wall), this strong" )
 CVARD( Float, rt_emis_ceiling_ball, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing ceiling fixture's light, a ball under it (out of its recess), this strong (0 = a spot from the panel, as before)" )
 CVARD( Bool, rt_debug_emis, false, 0, "RT: print, once per texture, how a glowing texture glows and lights (the log)" )
 uint32_t g_rtTexCreates = 0;   // rt_debug_stats: textures given to the path tracer...
@@ -1785,7 +1786,7 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
         .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
         .pNext      = nullptr,
         .color      = color,
-        .intensity  = lumens,
+        .intensity  = lumens * *rt_emis_spot,
         .position   = { pos.X, pos.Y, pos.Z },
         .direction  = { n.X, n.Y, n.Z },
         .radius     = std::clamp( float( std::sqrt( area ) ) * 0.3f, 0.03f, 0.5f ),

@@ -49,6 +49,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "palettecontainer.h"
 
 EXTERN_CVAR(Float, rt_sprite_light_scale)
+EXTERN_CVAR(Bool, rt_emis_lights)
 
 
 FString RT_SectorWhy(int s);	// hw_bunchdrawer.cpp (rt_lookat)
@@ -1132,6 +1133,10 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				{
 					const float lum = 0.2126f * l.color[0] + 0.7152f * l.color[1] + 0.0722f * l.color[2];
 					if (lum < 0.5f || actor->spr.shade > 16) continue;
+					// flat on the ceiling, its glowing picture casts its light already (rt_emis_lights,
+					// the material table's lamp, a spot down into the room -- lit properly since
+					// rtgl1-lib 0012): a ball under it as well made it too bright
+					if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR && *rt_emis_lights) continue;
 				}
 				// a lamp on the ceiling: the light just under it, in the room
 				if ((actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR)
@@ -1146,10 +1151,6 @@ static void RT_BloodLights(DBloodPlayer* pPlayer, sectortype* pSector)
 				// the walls by a lamp post out to white; the round lamp a little softer too)
 				l.intensity = tileNo == 624 || tileNo == 625 ? float(clamp(18. * repeat, 80., 600.)) * shade * scale :
 					float(clamp(40. * repeat, 150., 1200.)) * shade * scale * (tileNo == 795 ? 0.6f : 1.f);
-				// (flat on the ceiling, softer still: a room with sixteen of them (E3M1) blazed
-				// white; its glowing picture's own light is a spot, next to nothing -- RTGL1
-				// reads every spot as 5 cm across)
-				if (tileNo == 795 && (actor->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_FLOOR) l.intensity *= 0.45f;
 				// (in a switched room: out with its lights)
 				if (const float sw = RT_SectorSwitch(actor->sectno()); sw >= 0.f)
 				{
