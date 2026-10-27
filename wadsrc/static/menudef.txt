@@ -2232,6 +2232,7 @@ OptionMenu "RTOptions" protected
 	Slider "Light candidates per pixel",	"rt_restir_initial", 4, 48, 2, 0
 	Slider "Light reuse from neighbours",	"rt_restir_spatial", 1, 16, 1, 0
 	Slider "Light reach (metres, 0 = all)",	"rt_light_reach", 0, 100, 5, 0
+	Slider "Rooms off screen within (metres, 0 = all)",	"rt_offscreen_reach", 0, 200, 10, 0
 	Slider "Bounce light paths per pixel",	"rt_samples_indirect", 1, 4, 1, 0
 	Slider "Light bounces",				"rt_bounces", 1, 4, 1, 0
 	Slider "Minimum roughness",			"rt_min_roughness", 0, 1, 0.05, 2

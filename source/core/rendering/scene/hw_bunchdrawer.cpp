@@ -783,6 +783,12 @@ void BunchDrawer::AddSectorSprites(int sectnum, bool all)
 //==========================================================================
 
 CVARD(Bool, rt_hide_overlaps, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: of rooms that overlap on the map, leave out the ones out of reach")
+// The path tracer is given the whole map, also what is off screen (for shadows,
+// reflections and bounce light). On big maps (add-ons: Marrow and Death Wish have
+// up to eight times the walls and ten times the sprites of Blood's) that is most of
+// a frame's work, while rooms far from the view add nothing a ray would notice:
+// lights reach 40 m (rt_light_reach). What is on screen is drawn at any distance.
+CVARD(Float, rt_offscreen_reach, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: rooms off screen further than this (metres, walking through openings and doors) are left out; 0 = the whole map")
 
 static std::vector<std::vector<int>> rt_overlaps;
 static const void* rt_ovlLevel = nullptr;
@@ -838,6 +844,34 @@ static std::vector<char> RT_OffscreenSectors(int camsect, const DVector3& cam)
 		rt_ovlLevel = currentLevel; rt_ovlData = sector.Data(); rt_ovlCount = n;
 	}
 	std::vector<char> keep(n, 1);
+	// out of reach (doors count as passages: one opening shows what is behind it)
+	const double reach = double(*rt_offscreen_reach) * 32.0;	// 32 map units a metre
+	if (reach > 0 && camsect >= 0 && unsigned(camsect) < n)
+	{
+		std::vector<double> dist(n, 1e30);
+		std::vector<DVector2> entry(n);
+		using Item = std::pair<double, int>;
+		std::priority_queue<Item, std::vector<Item>, std::greater<Item>> q;
+		dist[camsect] = 0; entry[camsect] = cam.XY();
+		q.push({ 0., camsect });
+		while (!q.empty())
+		{
+			auto [d, si] = q.top();
+			q.pop();
+			if (d > dist[si]) continue;
+			for (auto& w : sector[si].walls)
+			{
+				if (!w.twoSided()) continue;
+				const int ni = w.nextsector;
+				if (unsigned(ni) >= n) continue;
+				const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
+				const double nd = d + (mid - entry[si]).Length();
+				if (nd > reach || nd >= dist[ni]) continue;
+				dist[ni] = nd; entry[ni] = mid; q.push({ nd, ni });
+			}
+		}
+		for (unsigned i = 0; i < n; i++) if (dist[i] > reach) keep[i] = 0;
+	}
 	if (!rt_hide_overlaps) return keep;
 	bool any = false;
 	for (unsigned i = 0; i < n && !any; i++) any = !rt_overlaps[i].empty();
