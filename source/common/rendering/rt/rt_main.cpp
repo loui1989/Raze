@@ -721,6 +721,7 @@ void RTFrameBuffer::RT_UploadLights()
     }
 
     RT_UploadSceneLights( g_frameCounter++ );
+    g_rtDrawnFrames++;
 
     if( *rt_flashlight && *rt_flashlight_intensity > 0.f )
     {

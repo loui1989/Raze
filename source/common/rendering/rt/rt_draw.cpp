@@ -7,6 +7,7 @@
 
 #include "animtexture.h"
 #include "rt_backend.h"
+#include "c_dispatch.h"
 
 #include <chrono>
 #include <unordered_set>
@@ -203,6 +204,14 @@ CVARD( Int, rt_one_sided, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: walls and fl
 constexpr uint32_t RT_PRIMITIVE_ONE_SIDED = 1u << 28;
 CVARD( Bool, rt_voxel_alphatest, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models alpha tested, as their sprites are (slow; for comparison)" )
 
+static uint32_t s_aroundUntil   = 0;
+static int      s_aroundPrinted = 0;
+CCMD( rt_around )
+{
+    s_aroundUntil   = g_rtDrawnFrames + 1;
+    s_aroundPrinted = 0;
+    Printf( "RT: geometry given to the path tracer within 0.75 m of the view (next frame; small things only):\n" );
+}
 CVARD( Float, rt_mirror_reflect, 0.9f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much light a mirror reflects (1 = all)" )
 CVARD( Float, rt_emis_spot, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing surface's light where it is a spot (a lamp's picture on the ceiling, a glowing floor or wall), this strong" )
 CVARD( Float, rt_emis_ceiling_ball, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing ceiling fixture's light, a ball under it (out of its recess), this strong (0 = a spot from the panel, as before)" )
@@ -1377,6 +1386,44 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         .classicLight         = classic,
         .emissiveGi           = emissiveGi,
     };
+
+    // rt_around: what the path tracer is given around the view (geometry the game does
+    // not have -- the stone box at Blood E3M1's start)
+    if( !isUI && g_rtDrawnFrames < s_aroundUntil && s_aroundPrinted < 60 )
+    {
+        const auto& m = transform.matrix;
+        float lo[ 3 ] = { 1e30f, 1e30f, 1e30f }, hi[ 3 ] = { -1e30f, -1e30f, -1e30f };
+        for( const auto& v : verts )
+        {
+            const float* q = v.position;
+            for( int k = 0; k < 3; k++ )
+            {
+                const float w = m[ k ][ 0 ] * q[ 0 ] + m[ k ][ 1 ] * q[ 1 ] + m[ k ][ 2 ] * q[ 2 ] + m[ k ][ 3 ];
+                lo[ k ] = std::min( lo[ k ], w );
+                hi[ k ] = std::max( hi[ k ], w );
+            }
+        }
+        const RgFloat3D& cam  = m_fb->RT_CameraPosition();
+        bool             near = true;
+        float            ext  = 0.f;
+        for( int k = 0; k < 3; k++ )
+        {
+            near = near && cam.data[ k ] > lo[ k ] - 0.75f && cam.data[ k ] < hi[ k ] + 0.75f;
+            ext  = std::max( ext, hi[ k ] - lo[ k ] );
+        }
+        if( near && ext < 6.f )
+        {
+            s_aroundPrinted++;
+            Printf( "  %s: %u vertices, %.2f x %.2f x %.2f m (from the view %.2f %.2f %.2f), sector %d, %s%s%s%s%s%s%s, copy %d, id %llx\n",
+                    texname ? texname : "(no texture)", unsigned( verts.size() ), hi[ 0 ] - lo[ 0 ], hi[ 1 ] - lo[ 1 ], hi[ 2 ] - lo[ 2 ],
+                    ( lo[ 0 ] + hi[ 0 ] ) * 0.5f - cam.data[ 0 ], ( lo[ 1 ] + hi[ 1 ] ) * 0.5f - cam.data[ 1 ],
+                    ( lo[ 2 ] + hi[ 2 ] ) * 0.5f - cam.data[ 2 ], rtstate.get_sector(), isModel ? "model " : "",
+                    rtstate.is< RtPrim::Sprite >() ? "sprite " : "", rtstate.is< RtPrim::Decal >() ? "flat sprite " : "",
+                    rtstate.is< RtPrim::Viewer >() ? "your body " : "", rtstate.is< RtPrim::CeilingPlane >() ? "ceiling " : "",
+                    rtstate.is< RtPrim::FloorPlane >() ? "floor " : "", isSkyVis ? "sky opening " : "", int( rtstate.get_copygroup() ),
+                    (unsigned long long)uniqueId );
+        }
+    }
 
     if( *rt_debug_uniqueid && !isUI && !rtstate.has_uniqueid() )
     {

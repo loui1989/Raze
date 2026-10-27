@@ -507,13 +507,41 @@ void UploadSkyPortals()
                         pc = q1 + qd * t + n * 12.;
                     }
                 }
-                // (shut: its door in the way, from the light out to a metre and a half outside)
+                // (a door in the way: its share of the opening still open -- seven parallel
+                // ways across it, from a metre and a half into the room (past the recess, if
+                // any) to as far outside: a door that starts to open lets the light in as it
+                // opens, not all at once)
+                float open = 1.f;
                 {
-                    const DVector2 onOpening = p1 + ( p2 - p1 ) * ( ( k + 0.5 ) / pieces );
-                    if( SkyPortalBlocked( { &s, o, inner ? inner->nextSector() : nullptr }, top, bottom, pc, onOpening - n * 48. ) )
+                    constexpr int Ways = 7;
+                    int           free = 0;
+                    for( int j = 0; j < Ways; j++ )
+                    {
+                        const double   t         = ( k + 0.08 + 0.84 * j / ( Ways - 1 ) ) / pieces;
+                        const DVector2 onOpening = p1 + ( p2 - p1 ) * t;
+                        DVector2       from      = onOpening;
+                        if( inner )
+                        {
+                            const DVector2 q1 = inner->pos, qd = inner->point2Wall()->pos - q1;
+                            const double   ql = qd.LengthSquared();
+                            if( ql > 1e-6 )
+                            {
+                                from = q1 + qd * std::clamp( ( ( onOpening - q1 ) | qd ) / ql, 0., 1. );
+                            }
+                        }
+                        if( !SkyPortalBlocked( { &s, o, inner ? inner->nextSector() : nullptr }, top, bottom,
+                                               from + n * 48., onOpening - n * 48. ) )
+                        {
+                            free++;
+                        }
+                    }
+                    if( free == 0 )
                     {
                         continue;
                     }
+                    // (squared: a crack lets in little -- the light is in front of the door)
+                    open = float( free ) / Ways;
+                    open *= open;
                 }
                 const RgFloat3D pos = WorldToRT( pc.X, pc.Y, ( top + bottom ) * 0.5 );
                 const float     fade = ReachFade( pos, int( si ) );
@@ -523,7 +551,7 @@ void UploadSkyPortals()
                 }
                 // the light outside through its area (rt_sky_portals: more, Blood's skies are dark)
                 const float area   = float( pw * h ) * ONEGAMEUNIT_IN_METERS * ONEGAMEUNIT_IN_METERS;
-                const float lumens = *rt_sky_portals * outside * area * fade * ( through / through0 );
+                const float lumens = *rt_sky_portals * outside * area * fade * open * ( through / through0 );
                 if( lumens <= 0.05f )
                 {
                     continue;
