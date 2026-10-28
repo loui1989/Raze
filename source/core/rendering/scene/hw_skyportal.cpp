@@ -24,6 +24,8 @@
 #include "hw_skydome.h"
 #include "hw_portal.h"
 #include "rt_state.h"
+#include "c_dispatch.h"
+#include <algorithm>
 #include "hw_renderstate.h"
 #include "skyboxtexture.h"
 #include "bitmap.h"
@@ -64,13 +66,58 @@ struct RTSkyDome
 
 // a sky's light, from its picture above the horizon as the dome shows it: where its
 // brightest part is (a moon; a glowing stretch of clouds), how bright, what colour
+// rt_sky_info: the last sky the dome was made for, and how its light came out
+static FString rt_skyWhy;
+static FString rt_skyLast;
+static void RTSkyLightOfPicture(RTSkyDome& d, FGameTexture* tex, double th0, double base, const std::function<double(double)>& tOf, double thTop);
+
+// a sky's light; when its picture above the horizon tells nothing (Duke's: a short city
+// skyline, all of it at the horizon as the dome shows it -- no sky light at all, so no
+// window lights, no moon), the whole picture's mean, from 45 degrees up
 void RTSkyLightOf(RTSkyDome& d, FGameTexture* tex, double th0, double base, const std::function<double(double)>& tOf, double thTop)
+{
+	rt_skyWhy = "";
+	RTSkyLightOfPicture(d, tex, th0, base, tOf, thTop);
+	if (d.lightOk) { rt_skyWhy = "from the picture above the horizon"; return; }
+	FBitmap bm = tex->GetTexture()->GetBgraBitmap(nullptr);
+	const int W = bm.GetWidth(), H = bm.GetHeight();
+	const uint8_t* px = bm.GetPixels();
+	if (!px || W <= 0 || H <= 0) { rt_skyWhy = "no picture to read (" + rt_skyWhy + ")"; return; }
+	double avg[3] = {}, n = 0, col[512] = {};
+	const int CW = std::min(W, 512);
+	for (int y = 0; y < H; y++)
+		for (int x = 0; x < W; x++)
+		{
+			const uint8_t* c = &px[(size_t(y) * W + x) * 4];
+			if (c[3] < 128) continue;
+			const double r = pow(c[2] / 255., 2.2), g = pow(c[1] / 255., 2.2), b = pow(c[0] / 255., 2.2);
+			avg[0] += r; avg[1] += g; avg[2] += b; n++;
+			col[x * CW / W] += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+		}
+	if (n <= 0) { rt_skyWhy = "its picture is all holes (" + rt_skyWhy + ")"; return; }
+	for (auto& v : avg) v /= n;
+	const double lum = 0.2126 * avg[0] + 0.7152 * avg[1] + 0.0722 * avg[2];
+	if (lum <= 1e-6) { rt_skyWhy = "its picture is black (" + rt_skyWhy + ")"; return; }
+	int best = 0;
+	for (int i = 1; i < CW; i++) if (col[i] > col[best]) best = i;
+	constexpr double pi = 3.14159265358979;
+	const double phi = (0.5 - (best + 0.5) / CW) * 2 * pi, el = 45. * pi / 180.;
+	d.lightDir[0] = float(cos(el) * cos(phi)); d.lightDir[1] = float(sin(el)); d.lightDir[2] = float(cos(el) * sin(phi));
+	const double mx = std::max({ avg[0], avg[1], avg[2] });
+	for (int i = 0; i < 3; i++) { d.lightColor[i] = float(0.9 * avg[i] / mx + 0.1); d.average[i] = float(avg[i]); }
+	d.lightIrr  = float(0.6 * pi * lum);
+	d.lightDiam = 6.f;
+	d.lightOk   = true;
+	rt_skyWhy = "from the whole picture's mean (above the horizon: " + rt_skyWhy + ")";
+}
+
+static void RTSkyLightOfPicture(RTSkyDome& d, FGameTexture* tex, double th0, double base, const std::function<double(double)>& tOf, double thTop)
 {
 	constexpr double pi = 3.14159265358979;
 	FBitmap bm = tex->GetTexture()->GetBgraBitmap(nullptr);
 	const int W = bm.GetWidth(), H = bm.GetHeight();
 	const uint8_t* px = bm.GetPixels();
-	if (!px || W <= 0 || H <= 0) return;
+	if (!px || W <= 0 || H <= 0) { rt_skyWhy = "no picture"; return; }
 	// the elevation of each row of the picture (its rows go up the sky as t falls)
 	constexpr int N = 400;
 	double rowAt[N + 1];
@@ -117,10 +164,10 @@ void RTSkyLightOf(RTSkyDome& d, FGameTexture* tex, double th0, double base, cons
 			avg[0] += r * dOmega; avg[1] += g * dOmega; avg[2] += b * dOmega; area += dOmega;
 		}
 	}
-	if (area <= 0) return;
+	if (area <= 0) { rt_skyWhy = "none of the picture is above the horizon"; return; }
 	for (auto& v : avg) v /= area;
 	const double avgLum = 0.2126 * avg[0] + 0.7152 * avg[1] + 0.0722 * avg[2];
-	if (avgLum <= 1e-6) return;
+	if (avgLum <= 1e-6) { rt_skyWhy = "black above the horizon"; return; }
 	// the brightest stretch of sky (a patch with its neighbours: some 30 degrees across)
 	double best = -1;
 	int be = 0, ba = 0;
@@ -228,6 +275,8 @@ const RTSkyDome& RTBuildDome(FGameTexture* tex, float texh, float repeat_fac, fl
 	};
 	RTSkyDome d;
 	RTSkyLightOf(d, tex, th0, floor(th0 - 1e-4), [&](double th) { return th0 - (th0 - tTopUp) * min(1., hUp(th)); }, thTop);
+	rt_skyLast.Format("%s, %dx%d (shown %g high, repeat %g, offset %g; horizon at %.3f of the picture), its light %s%s", tex->GetName().GetChars(),
+		int(tex->GetTexelWidth()), int(tex->GetTexelHeight()), texh, repeat_fac, T, th0, d.lightOk ? "found " : "none: ", rt_skyWhy.GetChars());
 	// the caps: a fan from the pole
 	d.capN = cols + 2;
 	for (int up = 1; up >= 0; up--)
@@ -398,3 +447,10 @@ skydone:
  }
 
 const char *HWSkyPortal::GetName() { return "Sky"; }
+
+CCMD(rt_sky_info)
+{
+	Printf("RT: the sky's dome, last made: %s\n", rt_skyLast.IsEmpty() ? "none (no sky drawn through the dome yet; rt_sky_dome off, or a skybox)" : rt_skyLast.GetChars());
+	Printf("  sky light now: %s\n", g_rtSkyLight.valid ? FStringf("colour %.2f %.2f %.2f, average %.4f %.4f %.4f", g_rtSkyLight.color[0], g_rtSkyLight.color[1], g_rtSkyLight.color[2],
+		g_rtSkyLight.average[0], g_rtSkyLight.average[1], g_rtSkyLight.average[2]).GetChars() : "none");
+}
