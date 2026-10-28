@@ -31,6 +31,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "blood.h"
 #include "texids.h"
+#include "rt_state.h"
 
 BEGIN_BLD_NS
 
@@ -6636,6 +6637,9 @@ void actFireVector(DBloodActor* shooter, double offset, double zoffset, DVector3
 	uint8_t nSurf = kSurfNone;
 	if (nRange == 0 || (gHitInfo.hitpos.XY() - shooter->spr.pos.XY()).Length() < nRange)
 	{
+		// ray tracing: a glowing surface the shot hit goes out (a lamp shot out)
+		if ((hit == 0 || hit == 4) && gHitInfo.hitWall) RT_ShootLight(wallindex(gHitInfo.hitWall), -1, 0);
+		else if ((hit == 1 || hit == 2) && pSector) RT_ShootLight(-1, sectindex(pSector), hit == 1 ? 2 : 1);
 		switch (hit)
 		{
 		case 1:

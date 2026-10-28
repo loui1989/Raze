@@ -142,6 +142,13 @@ extern uint8_t g_rtCopyWater[ RT_MAX_COPIES ];
 // sector lotags mean something else (Blood: its water links) each frame, or empty:
 // Duke's lotags 1 and 2.
 extern std::vector< uint8_t > g_rtWaterSide;
+// Glowing surfaces shot out (rt_shoot_lights; rt_lights.cpp): a wall (plane 0), a sector's
+// floor (1) or ceiling (2) a shot hit; its glow and the light it casts go out, until the
+// level is loaded again. The games call it where a shot hits; any surface is noted, only
+// a glowing one shows it.
+void RT_ShootLight( int wallnum, int sectnum, int plane );
+bool RT_LightShot( int wallnum, int sectnum, int plane );
+
 inline int RT_WaterSide( int sectnum, int lotag )
 {
     if( !g_rtWaterSide.empty() )
@@ -278,6 +285,7 @@ enum class RtPrim : uint32_t
     OneSided       = 1 << 18, // a solid wall part, a floor or ceiling: seen only from its sector's side
     GameLit        = 1 << 19, // a sprite whose light the game gives (Blood's torches, lanterns): none from its glow too
     NoSwitch       = 1 << 20, // a wall the game's light switches leave lit (Duke: hitag 1 -- a cinema's screen)
+    Shot           = 1 << 21, // a glowing wall shot out (rt_shoot_lights): its glow and its light off
 };
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it

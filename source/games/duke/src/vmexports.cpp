@@ -23,6 +23,7 @@ See the GNU General Public License for more details.
 #include "buildtiles.h"
 #include "global.h"
 #include "funct.h"
+#include "rt_state.h"
 BEGIN_DUKE_NS
 
 void resetswitch(int tag);
@@ -1657,6 +1658,8 @@ DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, ismirror, duke_ismirror)
 
 void duke_checkhitwall(walltype* wal, DDukeActor * actor, double x, double y, double z)
 {
+	// ray tracing: a glowing wall the shot hit goes out, as Duke's breakable lights do
+	if (wal) RT_ShootLight(wallindex(wal), -1, 0);
 	checkhitwall(actor, wal, DVector3(x, y, z));
 }
 
@@ -1674,6 +1677,7 @@ DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, checkhitwall, duke_checkhitwall)
 
 void duke_checkhitceiling(sectortype* sect, DDukeActor* actor)
 {
+	if (sect) RT_ShootLight(-1, sectindex(sect), 2);
 	checkhitceiling(sect); // actor is currently unused, this may change.
 }
 
@@ -1682,7 +1686,7 @@ DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, checkhitceiling, duke_checkhitceiling)
 	PARAM_PROLOGUE;
 	PARAM_POINTER(wal, sectortype);
 	PARAM_POINTER(act, DDukeActor);
-	checkhitceiling(wal);
+	duke_checkhitceiling(wal, act);
 	return 0;
 }
 

@@ -217,6 +217,43 @@ CCMD( rt_around )
 CVARD( Float, rt_mirror_reflect, 0.9f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much light a mirror reflects (1 = all)" )
 CVARD( Float, rt_emis_spot, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing surface's light where it is a spot (a lamp's picture on the ceiling, a glowing floor or wall), this strong" )
 CVARD( Float, rt_emis_ceiling_ball, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a glowing ceiling fixture's light, a ball under it (out of its recess), this strong (0 = a spot from the panel, as before)" )
+CVARD( Float, rt_emis_screen_follow, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much a glowing surface's look dims with its light turned down (rt_emis_spot, rt_emis_ceiling_ball, rt_emis_light_scale)" )
+// how bright a glowing surface looks against how strong its light is turned (the same
+// choice of light as AddEmissionLight's): 1 at the defaults or above, less under them
+static float EmissionLookFollow( const RTHardwareTexture* hwtex )
+{
+    const float follow = std::clamp( float( *rt_emis_screen_follow ), 0.f, 1.f );
+    if( follow <= 0.f || !*rt_emis_lights || !hwtex )
+    {
+        return 1.f;
+    }
+    auto def = []( auto& cv, float fallback ) {
+        const float d = cv->GetGenericRepDefault( CVAR_Float ).Float;
+        return d > 0.f ? d : fallback;
+    };
+    float ratio = float( *rt_emis_light_scale ) / def( rt_emis_light_scale, 600.f );
+    const float* avg = hwtex->EmissionAverage();
+    const float  mx  = std::max( { avg[ 0 ], avg[ 1 ], avg[ 2 ] } );
+    const float  mn  = std::min( { avg[ 0 ], avg[ 1 ], avg[ 2 ] } );
+    const bool   neon = mx > 0.f && ( mx - mn ) / mx > 0.75f;
+    const bool   ceiling = rtstate.is< RtPrim::CeilingPlane >();
+    const bool   flat = ceiling || rtstate.is< RtPrim::FloorPlane >();
+    if( rtstate.is< RtPrim::Sprite >() || ( neon && !flat ) || ( hwtex->IsLamp() && ceiling ) )
+    {
+        // a ball of light: by the overall setting alone
+    }
+    else if( ceiling && !rtstate.is< RtPrim::Decal >() && *rt_emis_ceiling_ball > 0.f )
+    {
+        ratio *= float( *rt_emis_ceiling_ball ) / def( rt_emis_ceiling_ball, 0.5f );
+    }
+    else
+    {
+        ratio *= float( *rt_emis_spot ) / def( rt_emis_spot, 1.f );
+    }
+    ratio = std::clamp( ratio, 0.f, 1.f );
+    return follow >= 1.f ? ratio : std::pow( ratio, follow );
+}
+
 CVARD( Bool, rt_debug_emis, false, 0, "RT: print, once per texture, how a glowing texture glows and lights (the log)" )
 uint32_t g_rtTexCreates = 0;   // rt_debug_stats: textures given to the path tracer...
 double   g_rtTexSeconds = 0;   // ...and the time it took (material files included)
@@ -1217,6 +1254,18 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             {
                 glowScale = 0.f;
             }
+            // shot out (rt_shoot_lights): a lamp, a panel, a screen -- not a fire
+            if( !hwtex->IsFlame() && ( hwtex->Glow() <= 0.f || hwtex->IsLamp() ) && !rtstate.is< RtPrim::Sprite >() &&
+                ( rtstate.is< RtPrim::Shot >() ||
+                  ( rtstate.is< RtPrim::CeilingPlane >() && RT_LightShot( -1, rtstate.get_sector(), 2 ) ) ||
+                  ( rtstate.is< RtPrim::FloorPlane >() && RT_LightShot( -1, rtstate.get_sector(), 1 ) ) ) )
+            {
+                glowScale = 0.f;
+            }
+            // its look follows its light turned down (rt_emis_screen_follow): a lamp whose
+            // light is dimmed (rt_emis_spot, rt_emis_ceiling_ball, rt_emis_light_scale under
+            // their defaults) looks dimmer too, not as bright as ever over a dim room
+            screenScale *= EmissionLookFollow( hwtex );
             emissive   = glowScale * screenScale;
             emissiveGi = glowScale * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
             // a voxel model's glowing faces (a voxel fire is mostly glow, and flickers

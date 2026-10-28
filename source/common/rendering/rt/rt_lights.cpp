@@ -1471,6 +1471,52 @@ uint32_t RT_LevelGeneration()
     return s_gen;
 }
 
+// glowing surfaces shot out (rt_state.h)
+CVARD( Bool, rt_shoot_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing surfaces (lamps, panels, screens, signs) go out when shot" )
+static std::vector< uint8_t > s_shotWall, s_shotPlane;
+static uint32_t               s_shotGen = ~0u;
+
+static void ShotReset()
+{
+    const uint32_t gen = RT_LevelGeneration();
+    if( gen != s_shotGen || s_shotWall.size() != wall.Size() || s_shotPlane.size() != sector.Size() )
+    {
+        s_shotGen = gen;
+        s_shotWall.assign( wall.Size(), 0 );
+        s_shotPlane.assign( sector.Size(), 0 );
+    }
+}
+
+void RT_ShootLight( int wallnum, int sectnum, int plane )
+{
+    if( !*rt_shoot_lights )
+    {
+        return;
+    }
+    ShotReset();
+    if( plane == 0 && wallnum >= 0 && size_t( wallnum ) < s_shotWall.size() )
+    {
+        s_shotWall[ size_t( wallnum ) ] = 1;
+    }
+    else if( ( plane == 1 || plane == 2 ) && sectnum >= 0 && size_t( sectnum ) < s_shotPlane.size() )
+    {
+        s_shotPlane[ size_t( sectnum ) ] |= uint8_t( plane );
+    }
+}
+
+bool RT_LightShot( int wallnum, int sectnum, int plane )
+{
+    if( !*rt_shoot_lights || s_shotGen != RT_LevelGeneration() )
+    {
+        return false;
+    }
+    if( plane == 0 )
+    {
+        return wallnum >= 0 && size_t( wallnum ) < s_shotWall.size() && s_shotWall[ size_t( wallnum ) ];
+    }
+    return sectnum >= 0 && size_t( sectnum ) < s_shotPlane.size() && ( s_shotPlane[ size_t( sectnum ) ] & plane );
+}
+
 float RT_SectorFlickerSmoothing( int sectnum )
 {
     if( sectnum < 0 || size_t( sectnum ) >= g_levelSmoothed.size() || unsigned( sectnum ) >= sector.Size() ||
