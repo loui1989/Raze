@@ -1376,6 +1376,41 @@ namespace
 					rule.hasFlicker = true;
 					rule.flickerFrames = std::max(sc.Number, 0);
 				}
+				else if (sc.Compare("target"))
+				{
+					rule.hasTarget = true;
+					MustParseVector3(rule.target);
+				}
+				else if (sc.Compare("cone"))
+				{
+					sc.MustGetFloat();
+					rule.hasCone = true;
+					rule.coneOuter = std::clamp((float)sc.Float, 1.0f, 89.0f);
+					rule.coneInner = rule.coneOuter * 0.6f;
+					if (sc.CheckFloat()) rule.coneInner = std::clamp((float)sc.Float, 0.0f, rule.coneOuter);
+				}
+				else if (sc.Compare("signal"))
+				{
+					sc.MustGetString();
+					if (sc.Compare("sector"))
+					{
+						sc.MustGetNumber();
+						rule.hasSignalSector = true;
+						rule.signalSector = sc.Number;
+					}
+					else
+					{
+						sc.ScriptMessage("Unknown light signal target '%s'; expected sector", sc.String);
+					}
+				}
+				else if (sc.Compare("sectorresponse"))
+				{
+					sc.MustGetString();
+					if (sc.Compare("on")) rule.sectorResponse = 1;
+					else if (sc.Compare("off")) rule.sectorResponse = 0;
+					else if (sc.Compare("inverse")) rule.sectorResponse = 2;
+					else sc.ScriptMessage("Invalid sectorresponse value '%s'; expected off/on/inverse", sc.String);
+				}
 				else
 				{
 					SkipUnknownField("light", sc.String);
@@ -2211,6 +2246,10 @@ namespace
 		if (rule.hasRadius) AppendLine(text, 3, FStringf("radius %s", FormatLightOverlayFloat(rule.radius).GetChars()));
 		if (rule.hasRange) AppendLine(text, 3, FStringf("range %s", FormatLightOverlayFloat(rule.range).GetChars()));
 		if (rule.hasFlicker) AppendLine(text, 3, FStringf("flicker %u", rule.flickerFrames));
+		if (rule.hasTarget) AppendVector3Field(text, 3, "target", rule.target);
+		if (rule.hasCone) AppendLine(text, 3, FStringf("cone %s %s", FormatLightOverlayFloat(rule.coneOuter).GetChars(), FormatLightOverlayFloat(rule.coneInner).GetChars()));
+		if (rule.hasSignalSector) AppendLine(text, 3, FStringf("signal sector %d", rule.signalSector));
+		if (rule.sectorResponse) AppendLine(text, 3, rule.sectorResponse == 2 ? "sectorresponse inverse" : "sectorresponse on");
 		AppendLine(text, 2, "}");
 	}
 
@@ -2981,6 +3020,14 @@ namespace
 		destination.range = source.range;
 		destination.hasFlicker = source.hasFlicker;
 		destination.flickerFrames = source.flickerFrames;
+		destination.hasTarget = source.hasTarget;
+		CopyVector3(source.target, destination.target);
+		destination.hasCone = source.hasCone;
+		destination.coneOuter = source.coneOuter;
+		destination.coneInner = source.coneInner;
+		destination.hasSignalSector = source.hasSignalSector;
+		destination.signalSector = source.signalSector;
+		destination.sectorResponse = source.sectorResponse;
 	}
 
 	static void CopyEmissiveOverrideRule(const ParsedLightOverlayEmissiveOverrideRule& source, ResolvedLightOverlayEmissiveOverrideRule& destination)

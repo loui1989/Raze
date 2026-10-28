@@ -180,6 +180,19 @@ struct ParsedLightOverlayMapLightRule
 	float range = 0.0f;
 	bool hasFlicker = false;
 	uint32_t flickerFrames = 0;
+	// Raze RT: a spot light (type "spot"): aimed at a point ("target", in the same
+	// coordinates as "anchor position") or along "direction"; "cone" outer [inner]
+	// half-angles in degrees; "signal sector N" with "sectorresponse on" (lit with that
+	// sector's light switch), "off" (always lit) or "inverse" (lit while the switch is
+	// off: a projector that runs when the room's lights go out)
+	bool hasTarget = false;
+	float target[3] = { 0.0f, 0.0f, 0.0f };
+	bool hasCone = false;
+	float coneOuter = 30.0f;
+	float coneInner = 20.0f;
+	bool hasSignalSector = false;
+	int signalSector = -1;
+	int sectorResponse = 0; // 0 off, 1 on, 2 inverse
 };
 
 struct ParsedLightOverlayEmissiveOverrideRule
@@ -591,6 +604,19 @@ struct ResolvedLightOverlayMapLightRule
 	float range = 0.0f;
 	bool hasFlicker = false;
 	uint32_t flickerFrames = 0;
+	// Raze RT: a spot light (type "spot"): aimed at a point ("target", in the same
+	// coordinates as "anchor position") or along "direction"; "cone" outer [inner]
+	// half-angles in degrees; "signal sector N" with "sectorresponse on" (lit with that
+	// sector's light switch), "off" (always lit) or "inverse" (lit while the switch is
+	// off: a projector that runs when the room's lights go out)
+	bool hasTarget = false;
+	float target[3] = { 0.0f, 0.0f, 0.0f };
+	bool hasCone = false;
+	float coneOuter = 30.0f;
+	float coneInner = 20.0f;
+	bool hasSignalSector = false;
+	int signalSector = -1;
+	int sectorResponse = 0; // 0 off, 1 on, 2 inverse
 };
 
 struct ResolvedLightOverlayEmissiveOverrideRule

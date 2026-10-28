@@ -30,6 +30,7 @@
 
 CVARD( Bool, rt_lightovr, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lights from Duke-RT's LIGHTOVR" )
 CVARD( Float, rt_lightovr_scale, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of LIGHTOVR point lights" )
+CVARD( Float, rt_lightovr_spot_scale, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of LIGHTOVR spot lights (a cinema projector)" )
 CVARD( Float, rt_lightovr_sunscale, 20.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness of the LIGHTOVR directional light (lux per unit)" )
 CVARD( Bool, rt_lightovr_actors, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: LIGHTOVR actor lights (fire, explosions, projectiles)" )
 CVARD( Bool, rt_sector_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: a soft light in every lit indoor sector" )
@@ -1228,8 +1229,37 @@ void UploadOverlayLights( uint32_t time )
         const RgFloat3D lp     = WorldToRT( x, y, z );
         const int       lsec   = r.anchorType == LightOverlayAnchorType::Sector ? r.anchorIndex
                                                                                  : CachedSector( s_mapLightSector, i, x, y );
-        const float     lumens = OverlayToLumens( r.intensity, r.radius ) * FlickerScale( id, r.flickerFrames, time ) *
+        float           lumens = OverlayToLumens( r.intensity, r.radius ) * FlickerScale( id, r.flickerFrames, time ) *
                              ReachFade( lp, lsec );
+        // with a light switch: on with it, or (inverse) on while it is off
+        if( r.sectorResponse != 0 && r.hasSignalSector )
+        {
+            const float sw = RT_SectorSwitch( r.signalSector );
+            const float on = sw < 0.f ? 1.f : sw;
+            lumens *= r.sectorResponse == 2 ? 1.f - on : 0.03f + 0.97f * on;
+        }
+        // a spot light (a cinema's projector): aimed at its target, or along its direction
+        if( r.lightType.CompareNoCase( "spot" ) == 0 && ( r.hasTarget || r.hasDirection ) )
+        {
+            RgFloat3D d;
+            if( r.hasTarget )
+            {
+                const RgFloat3D t = WorldToRT( r.target[ 0 ], r.target[ 1 ], r.target[ 2 ] );
+                d = { t.data[ 0 ] - lp.data[ 0 ], t.data[ 1 ] - lp.data[ 1 ], t.data[ 2 ] - lp.data[ 2 ] };
+            }
+            else
+            {
+                d = WorldToRT( r.direction[ 0 ], r.direction[ 1 ], r.direction[ 2 ] );
+            }
+            const float len = std::sqrt( d.data[ 0 ] * d.data[ 0 ] + d.data[ 1 ] * d.data[ 1 ] + d.data[ 2 ] * d.data[ 2 ] );
+            if( len > 1e-6f )
+            {
+                d = { d.data[ 0 ] / len, d.data[ 1 ] / len, d.data[ 2 ] / len };
+                UploadSpotLight( id, lp, d, PackColor( r.color ), lumens * std::max( 0.f, float( *rt_lightovr_spot_scale ) ),
+                                 r.hasCone ? r.coneOuter : 30.f, r.hasCone ? r.coneInner : 20.f );
+            }
+            continue;
+        }
         UploadSphere( id, lp, PackColor( r.color ), lumens, 0.05f );
     }
 
