@@ -2310,6 +2310,7 @@ OptionMenu "RTOptions" protected
 	Slider "Smoke density",				"rt_smoke_density", 0, 6, 0.25, 2
 	Slider "Ground fog (open air)",		"rt_fog", 0, 2, 0.25, 2
 	Slider "Ground fog height",			"rt_fog_height", 0.5, 3, 0.25, 2
+	Slider "Ground fog brightness",		"rt_fog_glow", 0, 1.5, 0.05, 2
 	StaticText " "
 
 	StaticText "Water", 1

@@ -42,6 +42,7 @@ CVARD( Bool, rt_smoke_debug, false, 0, "RT: print the smoke pool's state" )
 CVARD( Float, rt_smoke_maxlight, 2.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ceiling on the light inside smoke (against white specks)" )
 CVARD( Float, rt_smoke_light_near, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres within which a light fades out of the smoke it sits in" )
 CVARD( Float, rt_fog, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ground fog over open-air ground (0 = none, 1 = some, 2 = thick)" )
+CVARD( Float, rt_fog_glow, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much light of its own the ground fog has (its grey: higher = paler, lower = darker)" )
 CVARD( Float, rt_fog_height, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how high the ground fog lies (1 = about knee to waist high)" )
 CVARD( Float, rt_smoke_history, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: frames the volume accumulates while there is smoke (more = smoother, slower to let go)" )
 
@@ -634,7 +635,10 @@ void FogSources( float dt )
             p.attack  = 6.f;
             p.release = 7.f;
             p.sustain = std::max( 0.f, p.life - p.attack - p.release );
-            p.albedo  = { 0.78f, 0.80f, 0.84f };
+            // mist, not smoke (Smoke.h, Raze RT's shaders): it does not absorb, and it glows
+            // pale grey with a light of its own, rt_fog_glow -- as smoke it was a dark bank
+            // lit only by the moon, soot rather than fog. Marked by its red at 2 or more.
+            p.albedo  = { 2.f + std::clamp( float( *rt_fog_glow ), 0.f, 4.f ), 0.80f, 0.84f };
             p.vel     = g_wind + FVector3{ Rnd( -0.05f, 0.05f ), Rnd( -0.05f, 0.05f ), 0.f };
             live++;
             break;
@@ -777,7 +781,9 @@ uint32_t RT_UpdateSmoke( const RgFloat3D& eyeIn, const RgFloat3D& fwdIn, const R
 
         outPuffs[ i ]  = RgFloat4D{ p.pos.X, p.pos.Y, p.pos.Z, rAlong };
         outShape[ i ]  = RgFloat4D{ p.radius, vdir.X, vdir.Y, vdir.Z };
-        outAlbDen[ i ] = RgFloat4D{ p.albedo.X, p.albedo.Y, p.albedo.Z,
+        // (a fog bank's glow as rt_fog_glow is now: the slider works on the banks there are)
+        const float albR = p.fog ? 2.f + std::clamp( float( *rt_fog_glow ), 0.f, 4.f ) : p.albedo.X;
+        outAlbDen[ i ] = RgFloat4D{ albR, p.albedo.Y, p.albedo.Z,
                                     p.density * thin * dilute * sliceM / kCellCoeff * Envelope( p ) };
     }
 
