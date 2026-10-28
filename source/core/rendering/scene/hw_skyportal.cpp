@@ -217,6 +217,80 @@ static void RTSkyLightOfPicture(RTSkyDome& d, FGameTexture* tex, double th0, dou
 
 std::map<std::tuple<const void*, float, float, float>, RTSkyDome> s_rtDomes;
 
+// a skybox's light (Duke World Tour's skies are boxes, not pictures round a dome: without
+// this there was no sky light at all -- no window lights, no moon): its sides' upper
+// halves and its top, the brightest side for the direction, 45 degrees up
+static void RTSkyboxLight(FSkyBox* box)
+{
+	static std::map<const void*, RTSkyDome> cache;
+	auto it = cache.find(box);
+	if (it == cache.end())
+	{
+		RTSkyDome d;
+		const bool four = box->GetSkyFace(5) != nullptr;
+		const int sides = four ? 4 : 1;
+		double avg[3] = {}, n = 0, best = -1, sideRgb[4][3] = {};
+		int bestSide = 0;
+		auto readFace = [&](FGameTexture* f, bool upperHalf, double* rgb) -> double
+		{
+			if (!f || !f->GetTexture()) return 0;
+			FBitmap bm = f->GetTexture()->GetBgraBitmap(nullptr);
+			const int W = bm.GetWidth(), H = bm.GetHeight();
+			const uint8_t* px = bm.GetPixels();
+			if (!px || W <= 0 || H <= 0) return 0;
+			double c = 0;
+			const int y1 = upperHalf ? H / 2 : H;
+			for (int y = 0; y < y1; y++)
+				for (int x = 0; x < W; x++)
+				{
+					const uint8_t* q = &px[(size_t(y) * W + x) * 4];
+					rgb[0] += pow(q[2] / 255., 2.2); rgb[1] += pow(q[1] / 255., 2.2); rgb[2] += pow(q[0] / 255., 2.2);
+					c++;
+				}
+			return c;
+		};
+		for (int i = 0; i < sides; i++)
+		{
+			const double c = readFace(box->GetSkyFace(i), true, sideRgb[i]);
+			if (c <= 0) continue;
+			for (int k = 0; k < 3; k++) { avg[k] += sideRgb[i][k]; sideRgb[i][k] /= c; }
+			n += c;
+			const double lum = 0.2126 * sideRgb[i][0] + 0.7152 * sideRgb[i][1] + 0.0722 * sideRgb[i][2];
+			if (lum > best) { best = lum; bestSide = i; }
+		}
+		double top[3] = {};
+		const double ct = readFace(box->GetSkyFace(sides), false, top);
+		for (int k = 0; k < 3; k++) avg[k] += top[k];
+		n += ct;
+		if (n > 0)
+		{
+			for (auto& v : avg) v /= n;
+			const double lum = 0.2126 * avg[0] + 0.7152 * avg[1] + 0.0722 * avg[2];
+			if (lum > 1e-6)
+			{
+				constexpr double pi = 3.14159265358979;
+				const double phi = bestSide * pi / 2, el = 45. * pi / 180.;
+				d.lightDir[0] = float(cos(el) * cos(phi)); d.lightDir[1] = float(sin(el)); d.lightDir[2] = float(cos(el) * sin(phi));
+				const double mx = std::max({ avg[0], avg[1], avg[2] });
+				for (int i = 0; i < 3; i++) { d.lightColor[i] = float(0.9 * avg[i] / mx + 0.1); d.average[i] = float(avg[i]); }
+				d.lightIrr  = float(0.6 * pi * lum);
+				d.lightDiam = 6.f;
+				d.lightOk   = true;
+			}
+		}
+		rt_skyLast.Format("a skybox, %d side%s: its light %s", sides, sides > 1 ? "s" : "", d.lightOk ? "from its sides' upper halves and its top" : "none (its pictures are black or unreadable)");
+		it = cache.emplace(box, d).first;
+	}
+	const RTSkyDome& d = it->second;
+	if (!d.lightOk) return;
+	for (int i = 0; i < 3; i++) g_rtSkyLight.local[i] = d.lightDir[i];
+	for (int i = 0; i < 3; i++) g_rtSkyLight.color[i] = d.lightColor[i];
+	g_rtSkyLight.irradiance = d.lightIrr;
+	g_rtSkyLight.diameter = d.lightDiam;
+	for (int i = 0; i < 3; i++) g_rtSkyLight.average[i] = d.average[i];
+	g_rtSkyLight.pending = true;
+}
+
 const RTSkyDome& RTBuildDome(FGameTexture* tex, float texh, float repeat_fac, float T)
 {
 	auto key = std::make_tuple((const void*)tex, texh, repeat_fac, T);
@@ -354,6 +428,7 @@ void HWSkyPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 	auto skybox = origin->texture ? dynamic_cast<FSkyBox*>(origin->texture->GetTexture()) : nullptr;
 	if (skybox)
 	{
+		if (RT_IsActive()) RTSkyboxLight(skybox);
 		vertexBuffer->RenderBox(state, skybox, origin->x_offset, false, /*di->Level->info->pixelstretch*/1, { 0, 0, 1 }, { 0, 0, 1 }, color);
 	}
 	else if (!origin->cloudy)
@@ -427,6 +502,29 @@ void HWSkyPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 	}
 	else
 	{
+		// (a cloudy sky: no dome of ours -- its light from the picture's mean)
+		if (RT_IsActive() && origin->texture)
+		{
+			static std::map<const void*, RTSkyDome> cloudCache;
+			auto it = cloudCache.find(origin->texture);
+			if (it == cloudCache.end())
+			{
+				RTSkyDome d;
+				RTSkyLightOf(d, origin->texture, 0., 0., [](double) { return 0.; }, 1.);
+				rt_skyLast.Format("%s, a cloudy sky (no dome): its light %s%s", origin->texture->GetName().GetChars(), d.lightOk ? "found " : "none: ", rt_skyWhy.GetChars());
+				it = cloudCache.emplace(origin->texture, d).first;
+			}
+			const RTSkyDome& d = it->second;
+			if (d.lightOk)
+			{
+				for (int i = 0; i < 3; i++) g_rtSkyLight.local[i] = d.lightDir[i];
+				for (int i = 0; i < 3; i++) g_rtSkyLight.color[i] = d.lightColor[i];
+				g_rtSkyLight.irradiance = d.lightIrr;
+				g_rtSkyLight.diameter = d.lightDiam;
+				for (int i = 0; i < 3; i++) g_rtSkyLight.average[i] = d.average[i];
+				g_rtSkyLight.pending = true;
+			}
+		}
 		vertexBuffer->RenderDome(state, origin->texture, -origin->x_offset, origin->y_offset, false, FSkyVertexBuffer::SKYMODE_MAINLAYER, true, 0, 0, color);
 	}
 skydone:
