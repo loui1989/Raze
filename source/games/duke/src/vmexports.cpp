@@ -1683,6 +1683,22 @@ void duke_checkhitceiling(sectortype* sect, DDukeActor* actor)
 	checkhitceiling(sect); // actor is currently unused, this may change.
 }
 
+// ray tracing: a glowing floor (a lit floor panel) shot out -- the game has no floor to break
+void duke_rtshootfloor(sectortype* sect, DDukeActor* actor)
+{
+	if (sect) RT_ShootLight(-1, sectindex(sect), 1);
+	if (sect && actor) RT_ShootSpritesAt(actor->spr.pos, sectindex(sect));
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, rtshootfloor, duke_rtshootfloor)
+{
+	PARAM_PROLOGUE;
+	PARAM_POINTER(sect, sectortype);
+	PARAM_POINTER(act, DDukeActor);
+	duke_rtshootfloor(sect, act);
+	return 0;
+}
+
 DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, checkhitceiling, duke_checkhitceiling)
 {
 	PARAM_PROLOGUE;

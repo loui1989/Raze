@@ -145,6 +145,8 @@ extend class DukeActor
 					else
 						dlevel.checkhitceiling(hit.hitSector, spark);
 				}
+				else if (zvel > 0)
+					dlevel.rtshootfloor(hit.hitSector, spark);
 				if (zvel < 0 || hit.hitSector.lotag != ST_1_ABOVE_WATER)
 					spark.spawn("DukeSmallSmoke");
 			}

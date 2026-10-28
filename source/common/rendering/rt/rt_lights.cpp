@@ -1070,6 +1070,30 @@ struct MapLightDiag
 };
 static std::vector< MapLightDiag > g_mapLightDiag;
 
+// a LIGHTOVR surface light whose surface was shot out (rt_shoot_lights): the floor,
+// the ceiling or a wall of its sector it sits on (its position in path tracing space)
+static bool SurfaceLightShot( const float pos[ 3 ], int sec )
+{
+    if( sec < 0 || unsigned( sec ) >= sector.Size() )
+    {
+        return false;
+    }
+    const double x = pos[ 0 ], y = -pos[ 2 ], z = -pos[ 1 ];
+    auto         s = &sector[ sec ];
+    if( RT_LightShot( -1, sec, 1 ) && fabs( z - getflorzofslopeptr( s, x, y ) ) < 8. ) return true;
+    if( RT_LightShot( -1, sec, 2 ) && fabs( z - getceilzofslopeptr( s, x, y ) ) < 8. ) return true;
+    for( auto& w : s->walls )
+    {
+        if( !RT_LightShot( wallindex( &w ), -1, 0 ) ) continue;
+        const DVector2 a = w.pos, b = w.point2Wall()->pos, q( x, y );
+        const DVector2 ab = b - a;
+        const double   len2 = ab.LengthSquared();
+        const double   t = len2 > 0 ? std::clamp( ( ( q - a ) | ab ) / len2, 0., 1. ) : 0.;
+        if( ( a + ab * t - q ).Length() < 4. ) return true;
+    }
+    return false;
+}
+
 void UploadOverlayLights( uint32_t time )
 {
     if( !*rt_lightovr || !currentLevel )
@@ -1300,7 +1324,14 @@ void UploadOverlayLights( uint32_t time )
             r.position[ 2 ] + r.normal[ 2 ] * lightOut,
         };
         // path tracing space: x, -z, -y of the world
-        const float fade = ReachFade( PTToRT( p ), CachedSector( s_surfLightSector, i, p[ 0 ], -p[ 2 ] ) );
+        const int lsec = CachedSector( s_surfLightSector, i, p[ 0 ], -p[ 2 ] );
+        // its fixture shot out (rt_shoot_lights): the surface it is on was hit -- no light,
+        // no panel
+        if( SurfaceLightShot( r.position, lsec ) )
+        {
+            continue;
+        }
+        const float fade = ReachFade( PTToRT( p ), lsec );
         UploadSphere( SurfaceLightBase + i, PTToRT( p ), PackColor( r.color ),
                       OverlayToLumens( r.intensity, r.radius ) * response * fade,
                       std::clamp( std::min( sw, sh ) * 0.5f * ONEGAMEUNIT_IN_METERS, 0.02f, 0.1f ) );

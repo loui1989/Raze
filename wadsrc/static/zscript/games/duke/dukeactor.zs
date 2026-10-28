@@ -532,6 +532,7 @@ struct DukeLevel
 	native static bool isMirror(walltype wal);
 	native static void checkhitwall(walltype wal, DukeActor hitter, Vector3 hitpos);
 	native static void checkhitceiling(sectortype wal, DukeActor hitter);
+	native static void rtshootfloor(sectortype sect, DukeActor hitter);	// ray tracing: a glowing floor shot out
 	native static DukeActor LocateTheLocator(int n, sectortype sect);
 	native static int getanimationindex(int type, sectortype sec);
 	native static int setanimation(sectortype animsect, int type, sectortype sec, double target, double vel);

@@ -139,6 +139,8 @@ class DukeProjectile : DukeActor
 
 			dlevel.checkhitceiling(self.sector, self);
 		}
+		else if (self.vel.Z > 0)
+			dlevel.rtshootfloor(self.sector, self);
 		return false;
 	}
 	
