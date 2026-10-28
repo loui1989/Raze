@@ -106,6 +106,132 @@ bool WritePNG( const std::filesystem::path& path, const std::vector< uint8_t >& 
 
 std::unordered_set< std::string > g_made; // this session
 
+// What a texture's material files were made from: its size and a sample of its texels.
+// The files are named after the texture ("#01079_tr1"), and the name alone says
+// nothing of whose tile it was -- maps made from another game's tile 1079 or a texture
+// pack's (Blood's, before Blood had its own folder) were kept and shown on Duke's
+// canister: someone else's glowing figure over it. A file says what it was made from;
+// one that does not match is made again.
+uint32_t SourceSignature( const FTextureBuffer& albedo )
+{
+    uint32_t       h = 2166136261u;
+    auto           mix = [ &h ]( uint32_t v ) {
+        for( int k = 0; k < 4; k++ )
+        {
+            h = ( h ^ ( ( v >> ( k * 8 ) ) & 0xffu ) ) * 16777619u;
+        }
+    };
+    const int      w = albedo.mWidth, ht = albedo.mHeight;
+    mix( uint32_t( w ) );
+    mix( uint32_t( ht ) );
+    const size_t n      = size_t( std::max( w, 0 ) ) * size_t( std::max( ht, 0 ) );
+    const size_t stride = std::max< size_t >( 1, n / 8192 ) | 1;
+    for( size_t i = 0; i < n; i += stride )
+    {
+        uint32_t t;
+        memcpy( &t, &albedo.mBuffer[ i * 4 ], 4 );
+        mix( t );
+    }
+    return h;
+}
+
+// the width and height of a PNG file (its header), or false
+bool PngSize( const std::filesystem::path& p, int& w, int& h )
+{
+    FILE* f = fopen( p.string().c_str(), "rb" );
+    if( !f )
+    {
+        return false;
+    }
+    uint8_t b[ 24 ];
+    const bool ok = fread( b, 1, 24, f ) == 24 && b[ 1 ] == 'P' && b[ 2 ] == 'N' && b[ 3 ] == 'G';
+    fclose( f );
+    if( !ok )
+    {
+        return false;
+    }
+    w = int( ( uint32_t( b[ 16 ] ) << 24 ) | ( uint32_t( b[ 17 ] ) << 16 ) | ( uint32_t( b[ 18 ] ) << 8 ) | b[ 19 ] );
+    h = int( ( uint32_t( b[ 20 ] ) << 24 ) | ( uint32_t( b[ 21 ] ) << 16 ) | ( uint32_t( b[ 22 ] ) << 8 ) | b[ 23 ] );
+    return true;
+}
+
+// the material files in the folder, by the texture they belong to (read once: the
+// folder holds thousands); "<name>_e.png", "<name>_orm.v5", "<name>_n.png", "<name>_h.n1"
+std::unordered_map< std::string, std::vector< std::string > >& FilesByTexture( const std::filesystem::path& dir )
+{
+    static std::unordered_map< std::string, std::vector< std::string > > files;
+    static bool                                                            read = false;
+    if( !read )
+    {
+        read = true;
+        std::error_code ec;
+        for( auto it = std::filesystem::directory_iterator( dir, ec ); !ec && it != std::filesystem::directory_iterator(); it.increment( ec ) )
+        {
+            const std::string fn  = it->path().filename().string();
+            const size_t      us  = fn.rfind( '_' );
+            if( us == std::string::npos || us == 0 )
+            {
+                continue;
+            }
+            const size_t      dot  = fn.find( '.', us );
+            const std::string kind = fn.substr( us + 1, dot == std::string::npos ? std::string::npos : dot - us - 1 );
+            if( kind == "e" || kind == "orm" || kind == "n" || kind == "h" )
+            {
+                files[ fn.substr( 0, us ) ].push_back( fn );
+            }
+        }
+    }
+    return files;
+}
+
+// true if the files of 'name' were made from another texture than this one (and
+// removes them, so all are made again); notes what they will be made from
+bool StaleMaterialFiles( const std::filesystem::path& dir, const std::string& name, const FTextureBuffer& albedo )
+{
+    const auto     pathSrc = dir / ( name + "_src.v1" );
+    const uint32_t sig     = SourceSignature( albedo );
+    bool           stale   = false;
+    bool           known   = false;
+    if( FILE* f = fopen( pathSrc.string().c_str(), "rb" ) )
+    {
+        unsigned w = 0, h = 0, was = 0;
+        known = fscanf( f, "%u %u %x", &w, &h, &was ) == 3;
+        fclose( f );
+        stale = known && ( int( w ) != albedo.mWidth || int( h ) != albedo.mHeight || was != sig );
+    }
+    if( !known )
+    {
+        // made before the files said what from: the emission map is the texture's size
+        int w = 0, h = 0;
+        stale = PngSize( dir / ( name + "_e.png" ), w, h ) && ( w != albedo.mWidth || h != albedo.mHeight );
+    }
+    if( stale )
+    {
+        auto& files = FilesByTexture( dir );
+        if( auto it = files.find( name ); it != files.end() )
+        {
+            std::error_code ec;
+            for( const auto& fn : it->second )
+            {
+                std::filesystem::remove( dir / fn, ec );
+            }
+            files.erase( it );
+        }
+        Printf( "RT: material files of %s were made from another texture; making them again\n", name.c_str() );
+    }
+    if( stale || !known )
+    {
+        std::error_code ec;
+        std::filesystem::create_directories( dir, ec );
+        if( FILE* f = fopen( pathSrc.string().c_str(), "wb" ) )
+        {
+            fprintf( f, "%d %d %08x\n", albedo.mWidth, albedo.mHeight, sig );
+            fclose( f );
+        }
+    }
+    return stale;
+}
+
 // A game's material table, <rt>/materials.txt (Blood: its textures sorted by what
 // they are made of). For textures without the overlay's maps, each listed tile gets
 // roughness / metallic / mirror polish of its class and a bump map from its own
@@ -591,7 +717,8 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     const auto pathN   = dir / ( name + "_n.png" );
     const auto pathNv  = dir / ( name + "_n.v1" );     // made by this version
 
-    const bool regen = *rt_materials_regen && g_made.insert( name ).second;
+    const bool stale = StaleMaterialFiles( dir, name, albedo );
+    const bool regen = ( *rt_materials_regen && g_made.insert( name ).second ) || stale;
 
     std::error_code ec;
     bool hasE = false;
