@@ -277,6 +277,7 @@ enum class RtPrim : uint32_t
     BloodPool      = 1 << 17, // a pool of blood (Blood): the stylized liquid, red
     OneSided       = 1 << 18, // a solid wall part, a floor or ceiling: seen only from its sector's side
     GameLit        = 1 << 19, // a sprite whose light the game gives (Blood's torches, lanterns): none from its glow too
+    NoSwitch       = 1 << 20, // a wall the game's light switches leave lit (Duke: hitag 1 -- a cinema's screen)
 };
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it

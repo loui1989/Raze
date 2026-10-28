@@ -1163,7 +1163,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // below -- whatever its room's switch: a lamp drawn lit in a dim room is on)
             if( *rt_emis_follow_shade && !rtstate.is< RtPrim::Fullbright >() && !hwtex->IsFlame() && !hwtex->IsLamp() )
             {
-                const float sw = RT_SectorSwitch( rtstate.get_sector() );
+                const float sw = rtstate.is< RtPrim::NoSwitch >() ? -1.f : RT_SectorSwitch( rtstate.get_sector() );
                 if( sw >= 0.f )
                 {
                     glowScale = sw;
@@ -1189,7 +1189,7 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                 // screen, but lit: fully on from there; only a nearly black one is off)
                 glowScale *= std::clamp( ( classic - 0.05f ) / 0.3f, 0.f, 1.f );
                 // and off with its room's light switch (Blood's switched lighting)
-                if( const float sw = RT_SectorSwitch( rtstate.get_sector() ); sw >= 0.f )
+                if( const float sw = rtstate.is< RtPrim::NoSwitch >() ? -1.f : RT_SectorSwitch( rtstate.get_sector() ); sw >= 0.f )
                 {
                     glowScale *= sw;
                 }
@@ -1246,8 +1246,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // surroundings a little, through the bounce light)
             if( *rt_ambient > 0.f && !isMirror && !isGlass && !rtstate.is< RtPrim::Glass >() && !rtstate.is< RtPrim::Water >() )
             {
-                // a switched-off room is darker than its half-light shade says
-                const float sw = RT_SectorSwitch( rtstate.get_sector() );
+                // a switched-off room is darker than its half-light shade says (not a wall the
+                // switch leaves lit)
+                const float sw = rtstate.is< RtPrim::NoSwitch >() ? -1.f : RT_SectorSwitch( rtstate.get_sector() );
                 // and a flickering sector's glow follows its flicker softly: the glow feeds
                 // the bounce light of the whole room, and a jumping one makes it crawl
                 const float soft = RT_SectorFlickerSmoothing( rtstate.get_sector() );
