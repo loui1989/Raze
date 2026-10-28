@@ -400,6 +400,7 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
         m_lamp     = mi.lamp;
         m_flame    = mi.flame;
         m_lantern  = mi.lantern;
+        m_fire     = mi.fire;
         m_voxGlow.clear();
         if( mi.voxel && texbuffer.mWidth == 16 && texbuffer.mHeight == 16 )
         {
@@ -1254,8 +1255,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             {
                 glowScale = 0.f;
             }
-            // shot out (rt_shoot_lights): a lamp, a panel, a screen -- not a fire
-            if( !hwtex->IsFlame() && ( hwtex->Glow() <= 0.f || hwtex->IsLamp() ) && !rtstate.is< RtPrim::Sprite >() &&
+            // shot out (rt_shoot_lights): a lamp, a panel, a screen, a light tube -- not a fire
+            // (the material table's fire and flame classes)
+            if( !hwtex->IsFlame() && !hwtex->IsFire() && !rtstate.is< RtPrim::Sprite >() &&
                 ( rtstate.is< RtPrim::Shot >() ||
                   ( rtstate.is< RtPrim::CeilingPlane >() && RT_LightShot( -1, rtstate.get_sector(), 2 ) ) ||
                   ( rtstate.is< RtPrim::FloorPlane >() && RT_LightShot( -1, rtstate.get_sector(), 1 ) ) ) )

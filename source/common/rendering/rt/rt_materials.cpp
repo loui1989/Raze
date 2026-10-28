@@ -247,6 +247,7 @@ struct MatClass
     uint32_t    hash  = 0;
     bool        flame = false; // a class named flame...: only its flame coloured texels glow (a candle's flame, not its wax)
     bool        lantern = false; // a class named lantern...: as flame, its warm bright texels -- a lantern's glass, not its frame
+    bool        fire = false;    // a class named fire...: real fire -- not put out by a shot (rt_shoot_lights)
 };
 struct MatTable
 {
@@ -331,6 +332,7 @@ const MatClass* TableClass( const std::string& texname )
             {
                 MatClass mc{ a, r, m, bu, po, gl, strncmp( a, "lamp", 4 ) == 0, 0, strncmp( a, "flame", 5 ) == 0 };
                 mc.lantern = strncmp( a, "lantern", 7 ) == 0;
+                mc.fire    = strncmp( a, "fire", 4 ) == 0;
                 mc.flame   = mc.flame || mc.lantern;
                 char     key[ 256 ];
                 snprintf( key, sizeof( key ), "%s %.3f %.3f %.3f %.3f v2", a, r, m, bu, po );
@@ -840,6 +842,7 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         out.lamp  = g->lamp;
         out.flame = g->flame;
         out.lantern = g->lantern;
+        out.fire  = g->fire || g->flame;
     }
 
     // emission
