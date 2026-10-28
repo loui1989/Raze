@@ -31,6 +31,8 @@
 #include "hw_voxels.h"
 #include "tiletexture.h"
 #include "gamecontrol.h"
+#include "hw_models.h"
+#include "v_video.h"
 
 static int voxlumps[MAXVOXELS];
 float voxscale[MAXVOXELS];
@@ -46,8 +48,38 @@ void voxInit()
 	voxdefined.Zero();
 }
 
+// ray tracing: the voxel models' coarser meshes (their second mip level), made when a
+// model is first wanted that way
+static voxmodel_t* voxlods[MAXVOXELS];
+
+voxmodel_t* RT_VoxelLod(int vox)
+{
+	if (vox < 0 || vox >= MAXVOXELS || !voxmodels[vox] || !voxmodels[vox]->model) return nullptr;
+	if (!voxlods[vox])
+	{
+		FVoxel* voxel = voxmodels[vox]->model->GetVoxel();
+		if (!voxel || voxel->NumMips < 2 || voxel->Mips[1].SizeX <= 0 || !voxel->Mips[1].OffsetX) return nullptr;
+		auto vm = new voxmodel_t;
+		*vm = *voxmodels[vox];
+		vm->model = new FVoxelModel(voxel, 1, voxmodels[vox]->model->GetPaletteTexture());
+		FHWModelRenderer mr(*screen->RenderState(), 0);
+		vm->model->BuildVertexBuffer(&mr);
+		voxlods[vox] = vm;
+	}
+	return voxlods[vox];
+}
+
 void voxClear()
 {
+	for (auto& vox : voxlods)
+	{
+		if (vox)
+		{
+			delete vox->model;
+			delete vox;
+		}
+		vox = nullptr;
+	}
 	for (auto& vox : voxmodels)
 	{
 		if (vox)

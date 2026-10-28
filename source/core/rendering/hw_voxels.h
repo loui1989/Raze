@@ -26,6 +26,9 @@ extern FixedBitArray<MAXVOXELS> voxdefined;	// from a definitions file (a voxel 
 // ray tracing: a voxel model this far from the view is drawn as its sprite (rt_voxel_distance)
 struct tspritetype;
 bool RT_VoxelTooFar(int vox, const tspritetype* spr, const DVector3& view);
+// ray tracing: a voxel model's coarser mesh (its second mip level: a quarter of the faces or
+// so), for the models over the frame's budget; nullptr if the voxel has none
+voxmodel_t* RT_VoxelLod(int vox);
 
 // where the top of the voxel model a sprite is drawn as will be (as HWSprite::ProcessVoxel
 // places it); false if the sprite is drawn as a sprite

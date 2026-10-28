@@ -72,6 +72,7 @@ CVARD(Bool, rt_voxel_insight, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel
 // vertices -- the nearest first, the rest drawn as their sprites. Each instance is its
 // own mesh, built and handed over every frame: Marrow's graveyards and woods have
 // some 160 voxel trees in sight, 85 000 vertices each (14 million: 4 fps)
+CVARD(Bool, rt_voxel_lod, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel models over rt_voxel_budget drawn with their coarser mesh (half the detail) before their sprites")
 CVARD(Int, rt_voxel_budget, 1500, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: thousands of voxel model indices a frame, the nearest models in sight first, the rest drawn as sprites (0 = no limit)")
 
 bool RT_VoxelTooFar(int vox, const tspritetype* spr, const DVector3& view)
@@ -365,11 +366,38 @@ void HWDrawInfo::DispatchSprites()
 			std::sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.off != b.off ? !a.off : a.d < b.d; });
 			rtVoxOver.assign(tsprites.Size(), 0);
 			uint64_t used = 0;
-			for (auto& c : cands)
+			// every model in sight a model first: as its coarser mesh (half the detail, a
+			// tenth of the faces or so; the whole one if it has none), the nearest first, while
+			// the budget lasts; then the nearest made whole again with what is left. Only what
+			// does not fit even coarse is its sprite (Death Wish's cypresses: a million
+			// indices each -- the first took the budget, the rest of the row were flat
+			// sprites at arm's length)
+			std::vector<unsigned> lodCost(cands.size(), 0);
+			for (size_t k = 0; k < cands.size(); k++)
 			{
-				used += c.cost;
-				if (used > budget) rtVoxOver[c.i] = 1;
-				else s_isModel.Insert(tsprites.get(c.i)->ownerActor, true);
+				auto& c = cands[k];
+				const int vox = GetExtInfo(tsprites.get(c.i)->spritetexture()).tiletovox;
+				voxmodel_t* lod = *rt_voxel_lod ? RT_VoxelLod(vox) : nullptr;
+				const unsigned lc = lod && lod->model ? lod->model->GetNumIndices() : 0;
+				lodCost[k] = lc > 0 && lc < c.cost ? lc : 0;
+				const unsigned need = lodCost[k] ? lodCost[k] : c.cost;
+				if (used + need > budget)
+				{
+					rtVoxOver[c.i] = 1;
+					continue;
+				}
+				used += need;
+				if (lodCost[k]) rtVoxOver[c.i] = 2;
+				s_isModel.Insert(tsprites.get(c.i)->ownerActor, true);
+			}
+			for (size_t k = 0; k < cands.size(); k++)
+			{
+				auto& c = cands[k];
+				if (rtVoxOver[c.i] != 2) continue;
+				const uint64_t more = c.cost - lodCost[k];
+				if (used + more > budget) continue;
+				used += more;
+				rtVoxOver[c.i] = 0;
 			}
 		}
 		else
@@ -439,7 +467,7 @@ void HWDrawInfo::DispatchSprites()
 				if (vox >= 0 && voxmodels[vox])
 				{
 					if (RT_VoxelTooFar(vox, tspr, DVector3(g_rtViewPos[0], g_rtViewPos[1], g_rtViewPos[2]))) vox = -1;
-					if (i < rtVoxOver.size() && rtVoxOver[i]) vox = -1;
+					if (i < rtVoxOver.size() && rtVoxOver[i] == 1) vox = -1;
 					// a sprite with a glowmap of its own (Duke-RT's neon signs): the sprite, glowing
 					// as drawn -- the voxel model has only the palette's fullbright colours to glow
 					if (vox >= 0 && RT_IsActive())
@@ -450,8 +478,10 @@ void HWDrawInfo::DispatchSprites()
 				}
 				if (vox >= 0 && voxmodels[vox])
 				{
+					// (over the budget: its coarser mesh)
+					voxmodel_t* vm = i < rtVoxOver.size() && rtVoxOver[i] == 2 && RT_VoxelLod(vox) ? RT_VoxelLod(vox) : voxmodels[vox];
 					HWSprite hwsprite;
-					if (hwsprite.ProcessVoxel(this, voxmodels[vox], tspr, tspr->sectp, voxrotate[vox])) 
+					if (hwsprite.ProcessVoxel(this, vm, tspr, tspr->sectp, voxrotate[vox])) 
 						continue;
 				}
 			}

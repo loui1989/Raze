@@ -183,6 +183,14 @@ FVoxelModel::FVoxelModel(FVoxel *voxel, bool owned)
 	mPalette = TexMan.AddGameTexture(MakeGameTexture(new FImageTexture(new FVoxelTexture(voxel)), nullptr, ETextureType::Override));
 }
 
+FVoxelModel::FVoxelModel(FVoxel *voxel, int mip, FTextureID palette)
+{
+	mVoxel = voxel;
+	mOwningVoxel = false;
+	mMip = mip;
+	mPalette = palette;
+}
+
 //===========================================================================
 //
 // 
@@ -222,6 +230,13 @@ void FVoxelModel::AddFace(int x1, int y1, int z1, int x2, int y2, int z2, int x3
 	float PivotX = mVoxel->Mips[0].Pivot.X;
 	float PivotY = mVoxel->Mips[0].Pivot.Y;
 	float PivotZ = mVoxel->Mips[0].Pivot.Z;
+	// (a coarser mip level's voxels are 2^mip of the first's: the same size model)
+	if (mMip > 0)
+	{
+		const int s = 1 << mMip;
+		x1 *= s; y1 *= s; z1 *= s; x2 *= s; y2 *= s; z2 *= s;
+		x3 *= s; y3 *= s; z3 *= s; x4 *= s; y4 *= s; z4 *= s;
+	}
 	FModelVertex vert;
 	unsigned int indx[4];
 
@@ -457,7 +472,7 @@ bool FVoxelModel::MakeMergedPolys(FVoxelMipLevel *mip, FVoxelMap &check)
 void FVoxelModel::Initialize()
 {
 	FVoxelMap check;
-	FVoxelMipLevel *mip = &mVoxel->Mips[0];
+	FVoxelMipLevel *mip = &mVoxel->Mips[mMip];
 	if (r_voxel_merge && MakeMergedPolys(mip, check))
 	{
 		return;

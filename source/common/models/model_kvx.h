@@ -49,7 +49,8 @@ protected:
 	FVoxel *mVoxel;
 	bool mOwningVoxel;	// if created through MODELDEF deleting this object must also delete the voxel object
 	FTextureID mPalette;
-	unsigned int mNumIndices;
+	unsigned int mNumIndices = 0;
+	int mMip = 0;	// the mip level the mesh is made from (a coarser one for far models: ray tracing)
 	TArray<FModelVertex> mVertices;
 	TArray<unsigned int> mIndices;
 
@@ -60,6 +61,9 @@ protected:
 
 public:
 	FVoxelModel(FVoxel *voxel, bool owned);
+	// a coarser mesh of the same voxel (its mip level 'mip'), the same size, the same palette
+	FVoxelModel(FVoxel *voxel, int mip, FTextureID palette);
+	FVoxel *GetVoxel() const { return mVoxel; }
 	~FVoxelModel();
 	bool Load(const char * fn, int lumpnum, const char * buffer, int length) override;
 	void Initialize();
