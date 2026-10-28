@@ -604,6 +604,14 @@ OptionMenu "WeaponsControlMenu" protected
 	{
 		Control    "$CNTRLMNU_ALTWEAPON"        , "weapalt"
 	}
+	ifgame(Blood, Duke)
+	{
+		StaticText ""
+		Control    "Weapon wheel (hold)"        , "+weaponwheel"
+		Slider     "Weapon wheel: game speed while open", "weaponwheel_slowdown", 0.05, 1, 0.05, 2
+		Slider     "Weapon wheel: size"         , "weaponwheel_size", 0.5, 2, 0.1, 1
+		Slider     "Weapon wheel: mouse travel" , "weaponwheel_sensitivity", 0.25, 4, 0.25, 2
+	}
 
 	StaticText ""
 	Control    "$CNTRLMNU_SLOT1"          , "slot 1"
