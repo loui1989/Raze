@@ -1477,7 +1477,8 @@ CVARD( Bool, rt_shoot_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowi
 static std::vector< uint8_t > s_shotWall, s_shotPlane;
 static uint32_t               s_shotGen = ~0u;
 // from a savegame being loaded: taken on at the loaded level's first frame
-static TArray< int >          s_loadedWalls, s_loadedPlanes;
+static TArray< int >          s_loadedWalls, s_loadedPlanes, s_loadedSprites;
+static std::vector< uint8_t > s_shotSprite; // by actor index: a lamp that is a wall or floor sprite
 static bool                   s_loadedPending = false;
 
 static void ShotReset()
@@ -1488,6 +1489,7 @@ static void ShotReset()
         s_shotGen = gen;
         s_shotWall.assign( wall.Size(), 0 );
         s_shotPlane.assign( sector.Size(), 0 );
+        s_shotSprite.clear();
         // (a level loaded from a savegame: the lights shot out in it; a level started or
         // restarted: none)
         if( s_loadedPending )
@@ -1502,6 +1504,14 @@ static void ShotReset()
                 const int s = e >> 2;
                 if( s >= 0 && size_t( s ) < s_shotPlane.size() ) s_shotPlane[ size_t( s ) ] |= uint8_t( e & 3 );
             }
+            for( int a : s_loadedSprites )
+            {
+                if( a >= 0 && a < ( 1 << 20 ) )
+                {
+                    if( size_t( a ) >= s_shotSprite.size() ) s_shotSprite.resize( size_t( a ) + 1, 0 );
+                    s_shotSprite[ size_t( a ) ] = 1;
+                }
+            }
         }
     }
 }
@@ -1509,7 +1519,7 @@ static void ShotReset()
 // the lights shot out, in a savegame (SerializeMap)
 void RT_SerializeShotLights( FSerializer& arc )
 {
-    TArray< int > walls, planes;
+    TArray< int > walls, planes, sprites;
     if( arc.isWriting() && s_shotGen == RT_LevelGeneration() )
     {
         for( size_t i = 0; i < s_shotWall.size(); i++ )
@@ -1520,13 +1530,19 @@ void RT_SerializeShotLights( FSerializer& arc )
         {
             if( s_shotPlane[ i ] ) planes.Push( int( i ) * 4 + s_shotPlane[ i ] );
         }
+        for( size_t i = 0; i < s_shotSprite.size(); i++ )
+        {
+            if( s_shotSprite[ i ] ) sprites.Push( int( i ) );
+        }
     }
     arc( "rt_shotwalls", walls );
     arc( "rt_shotplanes", planes );
+    arc( "rt_shotsprites", sprites );
     if( arc.isReading() )
     {
         s_loadedWalls   = std::move( walls );
         s_loadedPlanes  = std::move( planes );
+        s_loadedSprites = std::move( sprites );
         s_loadedPending = true;
         s_shotGen       = ~0u; // (taken on at the next look, the same level or not)
     }
@@ -1561,6 +1577,71 @@ bool RT_LightShot( int wallnum, int sectnum, int plane )
         return wallnum >= 0 && size_t( wallnum ) < s_shotWall.size() && s_shotWall[ size_t( wallnum ) ];
     }
     return sectnum >= 0 && size_t( sectnum ) < s_shotPlane.size() && ( s_shotPlane[ size_t( sectnum ) ] & plane );
+}
+
+void RT_ShootSprite( int actorIndex )
+{
+    if( !*rt_shoot_lights || actorIndex < 0 || actorIndex >= ( 1 << 20 ) )
+    {
+        return;
+    }
+    ShotReset();
+    if( size_t( actorIndex ) >= s_shotSprite.size() )
+    {
+        s_shotSprite.resize( size_t( actorIndex ) + 256, 0 );
+    }
+    s_shotSprite[ size_t( actorIndex ) ] = 1;
+}
+
+bool RT_SpriteShot( int actorIndex )
+{
+    ShotReset();
+    return *rt_shoot_lights && actorIndex >= 0 && size_t( actorIndex ) < s_shotSprite.size() && s_shotSprite[ size_t( actorIndex ) ];
+}
+
+// A shot that hit a wall, a ceiling or a floor where a lamp is a sprite laid on it (Blood's
+// fluorescent panels on the ceilings: flat sprites the bullets go through): the sprites
+// it hit too
+void RT_ShootSpritesAt( const DVector3& hit, int sectnum )
+{
+    if( !*rt_shoot_lights || sectnum < 0 || unsigned( sectnum ) >= sector.Size() )
+    {
+        return;
+    }
+    TArray< int > secs;
+    secs.Push( sectnum );
+    for( auto& w : sector[ sectnum ].walls )
+    {
+        if( w.twoSided() && w.nextSector() && secs.Find( sectindex( w.nextSector() ) ) == secs.Size() ) secs.Push( sectindex( w.nextSector() ) );
+    }
+    constexpr double slack = 2.;
+    for( int si : secs )
+    {
+        TSectIterator< DCoreActor > it( &sector[ si ] );
+        while( auto a = it.Next() )
+        {
+            const int align = a->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK;
+            if( align != CSTAT_SPRITE_ALIGNMENT_WALL && align != CSTAT_SPRITE_ALIGNMENT_FLOOR && align != CSTAT_SPRITE_ALIGNMENT_SLOPE ) continue;
+            auto tex = TexMan.GetGameTexture( a->spr.spritetexture() );
+            if( !tex ) continue;
+            const double   w  = tex->GetDisplayWidth() * a->spr.scale.X, h = tex->GetDisplayHeight() * a->spr.scale.Y;
+            const DVector3 d  = hit - a->spr.pos;
+            const DVector2 ax = a->spr.Angles.Yaw.ToVector();
+            const double   along = d.X * ax.X + d.Y * ax.Y, across = -d.X * ax.Y + d.Y * ax.X;
+            bool hitIt;
+            if( align == CSTAT_SPRITE_ALIGNMENT_WALL )
+            {
+                // (its plane: across its facing; up from its foot, or round its middle)
+                hitIt = fabs( along ) <= 4. && fabs( across ) <= w * 0.5 + slack && d.Z <= h * 0.5 + slack && d.Z >= -h - slack;
+            }
+            else
+            {
+                hitIt = fabs( d.Z ) <= 6. && ( ( fabs( along ) <= h * 0.5 + slack && fabs( across ) <= w * 0.5 + slack ) ||
+                                               ( fabs( along ) <= w * 0.5 + slack && fabs( across ) <= h * 0.5 + slack ) );
+            }
+            if( hitIt ) RT_ShootSprite( a->GetIndex() );
+        }
+    }
 }
 
 float RT_SectorFlickerSmoothing( int sectnum )

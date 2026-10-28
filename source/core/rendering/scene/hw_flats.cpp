@@ -325,6 +325,7 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 	auto rtid = rtstate.push_uniqueid(Sprite ? (const void*)Sprite->ownerActor : (const void*)&sections[section], Sprite ? RtIdKind::FlatSprite : plane ? RtIdKind::CeilingFlat : RtIdKind::FloorFlat);
 	RT_PUSH_TYPE(rtfb, Sprite && Sprite->shade <= -numshades ? RtPrim::Fullbright : RtPrim::Identity);
 	RT_PUSH_TYPE(rtdecal, Sprite ? RtPrim::Decal : RtPrim::Identity);
+	RT_PUSH_TYPE(rtshot, RT_IsActive() && Sprite && Sprite->ownerActor && RT_SpriteShot(Sprite->ownerActor->GetIndex()) ? RtPrim::Shot : RtPrim::Identity);
 	RT_PUSH_TYPE(rtliquid, Sprite ? RtPrim::Identity : RT_LiquidOf(texture, palette));
 	auto rtsec = rtstate.push_sector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : sec ? sectindex(sec) : -1);
 	RT_PUSH_TYPE(rtcopy, Sprite ? (Sprite->rtcopy ? RtPrim::CopyId : RtPrim::Identity) : rtCopy ? RtPrim::CopyMove : RtPrim::Identity);

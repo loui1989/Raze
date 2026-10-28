@@ -148,6 +148,10 @@ extern std::vector< uint8_t > g_rtWaterSide;
 // a glowing one shows it.
 void RT_ShootLight( int wallnum, int sectnum, int plane );
 bool RT_LightShot( int wallnum, int sectnum, int plane );
+// and lamps that are wall or floor sprites: one hit, or those on the surface a shot hit
+void RT_ShootSprite( int actorIndex );
+bool RT_SpriteShot( int actorIndex );
+void RT_ShootSpritesAt( const DVector3& hit, int sectnum );
 class FSerializer;
 void RT_SerializeShotLights( FSerializer& arc ); // in a savegame (core/savegamehelp.cpp)
 
