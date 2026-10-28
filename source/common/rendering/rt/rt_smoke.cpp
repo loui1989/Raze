@@ -44,6 +44,7 @@ CVARD( Float, rt_smoke_light_near, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: m
 CVARD( Float, rt_fog, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ground fog over open-air ground (0 = none, 1 = some, 2 = thick)" )
 CVARD( Bool, rt_smoke_wake, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: walking, flying things and blasts clear and push smoke and fog aside (it flows back in)" )
 CVARD( Float, rt_smoke_wake_strength, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strongly they clear and push it (0..3)" )
+CVARD( Float, rt_smoke_bullet_radius, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres round a bullet's track that it clears through smoke and fog (bigger than a real bullet's, to be seen)" )
 CVARD( Float, rt_fog_glow, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much light of its own the ground fog has (its grey: higher = paler, lower = darker)" )
 CVARD( Float, rt_fog_height, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how high the ground fog lies (1 = about knee to waist high)" )
 CVARD( Float, rt_smoke_history, 10.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: frames the volume accumulates while there is smoke (more = smoother, slower to let go)" )
@@ -687,6 +688,16 @@ void Simulate( float dt )
 // blast's ball (which also shoves the puffs round it away). A clearing is a "carve": a
 // soft sphere sent with the puffs, its density negative (Raze RT's shaders, Smoke.h: it
 // thins the smoke where it is, as much as it is strong). A trail of them, each fading.
+//
+// The clearing must be STRONG to be seen at all: a fog bank is dense (it is drawn as
+// a veil, its density thinned only by the froxel's depth), so thinning it by half
+// still reads as fog. A carve is sent stronger than 1 -- the shader clamps the
+// clearing at 1 -- which gives it a fully clear core over most of its radius and a
+// soft rim; as it ages it weakens and shrinks, the fog flowing back in from its edge.
+//
+// A bullet's track is a carve too, stretched along the shot: the shader's puff is an
+// ellipsoid round an axis (sent as the view's for a puff, here the shot's), so a few
+// long ones laid end to end make a tube through the smoke.
 struct Carve
 {
     FVector3 pos;
@@ -696,15 +707,18 @@ struct Carve
     float    life     = 2.f;
     float    grow     = 0.f; // seconds to reach its radius (a blast's ball), 0 = at once
     bool     mistOnly = false; // clears the ground fog only (a rocket: not its own smoke trail)
+    FVector3 axis{ 0.f, 0.f, 0.f }; // a stretched one (a bullet's track): along this...
+    float    halfLen  = 0.f;        // ...this far each way (0 = a ball)
 };
 std::vector< Carve >                          g_carves;
-constexpr size_t                              kMaxCarves = 24;
+constexpr size_t                              kMaxCarves  = 96;                         // kept
+constexpr uint32_t                            kSendCarves = RG_MAX_SMOKE_PUFFS * 3 / 8; // sent (the freshest)
 std::unordered_map< int, FVector3 >           g_movers;      // actor -> where it was last frame
 std::unordered_map< int, FVector3 >           g_moverTrail;  // actor -> its last trail point
 FVector3                                      g_viewTrail{ 1e9f, 1e9f, 1e9f };
 FVector3                                      g_viewLast{ 1e9f, 1e9f, 1e9f };
 
-void AddCarve( const FVector3& pos, float radius, float strength, float life, float grow = 0.f, bool mistOnly = false )
+Carve& AddCarve( const FVector3& pos, float radius, float strength, float life, float grow = 0.f, bool mistOnly = false )
 {
     if( g_carves.size() >= kMaxCarves )
     {
@@ -715,7 +729,15 @@ void AddCarve( const FVector3& pos, float radius, float strength, float life, fl
         g_carves[ oldest ] = g_carves.back();
         g_carves.pop_back();
     }
-    g_carves.push_back( { pos, radius, strength, 0.f, life, grow, mistOnly } );
+    Carve c;
+    c.pos      = pos;
+    c.radius   = radius;
+    c.strength = strength;
+    c.life     = life;
+    c.grow     = grow;
+    c.mistOnly = mistOnly;
+    g_carves.push_back( c );
+    return g_carves.back();
 }
 
 // is there smoke or fog near here at all (a carve with nothing to clear is not sent)
@@ -746,6 +768,50 @@ void AddBlast( const FVector3& c, float radius )
     }
     // (no clearing of its own: the blast's own smoke billows up right there -- shoving
     // the smoke and fog that was there out of the way is what opens the space)
+}
+
+// a bullet: a tube through the smoke and the fog along its track (metres), the smoke
+// puffs it passes through shoved off the line
+void AddTrail( FVector3 a, FVector3 b )
+{
+    if( !*rt_smoke_wake || g_count == 0 ) return;
+    const float strength = std::clamp( float( *rt_smoke_wake_strength ), 0.f, 3.f );
+    const float radius   = std::clamp( float( *rt_smoke_bullet_radius ), 0.05f, 2.f );
+    if( strength <= 0.f ) return;
+    FVector3    dir = b - a;
+    float       len = dir.Length();
+    if( len < 0.5f ) return;
+    dir /= len;
+    len = std::min( len, 50.f );
+    // (not from inside the barrel: from a little way out)
+    a += dir * std::min( 0.4f, len * 0.5f );
+    len -= std::min( 0.4f, len * 0.5f );
+
+    // pieces up to 2.5 m each way, one every piece's half length: end to end they
+    // make an even tube (the clearings of two neighbours add up where they meet)
+    const int   n    = std::max( 1, int( std::ceil( len / 2.5f ) ) );
+    const float half = len / n;
+    for( int k = 0; k < n; k++ )
+    {
+        const FVector3 c = a + dir * ( len * ( k + 0.5f ) / n );
+        if( !SmokeNear( c, half + radius ) ) continue;
+        Carve& cv  = AddCarve( c, radius, 3.f * strength, 2.5f );
+        cv.axis    = dir;
+        cv.halfLen = half;
+    }
+    for( uint32_t i = 0; i < g_count; i++ )
+    {
+        Puff& p = g_puffs[ i ];
+        if( p.fog ) continue;
+        FVector3    off   = p.pos - a;
+        const float along = off | dir;
+        if( along < -p.radius || along > len + p.radius ) continue;
+        off -= dir * along;
+        const float l = off.Length();
+        const float R = p.radius + radius * 2.f;
+        if( l >= R ) continue;
+        p.push += ( l > 1e-3f ? off / l : RndUnit() ) * ( 2.5f * strength * ( 1.f - l / R ) );
+    }
 }
 
 void WakeSources( float dt, const FVector3& eye, float farM )
@@ -785,10 +851,19 @@ void WakeSources( float dt, const FVector3& eye, float farM )
                 if( l < R ) p.push += FVector3{ move.X, move.Y, 0.f } * ( 0.6f * strength * ( 1.f - l / R ) * dt );
             }
         }
-        g_viewLast = eye;
-        if( ( body - g_viewTrail ).Length() > 0.35f && SmokeNear( body, 0.8f ) )
+        // a clearing round him every half metre, a little ahead of him as he goes (he
+        // parts the fog), and the trail of them behind him filling in over seconds
+        FVector3 ahead{ 0.f, 0.f, 0.f };
+        if( g_viewLast.X < 1e8f && dt > 0.f )
         {
-            AddCarve( body, 0.75f, 0.9f * std::min( strength, 1.f ), 2.5f );
+            const FVector2 mv{ eye.X - g_viewLast.X, eye.Y - g_viewLast.Y };
+            const float    sp = mv.Length() / dt;
+            if( sp > 1.f && sp < 60.f ) ahead = FVector3{ mv.X, mv.Y, 0.f } / mv.Length() * 0.4f;
+        }
+        g_viewLast = eye;
+        if( ( body - g_viewTrail ).Length() > 0.5f && SmokeNear( body, 1.3f ) )
+        {
+            AddCarve( body + ahead, 1.3f, 2.5f * strength, 5.f );
             g_viewTrail = body;
         }
     }
@@ -811,9 +886,9 @@ void WakeSources( float dt, const FVector3& eye, float farM )
         // the fog it flies through: a tunnel (the fog only -- a rocket's own smoke
         // trail is right behind it)
         auto& trail = g_moverTrail[ idx ];
-        if( ( pos - trail ).Length() > 0.5f && SmokeNear( pos, 0.6f ) )
+        if( ( pos - trail ).Length() > 0.6f && SmokeNear( pos, 0.8f ) )
         {
-            AddCarve( pos, 0.45f, 0.8f * std::min( strength, 1.f ), 1.6f, 0.f, true );
+            AddCarve( pos, 0.7f, 2.5f * strength, 3.f, 0.f, true );
             trail = pos;
         }
         // and the older smoke it passes is swept aside (not its own new trail)
@@ -933,20 +1008,40 @@ uint32_t RT_UpdateSmoke( const RgFloat3D& eyeIn, const RgFloat3D& fwdIn, const R
     // the wake's carves first (each as a puff of negative density, see above), those
     // with smoke to clear; then the puffs, the nearest if they do not all fit
     uint32_t nc = 0;
-    if( *rt_smoke_wake && g_count > 0 )
+    if( *rt_smoke_wake && g_count > 0 && !g_carves.empty() )
     {
-        for( const Carve& c : g_carves )
+        // the freshest first, if they do not all fit
+        std::vector< const Carve* > order;
+        order.reserve( g_carves.size() );
+        for( const Carve& c : g_carves ) order.push_back( &c );
+        std::sort( order.begin(), order.end(), []( const Carve* a, const Carve* b ) {
+            return a->age / std::max( a->life, 0.01f ) < b->age / std::max( b->life, 0.01f );
+        } );
+        for( const Carve* cp : order )
         {
-            if( nc >= kMaxCarves || nc >= RG_MAX_SMOKE_PUFFS / 4 ) break;
-            const float t      = c.age / std::max( c.life, 0.01f );
-            const float fade   = ( 1.f - t ) * ( 1.f - t );
-            const float r      = c.grow > 0.f ? c.radius * ( 0.35f + 0.65f * std::min( 1.f, c.age / c.grow ) ) : c.radius;
-            if( fade <= 0.01f || ( c.pos - eye ).LengthSquared() > far * far || !SmokeNear( c.pos, r ) ) continue;
-            FVector3    vdir = c.pos - eye;
-            const float vlen = vdir.Length();
-            vdir             = vlen > 1e-4f ? vdir / vlen : FVector3{ 0.f, 0.f, 1.f };
-            outPuffs[ nc ]  = RgFloat4D{ c.pos.X, c.pos.Y, c.pos.Z, std::max( r, 0.5f * sliceM ) };
-            outShape[ nc ]  = RgFloat4D{ r, vdir.X, vdir.Y, vdir.Z };
+            const Carve& c = *cp;
+            if( nc >= kSendCarves ) break;
+            const float t = std::clamp( c.age / std::max( c.life, 0.01f ), 0.f, 1.f );
+            // weaker and smaller as it ages: the smoke flows back in from its rim
+            const float fade   = 1.f - t;
+            const float shrink = 0.45f + 0.55f * ( 1.f - t );
+            const float r      = shrink * ( c.grow > 0.f ? c.radius * ( 0.35f + 0.65f * std::min( 1.f, c.age / c.grow ) ) : c.radius );
+            const float reach  = std::max( r, c.halfLen );
+            if( fade <= 0.01f || ( c.pos - eye ).Length() > far + reach || !SmokeNear( c.pos, reach ) ) continue;
+            if( c.halfLen > 0.f )
+            {
+                // a bullet's track: long along the shot, its radius across it
+                outPuffs[ nc ] = RgFloat4D{ c.pos.X, c.pos.Y, c.pos.Z, std::max( c.halfLen, 0.5f * sliceM ) };
+                outShape[ nc ] = RgFloat4D{ r, c.axis.X, c.axis.Y, c.axis.Z };
+            }
+            else
+            {
+                FVector3    vdir = c.pos - eye;
+                const float vlen = vdir.Length();
+                vdir             = vlen > 1e-4f ? vdir / vlen : FVector3{ 0.f, 0.f, 1.f };
+                outPuffs[ nc ]   = RgFloat4D{ c.pos.X, c.pos.Y, c.pos.Z, std::max( r, 0.5f * sliceM ) };
+                outShape[ nc ]   = RgFloat4D{ r, vdir.X, vdir.Y, vdir.Z };
+            }
             outAlbDen[ nc ] = RgFloat4D{ c.mistOnly ? 2.8f : 0.8f, 0.81f, 0.84f, -c.strength * fade };
             nc++;
         }
@@ -994,7 +1089,7 @@ uint32_t RT_UpdateSmoke( const RgFloat3D& eyeIn, const RgFloat3D& fwdIn, const R
         static int s_tick = 0;
         if( ( ++s_tick % 60 ) == 0 )
         {
-            Printf( "RT smoke: %u live, %u sent, %u wake carves, far %.0f m\n", g_count, n, nc, far );
+            Printf( "RT smoke: %u live, %u sent, %u wake carves sent (of %u), far %.0f m\n", g_count, n, nc, unsigned( g_carves.size() ), far );
         }
     }
     return n + nc;
@@ -1013,4 +1108,13 @@ CCMD( rt_smoke_test )
             set.smokeActorRules.Size(), set.smokeEventRules.Size(), set.mapSmokeEmitterRules.Size() );
     g_rtShotEvent = "nri.smoke.test";
     g_rtShotCounter++;
+}
+
+// a hitscan shot (a bullet, a pellet): its track, from where it was fired to where it
+// hit, in map coordinates -- it leaves a tube through the smoke and fog it crossed
+// (rt_smoke_wake; the game calls this: Blood's actFireVector, Duke's HitscanAttack)
+void RT_AddShotTrail( const DVector3& from, const DVector3& to )
+{
+    if( !RT_IsActive() || !*rt_smoke ) return;
+    AddTrail( WorldToRTv( from.X, from.Y, from.Z ), WorldToRTv( to.X, to.Y, to.Z ) );
 }

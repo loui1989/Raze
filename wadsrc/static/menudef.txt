@@ -2322,6 +2322,7 @@ OptionMenu "RTOptions" protected
 	Slider "Ground fog brightness",		"rt_fog_glow", 0, 1.5, 0.05, 2
 	Option "Smoke & fog part as things move",	"rt_smoke_wake", "OnOff"
 	Slider "How strongly they part",	"rt_smoke_wake_strength", 0, 3, 0.1, 1
+	Slider "Bullet track width (m)",	"rt_smoke_bullet_radius", 0.1, 1, 0.05, 2
 	StaticText " "
 
 	StaticText "Water", 1

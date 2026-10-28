@@ -6632,6 +6632,14 @@ void actFireVector(DBloodActor* shooter, double offset, double zoffset, DVector3
 			}
 		}
 	}
+	// ray tracing: the bullet's track through the smoke and the fog
+	if (gHitInfo.hitSector)
+	{
+		auto from = shooter->spr.pos.plusZ(zoffset) + (shooter->spr.Angles.Yaw + DAngle90).ToVector() * offset;
+		DVector3 to = gHitInfo.hitpos;
+		if (nRange > 0 && (to.XY() - from.XY()).Length() > nRange) to = from + dv * nRange;
+		RT_AddShotTrail(from, to);
+	}
 	auto pos = gHitInfo.hitpos - dv;
 	auto pSector = gHitInfo.hitSector;
 	uint8_t nSurf = kSurfNone;

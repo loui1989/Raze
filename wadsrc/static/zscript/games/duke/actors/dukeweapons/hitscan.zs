@@ -117,6 +117,7 @@ extend class DukeActor
 		actor.cstat |= CSTAT_SPRITE_BLOCK_ALL;
 
 		if (hit.hitSector == nullptr) return true;
+		dlevel.rtshottrail(pos, hit.hitpos);	// ray tracing: the bullet's track through smoke and fog
 
 		// RR shotgun only
 		if (waterhalfhitchance && hit.hitSector.lotag == ST_1_ABOVE_WATER && random(0, 1))

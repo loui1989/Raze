@@ -1699,6 +1699,25 @@ DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, rtshootfloor, duke_rtshootfloor)
 	return 0;
 }
 
+// ray tracing: a bullet's track through the smoke and the fog
+void duke_rtshottrail(double fx, double fy, double fz, double tx, double ty, double tz)
+{
+	RT_AddShotTrail(DVector3(fx, fy, fz), DVector3(tx, ty, tz));
+}
+
+DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, rtshottrail, duke_rtshottrail)
+{
+	PARAM_PROLOGUE;
+	PARAM_FLOAT(fx);
+	PARAM_FLOAT(fy);
+	PARAM_FLOAT(fz);
+	PARAM_FLOAT(tx);
+	PARAM_FLOAT(ty);
+	PARAM_FLOAT(tz);
+	duke_rtshottrail(fx, fy, fz, tx, ty, tz);
+	return 0;
+}
+
 DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, checkhitceiling, duke_checkhitceiling)
 {
 	PARAM_PROLOGUE;
