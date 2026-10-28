@@ -456,11 +456,23 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 		};
 		std::vector<char> isHole(n, 0);
 		for (int h : c.holes) isHole[h] = 1;
+		// the room under a surface is under water only: not the dry rooms its passages
+		// lead to (Blood marks every sector under water. Death Wish's Whisper Peak: a pool's
+		// link leads to a little water box, and through it to a whole dry quarter of the
+		// level -- copied round the street above the pool: rock walls and ceilings in the
+		// road and the sky)
+		auto offSide = [&](int si, sectortype* ss)
+		{
+			if (!c.water) return false;
+			const int side = RT_WaterSide(si, ss->lotag);
+			if (side == 3 - c.water) return true;
+			return c.water == 2 && !g_rtWaterSide.empty() && side != 2;
+		};
 
 		// the linked side within reach of the camera's place there, through openings
 		sectortype* start = &sector[c.start];
 		updatesector(cpos.XY() + c.delta.XY(), &start);
-		if (!start || isHole[sectindex(start)] || (c.water && RT_WaterSide(sectindex(start), start->lotag) == 3 - c.water)) start = &sector[c.start];
+		if (!start || isHole[sectindex(start)] || offSide(sectindex(start), start)) start = &sector[c.start];
 		// (and only a place joined to the linked side: the camera's place moved over there
 		// can fall in a room of its own -- Blood E3M1's start, moved by its pool's link,
 		// fell in a closed stone box off the map, and the box was copied round the camera)
@@ -480,7 +492,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 					auto ns = w.nextSector();
 					if (!w.twoSided() || !ns) continue;
 					const int ni = sectindex(ns);
-					if (seenL[ni] || isHole[ni] || (c.water && RT_WaterSide(ni, ns->lotag) == 3 - c.water)) continue;
+					if (seenL[ni] || isHole[ni] || offSide(ni, ns)) continue;
 					seenL[ni] = 1;
 					todo.push_back(ni);
 				}
@@ -507,8 +519,8 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 				auto ns = w.nextSector();
 				if (!ns) continue;
 				const int ni = sectindex(ns);
-				// not back onto the opening side
-				if (isHole[ni] || (c.water && RT_WaterSide(ni, ns->lotag) == 3 - c.water)) continue;
+				// not back onto the opening side (nor, under a surface, out of the water)
+				if (isHole[ni] || offSide(ni, ns)) continue;
 				const DVector2 mid = (w.pos + w.point2Wall()->pos) * 0.5;
 				const double nd = d + (mid - entry[si]).Length();
 				if (nd > reach) continue;
