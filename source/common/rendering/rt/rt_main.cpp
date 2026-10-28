@@ -105,6 +105,7 @@ CVARD( Float, rt_volume_far, 60.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres
 CVARD( Float, rt_volume_scatter, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how thick the air's haze is (per metre)" )
 CVARD( Float, rt_volume_ambient, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the haze's own faint light" )
 CVARD( Float, rt_volume_lintensity, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strongly lights show in the haze" )
+CVARD( Int, rt_smoke_samples, 8, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: light samples per haze cell inside smoke (1..16; the ground fog takes a quarter) -- fewer: cheaper, grainier smoke lighting" )
 CVARD( Bool, rt_volume_all_lights, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: every light shows in the haze, not only the moon (costly)" )
 CVARD( Float, rt_znear, 0.05f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: camera near plane, metres" )
 CVARD( Float, rt_zfar, 2048.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: camera far plane, metres" )
@@ -1000,7 +1001,7 @@ void RTFrameBuffer::RT_DrawFrame()
         .illumBlend     = 0.45f,
         .allLights      = bool( *rt_smoke_illum ),
         .lightFarFade   = 10.f,
-        .samplesPerCell = 8,
+        .samplesPerCell = uint32_t( std::clamp( int( *rt_smoke_samples ), 1, 16 ) ),
         .maxLight       = std::max( 0.f, float( *rt_smoke_maxlight ) ),
         .debugMode      = 0,
         .stylize        = 0.f,

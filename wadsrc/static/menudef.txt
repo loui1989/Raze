@@ -2308,6 +2308,7 @@ OptionMenu "RTOptions" protected
 	Slider "Haze reach (metres)",		"rt_volume_far", 10, 150, 5, 0
 	Option "Smoke",						"rt_smoke", "OnOff"
 	Slider "Smoke density",				"rt_smoke_density", 0, 6, 0.25, 2
+	Slider "Smoke light samples (fewer = faster)",	"rt_smoke_samples", 1, 16, 1, 0
 	Slider "Ground fog (open air)",		"rt_fog", 0, 2, 0.25, 2
 	Slider "Ground fog height",			"rt_fog_height", 0.5, 3, 0.25, 2
 	Slider "Ground fog brightness",		"rt_fog_glow", 0, 1.5, 0.05, 2
