@@ -478,6 +478,34 @@ static bool SkyPortalBlocked( std::initializer_list< const sectortype* > around,
     return false;
 }
 
+// open air, for the window lights: a sector with the sky for a ceiling -- or one roofed
+// very high (over 12 m) next to one: a street the map closed with a ceiling far up and a
+// scrap of sky beside it (Duke E1L1's street in front of the cinema, 54 m up), outdoors
+// for anyone in it
+static bool OpenAir( const sectortype* s )
+{
+    if( !s )
+    {
+        return false;
+    }
+    if( s->ceilingstat & CSTAT_SECTOR_SKY )
+    {
+        return true;
+    }
+    if( s->floorz - s->ceilingz < 12. * 32. )
+    {
+        return false;
+    }
+    for( auto& w : s->walls )
+    {
+        if( auto n = w.nextSector(); n && ( n->ceilingstat & CSTAT_SECTOR_SKY ) )
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void UploadSkyPortals()
 {
     if( !s_copyPass )
@@ -506,7 +534,7 @@ void UploadSkyPortals()
     for( unsigned si = 0; si < sector.Size(); si++ )
     {
         auto& s = sector[ si ];
-        if( s.ceilingstat & CSTAT_SECTOR_SKY )
+        if( OpenAir( &s ) )
         {
             continue;
         }
@@ -517,7 +545,7 @@ void UploadSkyPortals()
                 continue;
             }
             auto o = w.nextSector();
-            if( !o || !( o->ceilingstat & CSTAT_SECTOR_SKY ) )
+            if( !o || !OpenAir( o ) )
             {
                 continue;
             }
@@ -566,7 +594,7 @@ void UploadSkyPortals()
                     for( auto& w2 : cur->walls )
                     {
                         auto r = w2.nextSector();
-                        if( &w2 == &w || !r || r == &s || ( r->ceilingstat & CSTAT_SECTOR_SKY ) ) continue;
+                        if( &w2 == &w || !r || r == &s || OpenAir( r ) ) continue;
                         if( inner && w2.nextWall() == inner ) continue;
                         const DVector2 d2 = ( w2.point2Wall()->pos - w2.pos ).Unit();
                         if( std::abs( d1.X * d2.X + d1.Y * d2.Y ) < 0.95 ) continue;
@@ -1649,7 +1677,7 @@ CCMD( rt_sky_portal_info )
     if( g_rtViewSector >= 0 && unsigned( g_rtViewSector ) < sector.Size() )
     {
         auto& vs = sector[ g_rtViewSector ];
-        Printf( "  view in sector %d: %s\n", g_rtViewSector, ( vs.ceilingstat & CSTAT_SECTOR_SKY ) ? "open to the sky" : "roofed" );
+        Printf( "  view in sector %d: %s\n", g_rtViewSector, ( vs.ceilingstat & CSTAT_SECTOR_SKY ) ? "open to the sky" : OpenAir( &vs ) ? "roofed far up, by the sky: open air" : "roofed" );
     }
     // the windows near: walls with a picture between two sectors, and what is on each side
     for( unsigned si = 0; si < sector.Size(); si++ )
@@ -1661,7 +1689,7 @@ CCMD( rt_sky_portal_info )
             if( ( mid - cam ).Length() / 32. > 6. ) continue;
             auto o = w.nextSector();
             Printf( "  window (wall %d, tile %d): sector %u (%s) | sector %d (%s), %.1f m away\n", wallindex( &w ), legacyTileNum( w.overtexture ), si,
-                    ( sector[ si ].ceilingstat & CSTAT_SECTOR_SKY ) ? "sky" : "roofed", sectindex( o ), ( o->ceilingstat & CSTAT_SECTOR_SKY ) ? "sky" : "roofed",
+                    OpenAir( &sector[ si ] ) ? "open air" : "roofed", sectindex( o ), OpenAir( o ) ? "open air" : "roofed",
                     ( mid - cam ).Length() / 32. );
         }
     }
@@ -1685,7 +1713,7 @@ CCMD( rt_sky_portal_info )
             {
                 continue;
             }
-            const bool inSky = ( s.ceilingstat & CSTAT_SECTOR_SKY ) != 0, outSky = ( o->ceilingstat & CSTAT_SECTOR_SKY ) != 0;
+            const bool inSky = OpenAir( &s ), outSky = OpenAir( o );
             if( inSky == outSky )
             {
                 continue;   // (both roofed or both open: no opening to the sky)
