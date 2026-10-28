@@ -9,12 +9,24 @@ bool System_WantGuiCapture();	// During playing this tells us whether the game m
 #include "serializer.h"
 #include "inputstate.h"
 #include "maptypes.h"
+#include "textureid.h"
 
 class FSerializer;
 struct FRenderViewpoint;
 struct sectortype;
 struct tspritetype;
 struct MapRecord;
+
+// the weapon wheel (core/weaponwheel.cpp): a weapon the player has
+struct WheelWeapon
+{
+	int id = 0;              // the game's weapon, for WeaponWheelSelect
+	FTextureID icon;         // its pickup's picture (invalid: the name only)
+	FString name;
+	int ammo = -1;           // -1: none to show (a melee weapon)
+	bool current = false;    // in the player's hands
+	bool empty = false;      // no ammo left
+};
 
 struct GameStats
 {
@@ -97,6 +109,9 @@ struct GameInterface
 	virtual void ToggleThirdPerson() = 0;
 	virtual void SwitchCoopView() { Printf("Unsupported command\n"); }
 	virtual void ToggleShowWeapon() { Printf("Unsupported command\n"); }
+	// the weapon wheel: the weapons the player has, in order round the wheel; and the pick
+	virtual void WeaponWheelList(TArray<WheelWeapon>& out) {}
+	virtual void WeaponWheelSelect(int id) {}
 	virtual void processSprites(tspriteArray& tsprites, const DVector3& view, DAngle viewang, double interpfrac) = 0;
 	virtual void UpdateCameras(double smoothratio) {}
 	virtual void EnterPortal(DCoreActor* viewer, int type) {}

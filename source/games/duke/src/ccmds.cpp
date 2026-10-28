@@ -35,6 +35,8 @@ Modifications for JonoF's port by Jonathon Fowler (jf@jonof.id.au)
 #include "gamestate.h"
 #include "gamefuncs.h"
 #include "dukeactor.h"
+#include "gameinput.h"
+#include "texturemanager.h"
 
 BEGIN_DUKE_NS
 
@@ -159,6 +161,77 @@ void GameInterface::ToggleShowWeapon()
 	if (gamestate != GS_LEVEL) return;
 	cl_showweapon = cl_showweapon == 0;
 	FTA(QUOTE_WEAPON_MODE_OFF - cl_showweapon, getPlayer(screenpeek));
+}
+
+//---------------------------------------------------------------------------
+//
+// the weapon wheel (core/weaponwheel.cpp): Duke's weapons by their number keys, the
+// expander and the incinerator after the weapon they share a key with
+//
+//---------------------------------------------------------------------------
+
+void GameInterface::WeaponWheelList(TArray<WheelWeapon>& out)
+{
+	if (isRR() || myconnectindex < 0) return;
+	auto p = getPlayer(myconnectindex);
+	if (!p || !p->GetActor()) return;
+	static const struct { int w; const char* icon; const char* name; } order[] = {
+		{ KNEE_WEAPON, "KNEE", "Mighty Foot" },
+		{ PISTOL_WEAPON, "FIRSTGUNSPRITE", "Pistol" },
+		{ SHOTGUN_WEAPON, "SHOTGUNSPRITE", "Shotgun" },
+		{ CHAINGUN_WEAPON, "CHAINGUNSPRITE", "Ripper" },
+		{ RPG_WEAPON, "RPGSPRITE", "RPG" },
+		{ HANDBOMB_WEAPON, "HEAVYHBOMB", "Pipe Bomb" },
+		{ SHRINKER_WEAPON, "SHRINKERSPRITE", "Shrinker" },
+		{ GROW_WEAPON, "GROWSPRITEICON", "Expander" },
+		{ DEVISTATOR_WEAPON, "DEVISTATORSPRITE", "Devastator" },
+		{ TRIPBOMB_WEAPON, "TRIPBOMBSPRITE", "Laser Tripbomb" },
+		{ FREEZE_WEAPON, "FREEZESPRITE", "Freezethrower" },
+		{ FLAMETHROWER_WEAPON, "FLAMETHROWERSPRITE", "Incinerator" },
+	};
+	for (auto& o : order)
+	{
+		if (o.w == GROW_WEAPON && !isPlutoPak()) continue;
+		if (o.w == FLAMETHROWER_WEAPON && !isWorldTour()) continue;
+		if (!p->gotweapon[o.w]) continue;
+		WheelWeapon ww;
+		ww.id = o.w;
+		ww.icon = TexMan.CheckForTexture(o.icon, ETextureType::Any);
+		ww.name = o.name;
+		ww.ammo = o.w == KNEE_WEAPON ? -1 : p->ammo_amount[o.w];
+		ww.current = p->curr_weapon == o.w || (o.w == HANDBOMB_WEAPON && p->curr_weapon == HANDREMOTE_WEAPON);
+		ww.empty = o.w != KNEE_WEAPON && p->ammo_amount[o.w] <= 0;
+		out.Push(ww);
+	}
+}
+
+void GameInterface::WeaponWheelSelect(int id)
+{
+	auto p = getPlayer(myconnectindex);
+	if (!p) return;
+	switch (id)
+	{
+	case SHRINKER_WEAPON:
+		// (the shrinker's key gives the expander when it was the last one used)
+		if (p->curr_weapon != GROW_WEAPON) p->subweapon &= ~(1 << GROW_WEAPON);
+		gameInput.SendWeapon(SHRINKER_WEAPON + 1);
+		break;
+	case GROW_WEAPON:
+		if (p->curr_weapon != SHRINKER_WEAPON) p->subweapon |= (1 << GROW_WEAPON);
+		gameInput.SendWeapon(SHRINKER_WEAPON + 1);
+		break;
+	case FREEZE_WEAPON:
+		if (p->curr_weapon != FLAMETHROWER_WEAPON) p->subweapon &= ~(1 << FLAMETHROWER_WEAPON);
+		gameInput.SendWeapon(FREEZE_WEAPON + 1);
+		break;
+	case FLAMETHROWER_WEAPON:
+		if (p->curr_weapon != FREEZE_WEAPON) p->subweapon |= (1 << FLAMETHROWER_WEAPON);
+		gameInput.SendWeapon(FREEZE_WEAPON + 1);
+		break;
+	default:
+		if (id >= KNEE_WEAPON && id <= FREEZE_WEAPON) gameInput.SendWeapon(id + 1);
+		break;
+	}
 }
 
 bool GameInterface::WantEscape() 

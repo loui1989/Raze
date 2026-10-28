@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "menu.h"
 #include "gameinput.h"
+#include "weaponwheel.h"
 #include "g_input.h"
 
 //---------------------------------------------------------------------------
@@ -380,6 +381,12 @@ void GameInput::getInput(InputPacket* packet)
 
 	I_GetAxes(joyAxes);
 	processInputBits();
+	// the weapon wheel open: the mouse points at a weapon, it does not turn the view
+	if (WeaponWheel_Active())
+	{
+		WeaponWheel_Mouse(mouseInput);
+		mouseInput.Zero();
+	}
 	if (!paused) gi->doPlayerMovement();
 	mouseInput.Zero();
 

@@ -961,6 +961,7 @@ set (PCH_SOURCES
 	core/gamehud.cpp
 	core/gamefuncs.cpp
 	core/gameinput.cpp
+	core/weaponwheel.cpp
 	core/g_mapinfo.cpp
 	core/interpolate.cpp
 	core/inputstate.cpp

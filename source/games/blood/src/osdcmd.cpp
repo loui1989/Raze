@@ -28,6 +28,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "blood.h"
 #include "mapinfo.h"
 #include "gamestate.h"
+#include "gameinput.h"
 
 BEGIN_BLD_NS
 
@@ -73,6 +74,44 @@ void GameInterface::ToggleShowWeapon()
 {
 	if (gamestate != GS_LEVEL) return;
 	cl_showweapon = (cl_showweapon + 1) & 3;
+}
+
+//---------------------------------------------------------------------------
+//
+// the weapon wheel (core/weaponwheel.cpp): Blood's weapons by their numbers
+//
+//---------------------------------------------------------------------------
+
+void GameInterface::WeaponWheelList(TArray<WheelWeapon>& out)
+{
+	if (myconnectindex < 0) return;
+	DBloodPlayer* pPlayer = getPlayer(myconnectindex);
+	if (!pPlayer || !pPlayer->GetActor()) return;
+	static const char* const names[] = { "", "Pitchfork", "Flare Pistol", "Sawed-Off", "Tommy Gun", "Napalm Launcher", "Dynamite",
+		"Spray Can", "Tesla Cannon", "Life Leech", "Voodoo Doll", "Proximity Bomb", "Remote Bomb" };
+	for (int w = kWeapPitchFork; w <= kWeapRemote; w++)
+	{
+		if (!pPlayer->hasWeapon[w]) continue;
+		WheelWeapon ww;
+		ww.id = w;
+		ww.name = names[w];
+		// its pickup's picture (gWeaponItemData's tiles; the bombs: the dynamite's)
+		static const int pickup[] = { -1, -1, 524, 559, 558, 526, 589, 618, 539, 800, 525, 589, 589 };
+		if (pickup[w] >= 0) ww.icon = tileGetTextureID(pickup[w]);
+		if (w != kWeapPitchFork)
+		{
+			const int amType = w - 1;
+			ww.ammo = pPlayer->ammoCount[amType] / (amType == 6 ? 10 : 1);
+			ww.empty = pPlayer->ammoCount[amType] <= 0;
+		}
+		ww.current = pPlayer->curWeapon == w;
+		out.Push(ww);
+	}
+}
+
+void GameInterface::WeaponWheelSelect(int id)
+{
+	if (id >= kWeapPitchFork && id <= kWeapRemote) gameInput.SendWeapon(id);
 }
 
 END_BLD_NS

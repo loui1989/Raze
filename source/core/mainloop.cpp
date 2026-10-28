@@ -91,6 +91,7 @@
 #include "texinfo.h"
 #include "texturemanager.h"
 #include "gameinput.h"
+#include "weaponwheel.h"
 
 CVAR(Bool, vid_activeinbackground, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, r_ticstability, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -457,6 +458,7 @@ void Display()
 			gi->Render();
 			DrawFullscreenBlends();
 			drawMapTitle();
+			WeaponWheel_Draw();
 			break;
 		}
 		[[fallthrough]];
