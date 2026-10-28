@@ -112,7 +112,31 @@ std::unordered_set< std::string > g_made; // this session
 // pack's (Blood's, before Blood had its own folder) were kept and shown on Duke's
 // canister: someone else's glowing figure over it. A file says what it was made from;
 // one that does not match is made again.
-uint32_t SourceSignature( const FTextureBuffer& albedo )
+// Is this texture a frame of an animated tile (the art's own animation: a panel's lights
+// cycling through frames)? Its frames must get the same kind of maps -- a height map on
+// some and none on others made the picture jump as it cycled (parallax carves the
+// frames with heights, not the others: E2L2's wall panels)
+static bool AnimatedTile( const std::string& name )
+{
+    if( name.size() < 6 || name[ 0 ] != '#' )
+    {
+        return false;
+    }
+    const int tile = atoi( name.c_str() + 1 );
+    for( int t = std::max( 0, tile - 64 ); t <= tile + 64; t++ )
+    {
+        const FTextureID id = tileGetTextureID( t );
+        if( !id.isValid() ) continue;
+        const picanm_t& a = GetExtInfo( id ).picanm;
+        if( a.num == 0 || a.type() == PICANM_ANIMTYPE_NONE ) continue;
+        const int lo = a.type() == PICANM_ANIMTYPE_BACK ? t - a.num : t;
+        const int hi = a.type() == PICANM_ANIMTYPE_BACK ? t : t + a.num;
+        if( tile >= lo && tile <= hi ) return true;
+    }
+    return false;
+}
+
+uint32_t SourceSignature( const FTextureBuffer& albedo, bool animated = false )
 {
     uint32_t       h = 2166136261u;
     auto           mix = [ &h ]( uint32_t v ) {
@@ -132,6 +156,7 @@ uint32_t SourceSignature( const FTextureBuffer& albedo )
         memcpy( &t, &albedo.mBuffer[ i * 4 ], 4 );
         mix( t );
     }
+    if( animated ) h ^= 0x9e3779b9u; // (an animation's frames: their maps made again, alike)
     return h;
 }
 
@@ -186,10 +211,10 @@ std::unordered_map< std::string, std::vector< std::string > >& FilesByTexture( c
 
 // true if the files of 'name' were made from another texture than this one (and
 // removes them, so all are made again); notes what they will be made from
-bool StaleMaterialFiles( const std::filesystem::path& dir, const std::string& name, const FTextureBuffer& albedo )
+bool StaleMaterialFiles( const std::filesystem::path& dir, const std::string& name, const FTextureBuffer& albedo, bool animated )
 {
     const auto     pathSrc = dir / ( name + "_src.v1" );
-    const uint32_t sig     = SourceSignature( albedo );
+    const uint32_t sig     = SourceSignature( albedo, animated );
     bool           stale   = false;
     bool           known   = false;
     if( FILE* f = fopen( pathSrc.string().c_str(), "rb" ) )
@@ -719,7 +744,8 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     const auto pathN   = dir / ( name + "_n.png" );
     const auto pathNv  = dir / ( name + "_n.v1" );     // made by this version
 
-    const bool stale = StaleMaterialFiles( dir, name, albedo );
+    const bool animated = AnimatedTile( name );
+    const bool stale    = StaleMaterialFiles( dir, name, albedo, animated );
     const bool regen = ( *rt_materials_regen && g_made.insert( name ).second ) || stale;
 
     std::error_code ec;
@@ -1205,7 +1231,9 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
         holes += albedo.mBuffer[ size_t( i ) * 4 + 3 ] < 128;
     }
     // (and only the game's tiles, "#01234": not voxel models' skins, skies, pictures)
-    const bool solid = holes <= size_t( w ) * h / 100 && w >= 16 && h >= 16 && !hasE && name.size() > 1 && name[ 0 ] == '#';
+    // (nor an animated tile's frames: some with heights, some without, the picture jumped)
+    const bool solid = holes <= size_t( w ) * h / 100 && w >= 16 && h >= 16 && !hasE && name.size() > 1 && name[ 0 ] == '#' &&
+                       !animated;
 
     // Duke's textures (no material table class): cavities, the _orm's R (rt_cavity) -- from
     // the heights of World Tour's normal map, or of the texture's own light and dark
