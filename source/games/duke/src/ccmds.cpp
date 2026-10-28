@@ -205,6 +205,34 @@ void GameInterface::WeaponWheelList(TArray<WheelWeapon>& out)
 	}
 }
 
+void GameInterface::WeaponWheelItems(TArray<WheelWeapon>& out)
+{
+	if (isRR() || myconnectindex < 0) return;
+	auto p = getPlayer(myconnectindex);
+	if (!p || !p->GetActor()) return;
+	// (useitem's numbers; amounts as the status bar gives them)
+	struct It { int use; const char* icon; const char* name; int amount; int percent; bool on; };
+	const It items[] = {
+		{ 1, "FIRSTAID", "Portable Medkit", p->firstaid_amount, p->firstaid_amount, false },
+		{ 2, "STEROIDS", "Steroids", p->steroids_amount, (p->steroids_amount + 3) >> 2, false },
+		{ 3, "HOLODUKE", "Holoduke", p->holoduke_amount, (p->holoduke_amount + 15) / 24, p->holoduke_on != nullptr },
+		{ 4, "JETPACK", "Jetpack", p->jetpack_amount, (p->jetpack_amount + 15) >> 4, !!p->jetpack_on },
+		{ 5, "HEATSENSOR", "Night Vision", p->heat_amount, p->heat_amount / 12, !!p->heat_on },
+	};
+	for (auto& i : items)
+	{
+		if (i.amount <= 0) continue;
+		WheelWeapon ww;
+		ww.id = i.use;
+		ww.icon = TexMan.CheckForTexture(i.icon, ETextureType::Any);
+		ww.name = i.name;
+		ww.ammo = i.percent;
+		ww.percent = true;
+		ww.current = i.on;
+		out.Push(ww);
+	}
+}
+
 void GameInterface::WeaponWheelSelect(int id)
 {
 	auto p = getPlayer(myconnectindex);

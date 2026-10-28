@@ -26,6 +26,7 @@ struct WheelWeapon
 	int ammo = -1;           // -1: none to show (a melee weapon)
 	bool current = false;    // in the player's hands
 	bool empty = false;      // no ammo left
+	bool percent = false;    // an item: its amount is a percentage
 };
 
 struct GameStats
@@ -112,6 +113,8 @@ struct GameInterface
 	// the weapon wheel: the weapons the player has, in order round the wheel; and the pick
 	virtual void WeaponWheelList(TArray<WheelWeapon>& out) {}
 	virtual void WeaponWheelSelect(int id) {}
+	// and the inventory items the player has (their id: the useitem number), on a ring inside
+	virtual void WeaponWheelItems(TArray<WheelWeapon>& out) {}
 	virtual void processSprites(tspriteArray& tsprites, const DVector3& view, DAngle viewang, double interpfrac) = 0;
 	virtual void UpdateCameras(double smoothratio) {}
 	virtual void EnterPortal(DCoreActor* viewer, int type) {}

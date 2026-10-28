@@ -109,6 +109,35 @@ void GameInterface::WeaponWheelList(TArray<WheelWeapon>& out)
 	}
 }
 
+void GameInterface::WeaponWheelItems(TArray<WheelWeapon>& out)
+{
+	if (myconnectindex < 0) return;
+	DBloodPlayer* pPlayer = getPlayer(myconnectindex);
+	if (!pPlayer || !pPlayer->GetActor()) return;
+	// useitem's numbers and their pack slots (the diving suit is worn by itself); the
+	// pictures the full screen status bar gives them (Pack2Icon1..5)
+	struct It { int use; int slot; int icon; const char* name; };
+	static const It items[] = {
+		{ 1, 0, 519, "Doctor's Bag" },
+		{ 2, 2, 760, "Crystal Ball" },
+		{ 3, 3, 839, "Beast Vision" },
+		{ 4, 4, 827, "Jump Boots" },
+	};
+	for (auto& i : items)
+	{
+		const auto& slot = pPlayer->packSlots[i.slot];
+		if (slot.curAmount <= 0) continue;
+		WheelWeapon ww;
+		ww.id = i.use;
+		ww.icon = tileGetTextureID(i.icon);
+		ww.name = i.name;
+		ww.ammo = slot.curAmount;
+		ww.percent = true;
+		ww.current = slot.isActive;
+		out.Push(ww);
+	}
+}
+
 void GameInterface::WeaponWheelSelect(int id)
 {
 	if (id >= kWeapPitchFork && id <= kWeapRemote) gameInput.SendWeapon(id);

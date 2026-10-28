@@ -54,6 +54,7 @@ struct GameInterface : public ::GameInterface
 	void ToggleShowWeapon() override;
 	void WeaponWheelList(TArray<WheelWeapon>& out) override;
 	void WeaponWheelSelect(int id) override;
+	void WeaponWheelItems(TArray<WheelWeapon>& out) override;
 	void processSprites(tspriteArray& tsprites, const DVector3& view, DAngle viewang, double interpfrac) override;
 	void UpdateCameras(double smoothratio) override;
 	void EnterPortal(DCoreActor* viewer, int type) override;
