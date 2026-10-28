@@ -66,6 +66,11 @@ struct RTSkyDome
 
 // a sky's light, from its picture above the horizon as the dome shows it: where its
 // brightest part is (a moon; a glowing stretch of clouds), how bright, what colour
+// a skybox's or a cloudy sky's light, this strong: their pictures are read whole, a night
+// city's lit windows and all (Duke's), not a sky above a horizon -- at full strength the
+// streets were lit like day
+CVARD(Float, rt_skybox_light, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strong the light of a skybox (or a cloudy sky) is, against a dome sky's")
+
 // rt_sky_info: the last sky the dome was made for, and how its light came out
 static FString rt_skyWhy;
 static FString rt_skyLast;
@@ -285,9 +290,10 @@ static void RTSkyboxLight(FSkyBox* box)
 	if (!d.lightOk) return;
 	for (int i = 0; i < 3; i++) g_rtSkyLight.local[i] = d.lightDir[i];
 	for (int i = 0; i < 3; i++) g_rtSkyLight.color[i] = d.lightColor[i];
-	g_rtSkyLight.irradiance = d.lightIrr;
+	const float k = std::max(0.f, float(*rt_skybox_light));
+	g_rtSkyLight.irradiance = d.lightIrr * k;
 	g_rtSkyLight.diameter = d.lightDiam;
-	for (int i = 0; i < 3; i++) g_rtSkyLight.average[i] = d.average[i];
+	for (int i = 0; i < 3; i++) g_rtSkyLight.average[i] = d.average[i] * k;
 	g_rtSkyLight.pending = true;
 }
 
@@ -429,7 +435,9 @@ void HWSkyPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 	if (skybox)
 	{
 		if (RT_IsActive()) RTSkyboxLight(skybox);
+		g_rtSkyModelScale = RT_IsActive() ? 78.f : 1.f;	// (as far out as the dome: 10000 units)
 		vertexBuffer->RenderBox(state, skybox, origin->x_offset, false, /*di->Level->info->pixelstretch*/1, { 0, 0, 1 }, { 0, 0, 1 }, color);
+		g_rtSkyModelScale = 1.f;
 	}
 	else if (!origin->cloudy)
 	{
@@ -519,9 +527,10 @@ void HWSkyPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 			{
 				for (int i = 0; i < 3; i++) g_rtSkyLight.local[i] = d.lightDir[i];
 				for (int i = 0; i < 3; i++) g_rtSkyLight.color[i] = d.lightColor[i];
-				g_rtSkyLight.irradiance = d.lightIrr;
+				const float k = std::max(0.f, float(*rt_skybox_light));
+				g_rtSkyLight.irradiance = d.lightIrr * k;
 				g_rtSkyLight.diameter = d.lightDiam;
-				for (int i = 0; i < 3; i++) g_rtSkyLight.average[i] = d.average[i];
+				for (int i = 0; i < 3; i++) g_rtSkyLight.average[i] = d.average[i] * k;
 				g_rtSkyLight.pending = true;
 			}
 		}

@@ -45,7 +45,10 @@ extern int  g_rtViewerDrawn, g_rtViewerDrawnTile;
 extern bool g_rtViewerDrawnModel;
 // how the backend drew it last (rt_lookat): its texture, glow, flags
 extern char g_rtViewerDiag[ 320 ];
-extern uint32_t g_rtDrawnFrames;	// frames the path tracer has drawn (rt_around)
+extern uint32_t g_rtDrawnFrames;
+// the sky's model scaled by this while a skybox is drawn: its cube is 8 m across, round a
+// camera the path tracer's sky is not quite at -- its city skyline bent and swam as you moved
+extern float g_rtSkyModelScale;	// frames the path tracer has drawn (rt_around)
 // per sprite (its actor's index), the frame it last got to each stage of drawing
 // (rt_lookat): 0 processed (the game gave it), 1 placed (a picture or model made), 2 drawn
 extern uint32_t g_rtFrameNo;

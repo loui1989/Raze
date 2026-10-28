@@ -784,6 +784,14 @@ auto RTRenderState::MakeTransform( bool isSky, bool isModel ) const -> RgTransfo
 
         float t[ 16 ];
         MatMul44( skyToMainCamera, model ? model : identity, t );
+        if( g_rtSkyModelScale != 1.f )
+        {
+            const float sc = g_rtSkyModelScale;
+            const float scale[ 16 ] = { sc, 0, 0, 0, 0, sc, 0, 0, 0, 0, sc, 0, 0, 0, 0, 1 };
+            float       t2[ 16 ];
+            MatMul44( t, scale, t2 );
+            return fromGzMatrix( t2 );
+        }
         return fromGzMatrix( t );
     }
 
