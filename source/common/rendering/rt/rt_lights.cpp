@@ -1326,15 +1326,15 @@ void UploadOverlayLights( uint32_t time )
         // path tracing space: x, -z, -y of the world
         const int lsec = CachedSector( s_surfLightSector, i, p[ 0 ], -p[ 2 ] );
         // its fixture shot out (rt_shoot_lights): the surface it is on was hit -- no light,
-        // no panel
-        if( SurfaceLightShot( r.position, lsec ) )
-        {
-            continue;
-        }
+        // and its panel there but dark
+        const bool  shot = SurfaceLightShot( r.position, lsec );
         const float fade = ReachFade( PTToRT( p ), lsec );
-        UploadSphere( SurfaceLightBase + i, PTToRT( p ), PackColor( r.color ),
-                      OverlayToLumens( r.intensity, r.radius ) * response * fade,
-                      std::clamp( std::min( sw, sh ) * 0.5f * ONEGAMEUNIT_IN_METERS, 0.02f, 0.1f ) );
+        if( !shot )
+        {
+            UploadSphere( SurfaceLightBase + i, PTToRT( p ), PackColor( r.color ),
+                          OverlayToLumens( r.intensity, r.radius ) * response * fade,
+                          std::clamp( std::min( sw, sh ) * 0.5f * ONEGAMEUNIT_IN_METERS, 0.02f, 0.1f ) );
+        }
 
         // the fixture: the author's lamp panel, drawn on the surface
         if( *rt_lightovr_fixtures )
@@ -1388,7 +1388,7 @@ void UploadOverlayLights( uint32_t time )
                     corners[ k ][ 0 ] = m.data[ 0 ], corners[ k ][ 1 ] = m.data[ 1 ], corners[ k ][ 2 ] = m.data[ 2 ];
                 }
             }
-            RT_UploadFixtureQuad( CopyId( SurfaceLightBase + i ), corners, nrm, tex.GetChars(), response );
+            RT_UploadFixtureQuad( CopyId( SurfaceLightBase + i ), corners, nrm, tex.GetChars(), shot ? 0.f : response );
         }
     }
 
