@@ -1061,6 +1061,14 @@ struct InstallHook
 } g_installHook;
 
 
+// rt_lights_info: what each placed light of the level got the last frame
+struct MapLightDiag
+{
+    int   sector = -1;
+    float fade = 0.f, sw = -2.f, lumens = 0.f;
+};
+static std::vector< MapLightDiag > g_mapLightDiag;
+
 void UploadOverlayLights( uint32_t time )
 {
     if( !*rt_lightovr || !currentLevel )
@@ -1229,15 +1237,22 @@ void UploadOverlayLights( uint32_t time )
         const RgFloat3D lp     = WorldToRT( x, y, z );
         const int       lsec   = r.anchorType == LightOverlayAnchorType::Sector ? r.anchorIndex
                                                                                  : CachedSector( s_mapLightSector, i, x, y );
-        float           lumens = OverlayToLumens( r.intensity, r.radius ) * FlickerScale( id, r.flickerFrames, time ) *
-                             ReachFade( lp, lsec );
+        const float     fade   = ReachFade( lp, lsec );
+        float           lumens = OverlayToLumens( r.intensity, r.radius ) * FlickerScale( id, r.flickerFrames, time ) * fade;
+        if( g_mapLightDiag.size() <= i )
+        {
+            g_mapLightDiag.resize( i + 1 );
+        }
+        g_mapLightDiag[ i ] = { lsec, fade, -2.f, 0.f };
         // with a light switch: on with it, or (inverse) on while it is off
         if( r.sectorResponse != 0 && r.hasSignalSector )
         {
             const float sw = RT_SectorSwitch( r.signalSector );
             const float on = sw < 0.f ? 1.f : sw;
             lumens *= r.sectorResponse == 2 ? 1.f - on : 0.03f + 0.97f * on;
+            g_mapLightDiag[ i ].sw = sw;
         }
+        g_mapLightDiag[ i ].lumens = lumens;
         // a spot light (a cinema's projector): aimed at its target, or along its direction
         if( r.lightType.CompareNoCase( "spot" ) == 0 && ( r.hasTarget || r.hasDirection ) )
         {
@@ -1791,4 +1806,18 @@ CCMD( rt_lights_info )
             set.mapLightRules.Size(),
             set.surfaceLightRules.Size(),
             set.directionalRules.Size() );
+    // the placed lights: where, and how much of each the path tracer got the last frame
+    const DVector3 view( g_rtViewPos[ 0 ], g_rtViewPos[ 1 ], g_rtViewPos[ 2 ] );
+    for( unsigned i = 0; i < set.mapLightRules.Size(); i++ )
+    {
+        const auto& r = set.mapLightRules[ i ];
+        const MapLightDiag d = i < g_mapLightDiag.size() ? g_mapLightDiag[ i ] : MapLightDiag{};
+        const DVector3 p( r.anchorPosition[ 0 ], r.anchorPosition[ 1 ], r.anchorPosition[ 2 ] );
+        Printf( "  light \"%s\" (%s%s): sector %d, %.1f m away, reach %.2f, %s, %.0f lumens last frame%s\n", r.id.GetChars(),
+                r.lightType.IsEmpty() ? "point" : r.lightType.GetChars(), r.hasTarget ? ", aimed" : "", d.sector,
+                r.anchorType == LightOverlayAnchorType::Position ? ( p - view ).Length() / 32. : -1., d.fade,
+                !r.hasSignalSector || !r.sectorResponse ? FString( "no switch" ).GetChars()
+                    : FStringf( "switch of sector %d: %.2f (%s)", r.signalSector, d.sw, r.sectorResponse == 2 ? "on while it is off" : "on with it" ).GetChars(),
+                d.lumens, d.lumens > 0.01f ? "" : " -- not lit" );
+    }
 }
