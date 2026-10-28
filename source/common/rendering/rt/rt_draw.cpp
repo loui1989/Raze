@@ -1256,8 +1256,9 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                 glowScale = 0.f;
             }
             // shot out (rt_shoot_lights): a lamp, a panel, a screen, a light tube -- not a fire
-            // (the material table's fire and flame classes)
-            if( !hwtex->IsFlame() && !hwtex->IsFire() && !rtstate.is< RtPrim::Sprite >() &&
+            // (the material table's fire and flame classes), nor a wall the game keeps lit
+            // through its room's light switch (Duke's hitag 1: E1L1's cinema screen)
+            if( !hwtex->IsFlame() && !hwtex->IsFire() && !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::NoSwitch >() &&
                 ( rtstate.is< RtPrim::Shot >() ||
                   ( rtstate.is< RtPrim::CeilingPlane >() && RT_LightShot( -1, rtstate.get_sector(), 2 ) ) ||
                   ( rtstate.is< RtPrim::FloorPlane >() && RT_LightShot( -1, rtstate.get_sector(), 1 ) ) ) )
