@@ -20,6 +20,7 @@
 #include "mapinfo.h"
 #include "texturemanager.h"
 #include "buildtiles.h"
+#include "serializer.h"
 
 #include <unordered_map>
 #include <queue>
@@ -1475,6 +1476,9 @@ uint32_t RT_LevelGeneration()
 CVARD( Bool, rt_shoot_lights, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: glowing surfaces (lamps, panels, screens, signs) go out when shot" )
 static std::vector< uint8_t > s_shotWall, s_shotPlane;
 static uint32_t               s_shotGen = ~0u;
+// from a savegame being loaded: taken on at the loaded level's first frame
+static TArray< int >          s_loadedWalls, s_loadedPlanes;
+static bool                   s_loadedPending = false;
 
 static void ShotReset()
 {
@@ -1484,6 +1488,47 @@ static void ShotReset()
         s_shotGen = gen;
         s_shotWall.assign( wall.Size(), 0 );
         s_shotPlane.assign( sector.Size(), 0 );
+        // (a level loaded from a savegame: the lights shot out in it; a level started or
+        // restarted: none)
+        if( s_loadedPending )
+        {
+            s_loadedPending = false;
+            for( int w : s_loadedWalls )
+            {
+                if( w >= 0 && size_t( w ) < s_shotWall.size() ) s_shotWall[ size_t( w ) ] = 1;
+            }
+            for( int e : s_loadedPlanes )
+            {
+                const int s = e >> 2;
+                if( s >= 0 && size_t( s ) < s_shotPlane.size() ) s_shotPlane[ size_t( s ) ] |= uint8_t( e & 3 );
+            }
+        }
+    }
+}
+
+// the lights shot out, in a savegame (SerializeMap)
+void RT_SerializeShotLights( FSerializer& arc )
+{
+    TArray< int > walls, planes;
+    if( arc.isWriting() && s_shotGen == RT_LevelGeneration() )
+    {
+        for( size_t i = 0; i < s_shotWall.size(); i++ )
+        {
+            if( s_shotWall[ i ] ) walls.Push( int( i ) );
+        }
+        for( size_t i = 0; i < s_shotPlane.size(); i++ )
+        {
+            if( s_shotPlane[ i ] ) planes.Push( int( i ) * 4 + s_shotPlane[ i ] );
+        }
+    }
+    arc( "rt_shotwalls", walls );
+    arc( "rt_shotplanes", planes );
+    if( arc.isReading() )
+    {
+        s_loadedWalls   = std::move( walls );
+        s_loadedPlanes  = std::move( planes );
+        s_loadedPending = true;
+        s_shotGen       = ~0u; // (taken on at the next look, the same level or not)
     }
 }
 
@@ -1506,7 +1551,8 @@ void RT_ShootLight( int wallnum, int sectnum, int plane )
 
 bool RT_LightShot( int wallnum, int sectnum, int plane )
 {
-    if( !*rt_shoot_lights || s_shotGen != RT_LevelGeneration() )
+    ShotReset(); // (first: a loaded savegame's list is the loaded level's, not a later one's)
+    if( !*rt_shoot_lights )
     {
         return false;
     }

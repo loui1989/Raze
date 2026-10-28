@@ -148,6 +148,8 @@ extern std::vector< uint8_t > g_rtWaterSide;
 // a glowing one shows it.
 void RT_ShootLight( int wallnum, int sectnum, int plane );
 bool RT_LightShot( int wallnum, int sectnum, int plane );
+class FSerializer;
+void RT_SerializeShotLights( FSerializer& arc ); // in a savegame (core/savegamehelp.cpp)
 
 inline int RT_WaterSide( int sectnum, int lotag )
 {

@@ -46,6 +46,7 @@
 #include "gamecontrol.h"
 #include "m_argv.h"
 #include "serializer.h"
+#include "rt_state.h"
 #include "version.h"
 #include "raze_music.h"
 #include "raze_sound.h"
@@ -712,6 +713,8 @@ void SerializeMap(FSerializer& arc)
 			("allportals", allPortals);
 
 		SerializeInterpolations(arc);
+		// ray tracing: the glowing surfaces shot out
+		RT_SerializeShotLights(arc);
 		arc.EndObject();
 	}
 
