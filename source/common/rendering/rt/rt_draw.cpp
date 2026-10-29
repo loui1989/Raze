@@ -980,7 +980,8 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             {
                 n = -n;
             }
-            const FVector3 d = n * float( *rt_decal_offset );
+            // (and one sunk into its wall: out of it first -- a torch's sconce)
+            const FVector3 d = n * ( float( *rt_decal_offset ) + rtstate.get_decalsunk() );
             for( auto& v : m_tempverts )
             {
                 v.position[ 0 ] += d.X;

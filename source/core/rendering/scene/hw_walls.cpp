@@ -270,34 +270,53 @@ void HWWall::RenderTranslucentWall(HWDrawInfo *di, FRenderState &state)
 // moved a little off, towards the viewer (rt_decal_offset), so rays do not hit it and the
 // surface at random? Not one standing free: a crate's sides and top (Blood's crates are
 // sprites) moved each towards the viewer opened gaps at the crate's corners.
+// A wall sprite on a wall: -1 if it is not on one, else how far (map units) it is sunk
+// behind the wall's face (0: on it or in front). Mappers put a torch's sconce a little
+// into the wall as often as on it: Build's renderer drew it anyway, rays do not -- it
+// is moved out to the wall's face, and a little off it, as one on it is.
+double RT_WallSpriteDepth(const tspritetype* spr)
+{
+	if (!spr || !spr->sectp || (spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_WALL) return -1;
+	constexpr double kNear = 4.0; // map units either side of the wall (12 cm)
+	const DVector2 nrm = spr->Angles.Yaw.ToVector();
+	const DVector2 p = spr->pos.XY();
+	double best = -1, bestAbs = 1e9;
+	for (auto& w : spr->sectp->walls)
+	{
+		const DVector2 a = w.pos, b = w.point2Wall()->pos;
+		DVector2 wd = b - a;
+		const double len = wd.Length();
+		if (len < 1e-6) continue;
+		wd /= len;
+		if (fabs(wd.X * nrm.X + wd.Y * nrm.Y) > 0.05) continue;		// not parallel
+		const DVector2 ap = p - a;
+		const double t = ap.X * wd.X + ap.Y * wd.Y;
+		if (t < -kNear || t > len + kNear) continue;
+		// which side of the wall is its room
+		DVector2 in(wd.Y, -wd.X);
+		const DVector2 mid = (a + b) * 0.5;
+		if (inside(mid.X + in.X * 0.5, mid.Y + in.Y * 0.5, spr->sectp) != 1) in = -in;
+		const double s = ap.X * in.X + ap.Y * in.Y; // > 0: in the room, < 0: in the wall
+		if (fabs(s) > kNear || fabs(s) >= bestAbs) continue;
+		bestAbs = fabs(s);
+		best = s < 0 ? -s : 0;
+	}
+	return best;
+}
+
+// ray tracing: is a wall or floor sprite flush with a surface -- a switch, a sign, a
+// poster on a wall, a rug or a stain on the floor, a panel on the ceiling -- which it is
+// moved a little off, towards the viewer (rt_decal_offset), so rays do not hit it and the
+// surface at random? Not one standing free: a crate's sides and top (Blood's crates are
+// sprites) moved each towards the viewer opened gaps at the crate's corners.
 bool RT_SpriteFlush(const tspritetype* spr)
 {
 	if (!spr || !spr->sectp) return true;
 	const auto align = spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK;
-	constexpr double kNear = 0.3; // map units (5 of Build's)
-	if (align == CSTAT_SPRITE_ALIGNMENT_WALL)
-	{
-		// on a wall of its sector: parallel to it and on its line (a wall sprite FACES
-		// its angle: its picture runs across it, along the wall)
-		const DVector2 nrm = spr->Angles.Yaw.ToVector();
-		const DVector2 p = spr->pos.XY();
-		for (auto& w : spr->sectp->walls)
-		{
-			const DVector2 a = w.pos, b = w.point2Wall()->pos;
-			DVector2 wd = b - a;
-			const double len = wd.Length();
-			if (len < 1e-6) continue;
-			wd /= len;
-			if (fabs(wd.X * nrm.X + wd.Y * nrm.Y) > 0.05) continue;		// not parallel
-			const DVector2 ap = p - a;
-			if (fabs(ap.X * wd.Y - ap.Y * wd.X) > kNear) continue;		// not on its line
-			const double t = ap.X * wd.X + ap.Y * wd.Y;
-			if (t > -kNear && t < len + kNear) return true;
-		}
-		return false;
-	}
+	if (align == CSTAT_SPRITE_ALIGNMENT_WALL) return RT_WallSpriteDepth(spr) >= 0;
 	if (align == CSTAT_SPRITE_ALIGNMENT_FLOOR || align == CSTAT_SPRITE_ALIGNMENT_SLOPE)
 	{
+		constexpr double kNear = 0.3; // map units (5 of Build's)
 		const double fz = getflorzofslopeptr(spr->sectp, spr->pos.X, spr->pos.Y);
 		const double cz = getceilzofslopeptr(spr->sectp, spr->pos.X, spr->pos.Y);
 		return fabs(spr->pos.Z - fz) < kNear || fabs(spr->pos.Z - cz) < kNear;
@@ -321,6 +340,8 @@ void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 	RT_PUSH_TYPE(rtns, rtflags & 1 ? RtPrim::NoShadow : RtPrim::Identity);
 	RT_PUSH_TYPE(rtdecal, Sprite ? RtPrim::Decal : RtPrim::Identity);
 	RT_PUSH_TYPE(rtfree, Sprite && RT_IsActive() && !RT_SpriteFlush(Sprite) ? RtPrim::Freestanding : RtPrim::Identity);
+	// (one sunk into its wall: moved out of it too)
+	auto rtsunk = rtstate.push_decalsunk(Sprite && RT_IsActive() ? float(std::max(0.0, RT_WallSpriteDepth(Sprite)) / 32.0) : 0.f);
 	RT_PUSH_TYPE(rtgamelit, Sprite && Sprite->ownerActor && RT_GameLit(Sprite->ownerActor->GetIndex()) ? RtPrim::GameLit : RtPrim::Identity);
 	// (Duke's light switches (SE12) leave a wall of hitag 1 as it is: E1L1's cinema screen
 	// shows the film while the room goes dark -- its glow stays with it)

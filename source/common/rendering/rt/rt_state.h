@@ -307,6 +307,7 @@ enum class RtPrim : uint32_t
 // a wall or floor aligned sprite lying on a wall, floor or ceiling of its sector (hw_walls.cpp)
 struct tspritetype;
 bool RT_SpriteFlush( const tspritetype* spr );
+double RT_WallSpriteDepth( const tspritetype* spr ); // -1 not on a wall, else how far sunk into it (map units)
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it
 // is active: bit 0 = no shadow, bit 1 = fullbright.
@@ -412,6 +413,19 @@ struct FRtState
     }
     int get_sector() const { return m_sector; }
 
+    // a wall sprite sunk into its wall: how far (metres), moved out of it (rt_draw.cpp)
+    [[nodiscard]] auto push_decalsunk( float metres )
+    {
+        const float prev = m_decalSunk;
+        m_decalSunk      = metres;
+        return rtdetail::AutoPop{
+            prev,
+            []( FRtState& fthis, float p ) { fthis.m_decalSunk = p; },
+            *this,
+        };
+    }
+    float get_decalsunk() const { return m_decalSunk; }
+
     // the copy (see g_rtCopySector) the primitive belongs to, 0 = none (keeps the
     // copy around it: a portal's view), and the offset that moves it into place.
     // 'add': on top of the copy around it (a portal seen through a portal)
@@ -461,6 +475,7 @@ private:
     uint32_t m_state{ 0 };       // RtPrim flags
     uint64_t m_curUniqueID{ 0 }; // to identify an object between frames
     int      m_sector{ -1 };
+    float    m_decalSunk{ 0.f };
     CopyState m_copy{ 0, { 0, 0, 0 } };
 
     std::unordered_map< uint64_t, uint32_t > m_nextPrimIndex{};
