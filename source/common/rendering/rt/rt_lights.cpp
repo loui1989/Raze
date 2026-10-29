@@ -1480,6 +1480,7 @@ void UploadOverlayLights( uint32_t time )
             intensity *= FlickerScale( id, rule.flickerFrames, time );
 
             const float fade = ReachFade( pos, actor->sector() ? sectindex( actor->sector() ) : -1 );
+            RT_NoSoftenScope fire; // (an actor's light: at its fire, a lamp's bulb)
             UploadSphere( id, pos, PackColor( rule.color ), OverlayToLumens( intensity, rule.radius ) * fade, 0.05f );
         }
     }
@@ -1881,9 +1882,10 @@ void RT_UploadSceneLights( uint32_t time )
     UploadSectorLights();
     UploadOverlayLights( time );
     UploadSkyPortals();
-    // the game's own lights
+    // the game's own lights (at their fires, torches, flares: not softened)
     for( const RtGameLight& l : g_rtGameLights )
     {
+        RT_NoSoftenScope fire;
         const RgFloat3D p = WorldToRT( l.pos[ 0 ], l.pos[ 1 ], l.pos[ 2 ] );
         UploadSphere( GameLightBase + ( l.id & 0xFFFFFFFFull ),
                       p,
@@ -2039,10 +2041,11 @@ CVARD( Float, rt_light_soft, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how muc
 
 namespace rtx
 {
+int g_rtNoSoften = 0;
 const RgLightInfo* RT_SoftenLight( const RgLightInfo* info )
 {
     const float soft = std::clamp( float( *rt_light_soft ), 0.f, 4.f );
-    if( !info || soft <= 0.f || !info->pNext )
+    if( !info || soft <= 0.f || !info->pNext || g_rtNoSoften > 0 )
     {
         return info;
     }

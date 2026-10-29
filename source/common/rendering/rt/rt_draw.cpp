@@ -1710,6 +1710,7 @@ void RTRenderState::AddVoxelGlowLight( std::span< const RgPrimitiveVertex > vert
         .uniqueID     = id,
         .isExportable = false,
     };
+    RT_NoSoftenScope fire; // (inside its own fire: not softened)
     RG_CHECK( RT_UploadLight( &info ) );
 }
 
@@ -1862,7 +1863,10 @@ void RTRenderState::AddEmissionLight( std::span< const RgPrimitiveVertex > verts
             .uniqueID     = id,
             .isExportable = false,
         };
+        // (a glowing billboard's, a flame's: at its flame, not softened)
+        g_rtNoSoften += rtstate.is< RtPrim::Sprite >() ? 1 : 0;
         RG_CHECK( RT_UploadLight( &info ) );
+        g_rtNoSoften -= rtstate.is< RtPrim::Sprite >() ? 1 : 0;
         return;
     }
 

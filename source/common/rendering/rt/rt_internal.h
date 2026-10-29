@@ -106,6 +106,16 @@ extern uint32_t g_rtLightsFailed;
 // least so big that what is right next to it is not burned out; the copy to upload, or
 // the light as it is
 const RgLightInfo* RT_SoftenLight( const RgLightInfo* info );
+// ...but not a fire's own light (a voxel fire's, a flame sprite's, an actor's or the
+// game's light at its fire): it sits inside its fire, and the fire's own faces lit hard
+// by it is how the fire looks -- softened, the ball swallowed the fire and dimmed it.
+// While one of these is alive, lights are uploaded as they are.
+extern int g_rtNoSoften;
+struct RT_NoSoftenScope
+{
+    RT_NoSoftenScope() { g_rtNoSoften++; }
+    ~RT_NoSoftenScope() { g_rtNoSoften--; }
+};
 inline RgResult RT_UploadLight( const RgLightInfo* info )
 {
     g_rtLightsThisFrame++;
