@@ -767,7 +767,10 @@ void AddBlast( const FVector3& c, float radius )
         p.push += d * ( 5.f * strength * ( 1.f - l / R ) );
     }
     // (no clearing of its own: the blast's own smoke billows up right there -- shoving
-    // the smoke and fog that was there out of the way is what opens the space)
+    // the smoke and fog that was there out of the way is what opens the space; only a
+    // clearing too faint to clear anything, which marks the place for the volume's
+    // history: the smoke flung out is shown as it moves, not smeared after it)
+    if( SmokeNear( c, radius * 1.6f ) ) AddCarve( c, radius * 2.f, 1e-4f, 1.f );
 }
 
 // a bullet: a tube through the smoke and the fog along its track (metres), the smoke
@@ -841,14 +844,25 @@ void WakeSources( float dt, const FVector3& eye, float farM )
         const float    step = ( eye - g_viewLast ).Length();
         if( g_viewLast.X < 1e8f && step > 1e-4f && step < 2.f && dt > 0.f )
         {
-            // the puffs he walks through are nudged along
+            // the puffs he walks through are nudged along, and the smoke (not the
+            // ground fog's wide banks) shoved aside off his path: he parts a cloud
             const FVector3 move = ( eye - g_viewLast ) / dt;
+            FVector3       mdir{ move.X, move.Y, 0.f };
+            const float    msp = mdir.Length();
+            if( msp > 1e-3f ) mdir /= msp;
             for( uint32_t i = 0; i < g_count; i++ )
             {
                 Puff& p = g_puffs[ i ];
-                const float l = ( p.pos - body ).Length();
+                const FVector3 off = p.pos - body;
+                const float l = off.Length();
                 const float R = p.radius + 0.6f;
-                if( l < R ) p.push += FVector3{ move.X, move.Y, 0.f } * ( 0.6f * strength * ( 1.f - l / R ) * dt );
+                if( l >= R ) continue;
+                p.push += FVector3{ move.X, move.Y, 0.f } * ( 0.6f * strength * ( 1.f - l / R ) * dt );
+                if( p.fog || msp < 1.f ) continue;
+                FVector3    side = off - mdir * ( off | mdir );
+                const float sl   = side.Length();
+                side             = sl > 1e-3f ? side / sl : FVector3{ -mdir.Y, mdir.X, 0.f } * ( Rnd( 0.f, 1.f ) < 0.5f ? -1.f : 1.f );
+                p.push += side * ( std::min( msp, 12.f ) * 1.2f * strength * ( 1.f - l / R ) * dt );
             }
         }
         // a clearing round him every half metre, a little ahead of him as he goes (he
@@ -858,7 +872,7 @@ void WakeSources( float dt, const FVector3& eye, float farM )
         {
             const FVector2 mv{ eye.X - g_viewLast.X, eye.Y - g_viewLast.Y };
             const float    sp = mv.Length() / dt;
-            if( sp > 1.f && sp < 60.f ) ahead = FVector3{ mv.X, mv.Y, 0.f } / mv.Length() * 0.4f;
+            if( sp > 1.f && sp < 60.f ) ahead = FVector3{ mv.X, mv.Y, 0.f } / mv.Length() * 0.7f;
         }
         g_viewLast = eye;
         if( ( body - g_viewTrail ).Length() > 0.5f && SmokeNear( body, 1.3f ) )
@@ -1042,7 +1056,9 @@ uint32_t RT_UpdateSmoke( const RgFloat3D& eyeIn, const RgFloat3D& fwdIn, const R
                 outPuffs[ nc ]   = RgFloat4D{ c.pos.X, c.pos.Y, c.pos.Z, std::max( r, 0.5f * sliceM ) };
                 outShape[ nc ]   = RgFloat4D{ r, vdir.X, vdir.Y, vdir.Z };
             }
-            outAlbDen[ nc ] = RgFloat4D{ c.mistOnly ? 2.8f : 0.8f, 0.81f, 0.84f, -c.strength * fade };
+            // (.g: its age, for the volume's history -- a young clearing is shown at once,
+            // Raze RT's shaders, CmScatterAccum)
+            outAlbDen[ nc ] = RgFloat4D{ c.mistOnly ? 2.8f : 0.8f, c.age, 0.84f, -std::max( c.strength * fade, 1e-4f ) };
             nc++;
         }
     }
