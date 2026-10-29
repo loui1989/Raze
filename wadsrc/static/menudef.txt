@@ -2339,6 +2339,7 @@ OptionMenu "RTOptions" protected
 	Slider "Brightest exposure (EV)",	"rt_ev100_max", 2, 14, 0.25, 2
 	Slider "White point",				"rt_white_point", 0.5, 10, 0.25, 2
 	Slider "Contrast",					"rt_contrast", -0.5, 0.5, 0.05, 2
+	Slider "Bright colours keep their colour",	"rt_hot_color", 0, 1, 0.1, 1
 	StaticText " "
 
 	SafeCommand "Reset ray tracing settings to defaults",	"rt_defaults"

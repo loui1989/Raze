@@ -93,6 +93,7 @@ CVARD( Float, rt_ev100_min, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adap
 CVARD( Float, rt_ev100_max, 7.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adaptation, brightest exposure" )
 CVARD( Float, rt_white_point, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping white point" )
 CVARD( Float, rt_contrast, 0.1f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping contrast" )
+CVARD( Float, rt_hot_color, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much an over-bright colour keeps its colour (lava stays orange) instead of burning out to white (0 = all go white, as before)" )
 CVARD( Float, rt_sky_saturation, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: sky saturation" )
 CVARD( Bool, rt_sun_require_sky, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the sun or moon lights only what can see the sky (not rooms it reaches through gaps in the walls; the sky must be drawn there, nearby)" )
 CVARD( Int, rt_glass_shadow_debug, 0, 0, "RT: light through glass: 1 = green where it found a pane on the way to its light (blue: a pane taken for a hole), 2 = every light red (is the glass test reached)" )
@@ -970,7 +971,12 @@ void RTFrameBuffer::RT_DrawFrame()
         .ev100Max             = std::max( float( *rt_ev100_min ) + 0.1f, float( *rt_ev100_max ) ),
         .luminanceWhitePoint  = std::max( 0.1f, float( *rt_white_point ) ),
         .saturation           = { 0, 0, 0 },
-        .crosstalk            = { 1, 1, 1 },
+        // the tonemapper's (AMD LPM's) crosstalk: how an over-bright colour burns out.
+        // { 1, 1, 1 } takes every one to white (lava next to its own light was white
+        // patches); AMD's suggestion, { 1, 1/2, 1/32 }, keeps red going to orange and
+        // yellow, and only the brightest to white -- the glow as bright, its colour kept
+        .crosstalk            = { 1.f, std::pow( 0.5f, std::clamp( float( *rt_hot_color ), 0.f, 1.f ) ),
+                                  std::pow( 1.f / 32.f, std::clamp( float( *rt_hot_color ), 0.f, 1.f ) ) },
         .contrast             = *rt_contrast,
         .hdrBrightness        = 1.0f,
         .hdrContrast          = 0.1f,
