@@ -919,6 +919,22 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
         verts = m_tempverts;
     }
 
+    // heat haze (rt_smoke.cpp): a fire's picture -- the material table's fire and flame
+    // classes (Blood's torches, braziers, burning ground and bodies), not a lantern's
+    // glass -- shimmers the air over it
+    if( !isUI && !isSky && !isSkyVis && !isMirror && !isModel && hwtex && hwtex->IsFire() && !hwtex->IsLantern() &&
+        *rt_heat_haze > 0.f )
+    {
+        FVector3 lo{ 1e9f, 1e9f, 1e9f }, hi{ -1e9f, -1e9f, -1e9f };
+        for( const auto& v : verts )
+        {
+            lo.X = std::min( lo.X, v.position[ 0 ] ), hi.X = std::max( hi.X, v.position[ 0 ] );
+            lo.Y = std::min( lo.Y, v.position[ 1 ] ), hi.Y = std::max( hi.Y, v.position[ 1 ] );
+            lo.Z = std::min( lo.Z, v.position[ 2 ] ), hi.Z = std::max( hi.Z, v.position[ 2 ] );
+        }
+        RT_HeatFromDraw( lo, hi );
+    }
+
     // Build's rooms over rooms: a room's ceiling is often at exactly the height of the
     // floor of the room above it (overlapping sectors). The rasterizer draws only the
     // one it can see; rays hit both at random -- a grainy, speckled mix of the two.

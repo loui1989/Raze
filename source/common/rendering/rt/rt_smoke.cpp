@@ -44,6 +44,8 @@ CVARD( Float, rt_smoke_light_near, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: m
 CVARD( Float, rt_fog, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: ground fog over open-air ground (0 = none, 1 = some, 2 = thick)" )
 CVARD( Bool, rt_smoke_wake, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: walking, flying things and blasts clear and push smoke and fog aside (it flows back in)" )
 CVARD( Float, rt_smoke_wake_strength, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strongly they clear and push it (0..3)" )
+CVARD( Float, rt_heat_haze, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: the air over fires and blasts shimmers, this strongly (0 = off)" )
+CVARD( Float, rt_heat_haze_speed, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how fast the heat haze shimmers" )
 CVARD( Float, rt_smoke_bullet_radius, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: metres round a bullet's track that it clears through smoke and fog (bigger than a real bullet's, to be seen)" )
 CVARD( Float, rt_fog_glow, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much light of its own the ground fog has (its grey: higher = paler, lower = darker)" )
 CVARD( Float, rt_fog_height, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how high the ground fog lies (1 = about knee to waist high)" )
@@ -752,8 +754,10 @@ bool SmokeNear( const FVector3& pos, float radius )
 }
 
 // a blast: the puffs round it shoved away
+void AddHeatBlast( const FVector3& c, float radius ); // heat haze, below
 void AddBlast( const FVector3& c, float radius )
 {
+    AddHeatBlast( c, radius );
     if( !*rt_smoke_wake ) return;
     const float strength = std::clamp( float( *rt_smoke_wake_strength ), 0.f, 3.f );
     for( uint32_t i = 0; i < g_count; i++ )
@@ -950,13 +954,168 @@ float Envelope( const Puff& p )
     return ( 1.f - t ) * ( 1.f - t );
 }
 
+// HEAT HAZE (rt_heat_haze): the air over a fire shimmers. The shimmer itself is drawn
+// by Raze RT's shaders (EfWaves.comp, the screen's waves effect turned to this: Raze has
+// no use for waves); what they need is where the heat is -- sent with the smoke puffs, at
+// the end of the list, each marked by a density of -1e6 (which the smoke itself skips:
+// Smoke.h) with its radius, its column's height and its strength in the albedo's place.
+// The fires are: in Blood the pictures of the material table's fire and flame classes
+// drawn this frame (rt_draw.cpp), in Duke its fire actors (by class); and a blast's
+// heat, a moment, in both.
+struct Heat
+{
+    FVector3 pos;      // the fire's middle, metres
+    float    radius;   // how wide, metres
+    float    height;   // the column of hot air over it, metres
+    float    strength; // 1 = a torch's
+};
+std::vector< Heat > g_heatDraw; // this frame's fires seen drawn
+
+struct HeatBlast
+{
+    FVector3 pos;
+    float    radius, age, life;
+};
+std::vector< HeatBlast > g_heatBlasts;
+constexpr uint32_t kMaxHeat = 12;
+
+void AddHeatBlast( const FVector3& c, float radius )
+{
+    if( *rt_heat_haze <= 0.f ) return;
+    if( g_heatBlasts.size() >= 16 ) g_heatBlasts.erase( g_heatBlasts.begin() );
+    g_heatBlasts.push_back( { c, std::clamp( radius, 0.5f, 6.f ), 0.f, 1.6f } );
+}
+
+// Duke's fires (its actors): the classes that burn
+bool DukeFireClass( PClass* cls )
+{
+    if( !cls ) return false;
+    static const char* const names[] = { "DukeFire",   "DukeFire2",   "DukeBurning",           "DukeBurning2", "DukeOnFire",
+                                         "DukeFloorFlame", "DukeFlamethrowerFlame", "DukeLavaPool", "RedneckFire" };
+    const char* n = cls->TypeName.GetChars();
+    if( !n || ( n[ 0 ] != 'D' && n[ 0 ] != 'R' ) ) return false;
+    for( const char* f : names )
+        if( strcmp( n, f ) == 0 ) return true;
+    return false;
+}
+
 } // namespace
+
+void RT_HeatFromDraw( const FVector3& lo, const FVector3& hi )
+{
+    if( g_heatDraw.size() >= 256 ) return;
+    const float w = std::max( hi.X - lo.X, hi.Y - lo.Y ), h = hi.Z - lo.Z;
+    // (not a candle's flame: a heat haze over a candle is nothing to see)
+    if( std::max( w, h ) < 0.22f ) return;
+    const FVector3 mid = ( lo + hi ) * 0.5f;
+    g_heatDraw.push_back( { mid, std::clamp( std::max( w, h ) * 0.5f, 0.15f, 2.5f ), std::clamp( h * 1.6f + 0.5f, 0.6f, 4.f ),
+                            std::clamp( h / 0.6f, 0.5f, 1.5f ) } );
+}
+
+uint32_t RT_PackHeat( const RgFloat3D& eyeIn, RgFloat4D* outPuffs, RgFloat4D* outAlbDen, RgFloat4D* outShape, uint32_t maxOut )
+{
+    static uint64_t s_last = 0;
+    const uint64_t  nowMs  = I_msTime();
+    const float     dt     = s_last ? std::clamp( float( nowMs - s_last ) / 1000.f, 0.f, 0.1f ) : 0.f;
+    s_last                 = nowMs;
+    static int s_gen = -1;
+    if( s_gen != RT_LevelGeneration() )
+    {
+        s_gen = RT_LevelGeneration();
+        g_heatBlasts.clear();
+    }
+
+    std::vector< Heat > cand;
+    cand.swap( g_heatDraw ); // (the next frame's draws start a new list)
+    if( *rt_heat_haze <= 0.f || maxOut == 0 )
+    {
+        g_heatBlasts.clear();
+        return 0;
+    }
+    const FVector3 eye{ eyeIn.data[ 0 ], eyeIn.data[ 1 ], eyeIn.data[ 2 ] };
+    constexpr float kReach = 30.f;
+
+    // Duke's fires
+    {
+        TSpriteIterator< DCoreActor > it;
+        while( auto a = it.Next() )
+        {
+            if( ( a->spr.cstat & CSTAT_SPRITE_INVISIBLE ) || a->spr.scale.X == 0 || !DukeFireClass( a->GetClass() ) ) continue;
+            const FVector3 pos = WorldToRTv( a->spr.pos.X, a->spr.pos.Y, a->spr.pos.Z );
+            if( ( pos - eye ).LengthSquared() > kReach * kReach ) continue;
+            auto        tex = TexMan.GetGameTexture( a->spr.spritetexture(), true );
+            const float tw  = tex ? float( tex->GetDisplayWidth() ) : 32.f;
+            const float th  = tex ? float( tex->GetDisplayHeight() ) : 32.f;
+            const float w   = tw * float( a->spr.scale.X ) * kUnit;
+            const float h   = th * float( a->spr.scale.Y ) * kUnit;
+            if( std::max( w, h ) < 0.15f ) continue;
+            // (a sprite stands on its position: its middle is half its height up)
+            cand.push_back( { pos + FVector3{ 0.f, 0.f, h * 0.5f }, std::clamp( std::max( w, h ) * 0.5f, 0.15f, 2.5f ),
+                              std::clamp( h * 1.6f + 0.5f, 0.6f, 4.f ), std::clamp( h / 0.6f, 0.5f, 1.5f ) } );
+        }
+    }
+    // the blasts: a moment's strong heat, swelling and fading
+    for( size_t i = 0; i < g_heatBlasts.size(); )
+    {
+        HeatBlast& b = g_heatBlasts[ i ];
+        b.age += dt;
+        if( b.age >= b.life )
+        {
+            g_heatBlasts.erase( g_heatBlasts.begin() + i );
+            continue;
+        }
+        const float t = b.age / b.life;
+        cand.push_back( { b.pos + FVector3{ 0.f, 0.f, b.radius * 0.3f * t }, b.radius * ( 0.7f + 0.5f * t ), 3.5f,
+                          2.2f * ( 1.f - t ) * ( 1.f - t ) } );
+        i++;
+    }
+
+    // the same fire drawn as several pictures (a torch's flame and its glow, a fire's
+    // overlapping sprites): one
+    std::vector< Heat > merged;
+    for( const Heat& h : cand )
+    {
+        if( ( h.pos - eye ).LengthSquared() > kReach * kReach || h.strength <= 0.01f ) continue;
+        bool done = false;
+        for( Heat& m : merged )
+        {
+            if( ( m.pos - h.pos ).Length() < 0.6f * std::max( m.radius, h.radius ) )
+            {
+                m.radius   = std::max( m.radius, h.radius );
+                m.height   = std::max( m.height, h.height );
+                m.strength = std::max( m.strength, h.strength );
+                done       = true;
+                break;
+            }
+        }
+        if( !done ) merged.push_back( h );
+    }
+    // the nearest (by how big they are) if there are more than fit
+    const uint32_t cap = std::min( kMaxHeat, maxOut );
+    if( merged.size() > cap )
+    {
+        std::sort( merged.begin(), merged.end(), [ & ]( const Heat& a, const Heat& b ) {
+            return ( a.pos - eye ).Length() / ( a.radius * a.strength ) < ( b.pos - eye ).Length() / ( b.radius * b.strength );
+        } );
+        merged.resize( cap );
+    }
+    uint32_t n = 0;
+    for( const Heat& h : merged )
+    {
+        outPuffs[ n ]  = RgFloat4D{ h.pos.X, h.pos.Y, h.pos.Z, 0.f };
+        outShape[ n ]  = RgFloat4D{ 0.f, 0.f, 0.f, 0.f };
+        outAlbDen[ n ] = RgFloat4D{ h.radius, h.height, h.strength, -1e6f };
+        n++;
+    }
+    return n;
+}
 
 // Once a frame, before the frame is drawn: make, move and pack the smoke.
 // 'far' is the froxel volume's far plane (metres).
 uint32_t RT_UpdateSmoke( const RgFloat3D& eyeIn, const RgFloat3D& fwdIn, const RgFloat3D& upIn, const RgFloat3D& rightIn,
-                         float far, RgFloat4D* outPuffs, RgFloat4D* outAlbDen, RgFloat4D* outShape )
+                         float far, RgFloat4D* outPuffs, RgFloat4D* outAlbDen, RgFloat4D* outShape, uint32_t maxOut )
 {
+    maxOut = std::min< uint32_t >( maxOut, RG_MAX_SMOKE_PUFFS );
     static uint64_t s_last = 0;
     const uint64_t  nowMs  = I_msTime();
     const float     dt     = s_last ? std::clamp( float( nowMs - s_last ) / 1000.f, 0.f, 0.1f ) : 0.f;
@@ -1034,7 +1193,7 @@ uint32_t RT_UpdateSmoke( const RgFloat3D& eyeIn, const RgFloat3D& fwdIn, const R
         for( const Carve* cp : order )
         {
             const Carve& c = *cp;
-            if( nc >= kSendCarves ) break;
+            if( nc >= kSendCarves || nc >= maxOut / 2 ) break;
             const float t = std::clamp( c.age / std::max( c.life, 0.01f ), 0.f, 1.f );
             // weaker and smaller as it ages: the smoke flows back in from its rim
             const float fade   = 1.f - t;
@@ -1073,10 +1232,10 @@ uint32_t RT_UpdateSmoke( const RgFloat3D& eyeIn, const RgFloat3D& fwdIn, const R
             cand[ n++ ] = { d2, i };
         }
     }
-    if( n + nc > RG_MAX_SMOKE_PUFFS )
+    if( n + nc > maxOut )
     {
         std::sort( cand.begin(), cand.begin() + n, []( const Cand& a, const Cand& b ) { return a.d2 < b.d2; } );
-        n = RG_MAX_SMOKE_PUFFS - nc;
+        n = maxOut - nc;
     }
 
     for( uint32_t k = 0; k < n; k++ )

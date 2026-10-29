@@ -2323,6 +2323,8 @@ OptionMenu "RTOptions" protected
 	Option "Smoke & fog part as things move",	"rt_smoke_wake", "OnOff"
 	Slider "How strongly they part",	"rt_smoke_wake_strength", 0, 3, 0.1, 1
 	Slider "Bullet track width (m)",	"rt_smoke_bullet_radius", 0.1, 1, 0.05, 2
+	Slider "Heat haze over fires",	"rt_heat_haze", 0, 2, 0.1, 1
+	Slider "Heat haze speed",	"rt_heat_haze_speed", 0.25, 3, 0.25, 2
 	StaticText " "
 
 	StaticText "Water", 1

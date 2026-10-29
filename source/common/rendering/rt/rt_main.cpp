@@ -982,14 +982,24 @@ void RTFrameBuffer::RT_DrawFrame()
     // smoke: the puffs, packed for the froxel volume (rt_smoke.cpp)
     const float volFar = std::clamp( float( *rt_volume_far ), 5.f, 500.f );
     static RgFloat4D s_puffs[ RG_MAX_SMOKE_PUFFS ], s_albden[ RG_MAX_SMOKE_PUFFS ], s_shape[ RG_MAX_SMOKE_PUFFS ];
+    // the heat haze's fires go with the puffs, at the end of the list (rt_smoke.cpp)
+    static RgFloat4D h_puffs[ RG_MAX_SMOKE_PUFFS ], h_albden[ RG_MAX_SMOKE_PUFFS ], h_shape[ RG_MAX_SMOKE_PUFFS ];
+    const uint32_t   heatCount = m_cameraUploaded ? RT_PackHeat( m_camPos, h_puffs, h_albden, h_shape, 12 ) : 0;
     const uint32_t   puffCount = ( *rt_volumetrics && m_cameraUploaded )
-                                     ? RT_UpdateSmoke( m_camPos, m_camForward, m_camUp, m_camRight, volFar, s_puffs, s_albden, s_shape )
+                                     ? RT_UpdateSmoke( m_camPos, m_camForward, m_camUp, m_camRight, volFar, s_puffs, s_albden, s_shape,
+                                                       RG_MAX_SMOKE_PUFFS - heatCount )
                                      : 0;
+    for( uint32_t i = 0; i < heatCount; i++ )
+    {
+        s_puffs[ puffCount + i ]  = h_puffs[ i ];
+        s_albden[ puffCount + i ] = h_albden[ i ];
+        s_shape[ puffCount + i ]  = h_shape[ i ];
+    }
 
     auto smoke = RgDrawFrameSmokeParams{
         .sType          = RG_STRUCTURE_TYPE_DRAW_FRAME_SMOKE_PARAMS,
         .pNext          = chain,
-        .puffCount      = puffCount,
+        .puffCount      = puffCount + heatCount,
         .pPuffs         = s_puffs,
         .pAlbedoDensity = s_albden,
         .pShape         = s_shape,
@@ -1050,6 +1060,21 @@ void RTFrameBuffer::RT_DrawFrame()
         .depthGateTaps           = 5,
     };
     chain = &volumetric;
+
+    // the heat haze: the screen's waves effect, which Raze RT's shaders turn into the
+    // shimmer over the fires sent with the smoke (EfWaves.comp); on while there are any
+    RgPostEffectWaves heatHaze{};
+    heatHaze.isActive              = heatCount > 0;
+    heatHaze.transitionDurationIn  = 0.3f;
+    heatHaze.transitionDurationOut = 0.3f;
+    heatHaze.amplitude             = std::clamp( float( *rt_heat_haze ), 0.f, 3.f );
+    heatHaze.speed                 = std::clamp( float( *rt_heat_haze_speed ), 0.f, 4.f );
+    heatHaze.xMultiplier           = 1.f;
+    RgDrawFramePostEffectsParams post{};
+    post.sType  = RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS;
+    post.pNext  = chain;
+    post.pWaves = heatHaze.amplitude > 0.f ? &heatHaze : nullptr;
+    chain       = &post;
 
     auto info = RgDrawFrameInfo{
         .sType                    = RG_STRUCTURE_TYPE_DRAW_FRAME_INFO,

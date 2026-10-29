@@ -159,7 +159,14 @@ float RT_SectorFlickerSmoothing( int sectnum );
 float RT_EmissiveOverride( int sectnum, int tile, float& glow );
 // rt_smoke.cpp: make, move and pack the smoke; returns the number of puffs
 uint32_t RT_UpdateSmoke( const RgFloat3D& eye, const RgFloat3D& fwd, const RgFloat3D& up, const RgFloat3D& right,
-                         float far, RgFloat4D* outPuffs, RgFloat4D* outAlbDen, RgFloat4D* outShape );
+                         float far, RgFloat4D* outPuffs, RgFloat4D* outAlbDen, RgFloat4D* outShape,
+                         uint32_t maxOut = RG_MAX_SMOKE_PUFFS );
+// rt_smoke.cpp: heat haze -- a fire's picture drawn this frame (its corners' bounds, RT
+// metres), and the frame's heat, packed after the smoke (returns how many)
+void     RT_HeatFromDraw( const FVector3& lo, const FVector3& hi );
+uint32_t RT_PackHeat( const RgFloat3D& eye, RgFloat4D* outPuffs, RgFloat4D* outAlbDen, RgFloat4D* outShape, uint32_t maxOut );
+EXTERN_CVAR( Float, rt_heat_haze )
+EXTERN_CVAR( Float, rt_heat_haze_speed )
 EXTERN_CVAR( Bool, rt_smoke_illum )
 EXTERN_CVAR( Float, rt_smoke_maxlight )
 EXTERN_CVAR( Float, rt_smoke_light_near )
