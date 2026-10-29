@@ -6646,9 +6646,10 @@ void actFireVector(DBloodActor* shooter, double offset, double zoffset, DVector3
 	if (nRange == 0 || (gHitInfo.hitpos.XY() - shooter->spr.pos.XY()).Length() < nRange)
 	{
 		// ray tracing: a glowing surface the shot hit goes out (a lamp shot out)
-		if ((hit == 0 || hit == 4) && gHitInfo.hitWall) RT_ShootLight(wallindex(gHitInfo.hitWall), -1, 0);
-		else if ((hit == 1 || hit == 2) && pSector) RT_ShootLight(-1, sectindex(pSector), hit == 1 ? 2 : 1);
-		else if (hit == 3 && gHitInfo.actor() && !gHitInfo.actor()->IsDudeActor()) RT_ShootSprite(gHitInfo.actor()->GetIndex());
+		// (a lamp it puts out breaks where it hit: its glass's sound and shards)
+		if ((hit == 0 || hit == 4) && gHitInfo.hitWall) RT_ShootLight(wallindex(gHitInfo.hitWall), -1, 0, &pos);
+		else if ((hit == 1 || hit == 2) && pSector) RT_ShootLight(-1, sectindex(pSector), hit == 1 ? 2 : 1, &pos);
+		else if (hit == 3 && gHitInfo.actor() && !gHitInfo.actor()->IsDudeActor()) RT_ShootSprite(gHitInfo.actor()->GetIndex(), &pos);
 		// (and a lamp laid on the surface as a sprite the shot goes through)
 		if (hit != 3 && pSector) RT_ShootSpritesAt(gHitInfo.hitpos, sectindex(pSector));
 		switch (hit)

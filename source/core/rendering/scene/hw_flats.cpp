@@ -344,6 +344,9 @@ void HWFlat::DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent)
 	RT_PUSH_TYPE(rtplane, Sprite ? RtPrim::Identity : plane ? RtPrim::CeilingPlane : RtPrim::FloorPlane);
 	// (a floor or ceiling is seen only from its own sector, as a wall)
 	RT_PUSH_TYPE(rtonesided, Sprite ? RtPrim::Identity : RtPrim::OneSided);
+	// (a lamp shot out: its broken picture, where there is one -- rt_lights.cpp)
+	if (RT_IsActive() && texture && (Sprite ? Sprite->ownerActor && RT_SpriteShot(Sprite->ownerActor->GetIndex()) : sec && RT_LightShot(-1, sectindex(sec), plane ? 2 : 1)))
+		texture = RT_BrokenTexture(texture);
 
 	state.SetNormal(normal);
 	SetLightAndFog(di, state, fade, palette, shade, visibility, alpha);

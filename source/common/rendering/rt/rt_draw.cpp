@@ -1275,6 +1275,13 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // shot out (rt_shoot_lights): a lamp, a panel, a screen, a light tube -- not a fire
             // (the material table's fire and flame classes), nor a wall the game keeps lit
             // through its room's light switch (Duke's hitag 1: E1L1's cinema screen)
+            // (a lamp a shot can put out: its texture noted, so a shot that does breaks it --
+            // the glass's sound, its broken picture: rt_lights.cpp)
+            if( !hwtex->IsFlame() && !hwtex->IsFire() && !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::NoSwitch >() &&
+                mMaterial.mMaterial && mMaterial.mMaterial->Source() )
+            {
+                RT_MarkGlowTexture( mMaterial.mMaterial->Source()->GetID() );
+            }
             if( !hwtex->IsFlame() && !hwtex->IsFire() && !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::NoSwitch >() &&
                 ( rtstate.is< RtPrim::Shot >() ||
                   ( rtstate.is< RtPrim::CeilingPlane >() && RT_LightShot( -1, rtstate.get_sector(), 2 ) ) ||

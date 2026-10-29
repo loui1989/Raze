@@ -115,6 +115,9 @@ struct GameInterface
 	virtual void WeaponWheelSelect(int id) {}
 	// and the inventory items the player has (their id: the useitem number), on a ring inside
 	virtual void WeaponWheelItems(TArray<WheelWeapon>& out) {}
+	// ray tracing: a lamp the game cannot break was shot out (rt_shoot_lights) -- its glass
+	// breaking: a sound, shards (the game's own)
+	virtual void RTLightBroken(const DVector3& pos, sectortype* sect) {}
 	virtual void processSprites(tspriteArray& tsprites, const DVector3& view, DAngle viewang, double interpfrac) = 0;
 	virtual void UpdateCameras(double smoothratio) {}
 	virtual void EnterPortal(DCoreActor* viewer, int type) {}

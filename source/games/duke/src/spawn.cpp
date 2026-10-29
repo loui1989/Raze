@@ -1031,4 +1031,26 @@ void lotsofcolourglass(DDukeActor* actor, walltype* wal, int n)
 	}
 }
 
+//---------------------------------------------------------------------------
+//
+// ray tracing: a lamp the game cannot break (a glowing panel, a lit floor), shot out
+// (rt_shoot_lights): its glass breaks -- the sound and the shards of the game's own
+// breaking lights
+//
+//---------------------------------------------------------------------------
+
+void GameInterface::RTLightBroken(const DVector3& pos, sectortype* sect)
+{
+	auto owner = getPlayer(myconnectindex)->GetActor();
+	if (!owner) return;
+	if (!sect) sect = owner->sector();
+	updatesector(pos.XY(), &sect);
+	S_PlaySound3D(S_FindSound("GLASS_BREAKING"), owner, pos);
+	if (!sect) return;
+	for (int j = 5; j >= 0; j--)
+	{
+		CreateActor(sect, pos, GlassClass(j), -32, DVector2(0.5625, 0.5625), randomAngle(), krandf(4) + 1, 2 - krandf(4), owner, 5);
+	}
+}
+
 END_DUKE_NS

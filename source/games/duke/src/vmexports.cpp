@@ -1659,8 +1659,9 @@ DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, ismirror, duke_ismirror)
 void duke_checkhitwall(walltype* wal, DDukeActor * actor, double x, double y, double z)
 {
 	// ray tracing: a glowing wall the shot hit goes out, as Duke's breakable lights do
-	if (wal) RT_ShootLight(wallindex(wal), -1, 0);
-	if (wal) RT_ShootSpritesAt(DVector3(x, y, z), sectindex(wal->sectorp()));
+	const DVector3 hitpos(x, y, z);
+	if (wal) RT_ShootLight(wallindex(wal), -1, 0, &hitpos);
+	if (wal) RT_ShootSpritesAt(hitpos, sectindex(wal->sectorp()));
 	checkhitwall(actor, wal, DVector3(x, y, z));
 }
 
@@ -1678,7 +1679,7 @@ DEFINE_ACTION_FUNCTION_NATIVE(_DukeLevel, checkhitwall, duke_checkhitwall)
 
 void duke_checkhitceiling(sectortype* sect, DDukeActor* actor)
 {
-	if (sect) RT_ShootLight(-1, sectindex(sect), 2);
+	if (sect) RT_ShootLight(-1, sectindex(sect), 2, actor ? &actor->spr.pos : nullptr);
 	if (sect && actor) RT_ShootSpritesAt(actor->spr.pos, sectindex(sect));
 	checkhitceiling(sect); // actor is currently unused, this may change.
 }
@@ -1686,7 +1687,7 @@ void duke_checkhitceiling(sectortype* sect, DDukeActor* actor)
 // ray tracing: a glowing floor (a lit floor panel) shot out -- the game has no floor to break
 void duke_rtshootfloor(sectortype* sect, DDukeActor* actor)
 {
-	if (sect) RT_ShootLight(-1, sectindex(sect), 1);
+	if (sect) RT_ShootLight(-1, sectindex(sect), 1, actor ? &actor->spr.pos : nullptr);
 	if (sect && actor) RT_ShootSpritesAt(actor->spr.pos, sectindex(sect));
 }
 

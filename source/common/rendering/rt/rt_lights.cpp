@@ -23,6 +23,9 @@
 #include "serializer.h"
 
 #include <unordered_map>
+#include <unordered_set>
+#include "gamestruct.h"
+#include "g_mapinfo.h"
 #include <queue>
 #include <array>
 #include "palette.h"
@@ -1590,7 +1593,87 @@ CCMD( rt_unshoot_lights )
     Printf( "rt_unshoot_lights: the lights shot out are lit again\n" );
 }
 
-void RT_ShootLight( int wallnum, int sectnum, int plane )
+// BREAKING (rt_shoot_lights): a lamp shot out sounds and looks broken. Which surfaces are
+// lamps the draw knows (a glowing texture drawn where a shot puts it out: noted by
+// texture, RT_MarkGlowTexture); one the game breaks itself (Duke's breakable lights,
+// its glass: the map's breakwalls and breakceiling) it leaves to the game. The others --
+// a glowing panel, a lit floor, a lamp sprite -- break here: the game's glass sound and
+// shards (GameInterface::RTLightBroken), and drawn with their broken picture where there
+// is one (RT_BrokenTexture, hw_walls.cpp and hw_flats.cpp).
+static std::unordered_set< int > s_glowTex;
+static uint32_t                  s_glowGen = ~0u;
+
+static void GlowReset()
+{
+    if( s_glowGen != RT_LevelGeneration() )
+    {
+        s_glowGen = RT_LevelGeneration();
+        s_glowTex.clear();
+    }
+}
+
+void RT_MarkGlowTexture( FTextureID id )
+{
+    GlowReset();
+    if( id.isValid() ) s_glowTex.insert( id.GetIndex() );
+}
+
+// a texture (as the map names it, or the frame it shows now) drawn as a lamp
+static bool IsGlowTexture( FTextureID id )
+{
+    GlowReset();
+    if( !id.isValid() ) return false;
+    if( s_glowTex.count( id.GetIndex() ) ) return true;
+    auto now = TexMan.GetGameTexture( id, true );
+    return now && s_glowTex.count( now->GetID().GetIndex() );
+}
+
+FGameTexture* RT_BrokenTexture( FGameTexture* tex )
+{
+    if( !tex || !IsGlowTexture( tex->GetID() ) ) return tex;
+    static std::unordered_map< int, int > s_broken; // texture -> its broken one (-1: none)
+    const int key = tex->GetID().GetIndex();
+    auto      it  = s_broken.find( key );
+    if( it == s_broken.end() )
+    {
+        int rep = -1;
+        // the game's own: Duke's breakable lights (as a ceiling or a wall breaks them)
+        if( auto d = breakCeilingMap.CheckKey( key ); d && d->brokentex.isValid() ) rep = d->brokentex.GetIndex();
+        else if( auto d2 = breakWallMap.CheckKey( key ); d2 && d2->brokentex.isValid() ) rep = d2->brokentex.GetIndex();
+        else if( const char* nm = tex->GetName().GetChars(); nm && *nm && *nm != '#' )
+        {
+            // by name: TECHLIGHT2 -> TECHLIGHTBUST2 / TECHLIGHTBROKE2, X -> XBUST / XBROKE
+            FString name = nm, digits;
+            while( name.Len() && name[ name.Len() - 1 ] >= '0' && name[ name.Len() - 1 ] <= '9' )
+            {
+                digits = FString( name.Mid( name.Len() - 1 ) ) + digits;
+                name.Truncate( name.Len() - 1 );
+            }
+            for( const FString& c : { name + "BUST" + digits, name + "BROKE" + digits, name + "BROKEN" + digits, FString( nm ) + "BUST",
+                                      FString( nm ) + "BROKE" } )
+            {
+                const FTextureID t = TexMan.CheckForTexture( c.GetChars(), ETextureType::Any );
+                if( t.isValid() && t.GetIndex() != key )
+                {
+                    rep = t.GetIndex();
+                    break;
+                }
+            }
+        }
+        it = s_broken.emplace( key, rep ).first;
+    }
+    return it->second >= 0 ? TexMan.GetGameTexture( FSetTextureID( it->second ) ) : tex;
+}
+
+// the glass breaking: where it hit (or the surface's middle)
+static void BreakEffect( const DVector3* hit, const DVector3& fallback, int sectnum )
+{
+    if( !gi ) return;
+    gi->RTLightBroken( hit ? *hit : fallback,
+                       sectnum >= 0 && unsigned( sectnum ) < sector.Size() ? &sector[ sectnum ] : nullptr );
+}
+
+void RT_ShootLight( int wallnum, int sectnum, int plane, const DVector3* hit )
 {
     if( !*rt_shoot_lights )
     {
@@ -1599,11 +1682,25 @@ void RT_ShootLight( int wallnum, int sectnum, int plane )
     ShotReset();
     if( plane == 0 && wallnum >= 0 && size_t( wallnum ) < s_shotWall.size() )
     {
+        const walltype& w = wall[ wallnum ];
+        if( !s_shotWall[ size_t( wallnum ) ] && ( IsGlowTexture( w.walltexture ) || IsGlowTexture( w.overtexture ) ) &&
+            !breakWallMap.CheckKey( w.walltexture.GetIndex() ) && !breakWallMap.CheckKey( w.overtexture.GetIndex() ) )
+        {
+            const DVector2 mid = ( w.pos + w.point2Wall()->pos ) * 0.5;
+            BreakEffect( hit, DVector3( mid, w.sectorp()->floorz ), sectindex( w.sectorp() ) );
+        }
         s_shotWall[ size_t( wallnum ) ] = 1;
     }
     else if( ( plane == 1 || plane == 2 ) && sectnum >= 0 && size_t( sectnum ) < s_shotPlane.size() &&
              !RT_PlaneIsLiquid( sectnum, plane ) )
     {
+        const sectortype& s   = sector[ sectnum ];
+        const FTextureID  tex = plane == 2 ? s.ceilingtexture : s.floortexture;
+        if( !( s_shotPlane[ size_t( sectnum ) ] & plane ) && IsGlowTexture( tex ) &&
+            !( plane == 2 && breakCeilingMap.CheckKey( tex.GetIndex() ) ) )
+        {
+            BreakEffect( hit, DVector3( s.walls.Size() ? s.walls[ 0 ].pos : DVector2( 0, 0 ), plane == 2 ? s.ceilingz : s.floorz ), sectnum );
+        }
         s_shotPlane[ size_t( sectnum ) ] |= uint8_t( plane );
     }
 }
@@ -1624,18 +1721,39 @@ bool RT_LightShot( int wallnum, int sectnum, int plane )
            !RT_PlaneIsLiquid( sectnum, plane );
 }
 
-void RT_ShootSprite( int actorIndex )
+static void ShootSpriteActor( DCoreActor* a, const DVector3* hit )
+{
+    if( !a ) return;
+    const int idx = a->GetIndex();
+    if( idx < 0 || idx >= ( 1 << 20 ) ) return;
+    ShotReset();
+    if( size_t( idx ) >= s_shotSprite.size() )
+    {
+        s_shotSprite.resize( size_t( idx ) + 256, 0 );
+    }
+    if( !s_shotSprite[ size_t( idx ) ] && IsGlowTexture( a->spr.spritetexture() ) )
+    {
+        BreakEffect( hit, a->spr.pos, a->sector() ? sectindex( a->sector() ) : -1 );
+    }
+    s_shotSprite[ size_t( idx ) ] = 1;
+}
+
+void RT_ShootSprite( int actorIndex, const DVector3* hit )
 {
     if( !*rt_shoot_lights || actorIndex < 0 || actorIndex >= ( 1 << 20 ) )
     {
         return;
     }
-    ShotReset();
-    if( size_t( actorIndex ) >= s_shotSprite.size() )
+    // (the actor, for its picture: is it a lamp)
+    TSpriteIterator< DCoreActor > it;
+    while( auto a = it.Next() )
     {
-        s_shotSprite.resize( size_t( actorIndex ) + 256, 0 );
+        if( a->GetIndex() == actorIndex )
+        {
+            ShootSpriteActor( a, hit );
+            return;
+        }
     }
-    s_shotSprite[ size_t( actorIndex ) ] = 1;
 }
 
 bool RT_SpriteShot( int actorIndex )
@@ -1684,7 +1802,7 @@ void RT_ShootSpritesAt( const DVector3& hit, int sectnum )
                 hitIt = fabs( d.Z ) <= 6. && ( ( fabs( along ) <= h * 0.5 + slack && fabs( across ) <= w * 0.5 + slack ) ||
                                                ( fabs( along ) <= w * 0.5 + slack && fabs( across ) <= h * 0.5 + slack ) );
             }
-            if( hitIt ) RT_ShootSprite( a->GetIndex() );
+            if( hitIt ) ShootSpriteActor( a, &hit );
         }
     }
 }

@@ -330,6 +330,9 @@ void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 	// (a Build wall is seen only from its own sector: the solid parts, not a masked wall)
 	RT_PUSH_TYPE(rtonesided, !Sprite && (type == RENDERWALL_TOP || type == RENDERWALL_BOTTOM || type == RENDERWALL_M1S) ? RtPrim::OneSided : RtPrim::Identity);
 	auto rtcg = rtstate.push_copygroup(rtCopy ? rtCopy : Sprite ? Sprite->rtcopy : 0);
+	// (a lamp shot out: its broken picture, where there is one -- rt_lights.cpp)
+	if (RT_IsActive() && texture && rtstate.is<RtPrim::Shot>())
+		texture = RT_BrokenTexture(texture);
 
 	rendered_lines++;
 	if (screen->BuffersArePersistent())

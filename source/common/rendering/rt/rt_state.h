@@ -146,10 +146,18 @@ extern std::vector< uint8_t > g_rtWaterSide;
 // floor (1) or ceiling (2) a shot hit; its glow and the light it casts go out, until the
 // level is loaded again. The games call it where a shot hits; any surface is noted, only
 // a glowing one shows it.
-void RT_ShootLight( int wallnum, int sectnum, int plane );
+// (hit: where the shot hit -- a lamp it breaks breaks there, with a sound and shards)
+void RT_ShootLight( int wallnum, int sectnum, int plane, const DVector3* hit = nullptr );
 bool RT_LightShot( int wallnum, int sectnum, int plane );
 // and lamps that are wall or floor sprites: one hit, or those on the surface a shot hit
-void RT_ShootSprite( int actorIndex );
+void RT_ShootSprite( int actorIndex, const DVector3* hit = nullptr );
+// a glowing surface's texture, drawn as a lamp that can be shot out (rt_draw.cpp notes them)
+class FTextureID;
+void RT_MarkGlowTexture( FTextureID id );
+// a lamp shot out: its broken picture, where there is one (the game's own broken lights,
+// or a tile named as its broken one: TECHLIGHT2 -> TECHLIGHTBUST2, X -> XBROKE); else itself
+class FGameTexture;
+FGameTexture* RT_BrokenTexture( FGameTexture* tex );
 bool RT_SpriteShot( int actorIndex );
 void RT_ShootSpritesAt( const DVector3& hit, int sectnum );
 bool RT_PlaneIsLiquid( int sectnum, int plane ); // water, slime, lava: never shot out (hw_flats.cpp)

@@ -1660,4 +1660,29 @@ void SerializeView(FSerializer& arc)
 }
 
 
+//---------------------------------------------------------------------------
+//
+// ray tracing: a lamp the game cannot break, shot out (rt_shoot_lights): its glass breaks
+// -- the sound and the shards of Blood's own breaking glass (a glass window's)
+//
+//---------------------------------------------------------------------------
+
+void GameInterface::RTLightBroken(const DVector3& pos, sectortype* sect)
+{
+	if (!sect) return;
+	updatesector(pos.XY(), &sect);
+	if (!sect) return;
+	sfxPlay3DSound(pos, 300, sect);
+	for (int i = 0; i < 6; i++)
+	{
+		auto shard = gFX.fxSpawnActor(FX_18, sect, pos);
+		if (shard)
+		{
+			shard->vel.X = Random2F((200 << 18) / 120);
+			shard->vel.Y = Random2F((200 << 18) / 120);
+			shard->vel.Z = -Random2F((300 << 18) / 120);
+		}
+	}
+}
+
 END_BLD_NS
