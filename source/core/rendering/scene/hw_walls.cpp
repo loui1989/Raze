@@ -277,8 +277,9 @@ bool RT_SpriteFlush(const tspritetype* spr)
 	constexpr double kNear = 0.3; // map units (5 of Build's)
 	if (align == CSTAT_SPRITE_ALIGNMENT_WALL)
 	{
-		// on a wall of its sector: parallel to it and on its line
-		const DVector2 dir = spr->Angles.Yaw.ToVector();
+		// on a wall of its sector: parallel to it and on its line (a wall sprite FACES
+		// its angle: its picture runs across it, along the wall)
+		const DVector2 nrm = spr->Angles.Yaw.ToVector();
 		const DVector2 p = spr->pos.XY();
 		for (auto& w : spr->sectp->walls)
 		{
@@ -287,7 +288,7 @@ bool RT_SpriteFlush(const tspritetype* spr)
 			const double len = wd.Length();
 			if (len < 1e-6) continue;
 			wd /= len;
-			if (fabs(wd.X * dir.Y - wd.Y * dir.X) > 0.05) continue;		// not parallel
+			if (fabs(wd.X * nrm.X + wd.Y * nrm.Y) > 0.05) continue;		// not parallel
 			const DVector2 ap = p - a;
 			if (fabs(ap.X * wd.Y - ap.Y * wd.X) > kNear) continue;		// not on its line
 			const double t = ap.X * wd.X + ap.Y * wd.Y;
