@@ -1118,3 +1118,56 @@ void RT_AddShotTrail( const DVector3& from, const DVector3& to )
     if( !RT_IsActive() || !*rt_smoke ) return;
     AddTrail( WorldToRTv( from.X, from.Y, from.Z ), WorldToRTv( to.X, to.Y, to.Z ) );
 }
+
+// a test: a thick fog all round the player, from the floor to above his head, to watch
+// the wake in (rt_fog_test [metres round him, 12] [seconds, 90] [thickness, 1]). It is
+// the ground fog's kind (mist: pale, its own glow), drifts very little, and like the
+// smoke is not stopped by walls; it fades in over a second and out at the end.
+CCMD( rt_fog_test )
+{
+    if( !RT_IsActive() || !*rt_smoke )
+    {
+        Printf( "rt_fog_test: needs the ray tracer and rt_smoke on\n" );
+        return;
+    }
+    if( g_rtViewSector < 0 || g_rtViewSector >= int( sector.Size() ) )
+    {
+        Printf( "rt_fog_test: not in a level\n" );
+        return;
+    }
+    const float reach = argv.argc() > 1 ? std::clamp( float( atof( argv[ 1 ] ) ), 2.f, 30.f ) : 12.f;
+    const float secs  = argv.argc() > 2 ? std::clamp( float( atof( argv[ 2 ] ) ), 5.f, 600.f ) : 90.f;
+    const float thick = argv.argc() > 3 ? std::clamp( float( atof( argv[ 3 ] ) ), 0.1f, 4.f ) : 1.f;
+
+    const double floorz = getflorzofslopeptr( &sector[ g_rtViewSector ], g_rtViewPos[ 0 ], g_rtViewPos[ 1 ] );
+    // (map z grows downward) the eye's height over the floor, in metres
+    const float eyeH = std::max( 0.5f, float( floorz - g_rtViewPos[ 2 ] ) * kUnit );
+
+    // as many as leave room for the wake's clearings and the other smoke
+    const int want = std::clamp( int( reach * reach * 0.35f ), 12, int( RG_MAX_SMOKE_PUFFS / 2 ) );
+    int made = 0;
+    for( int k = 0; k < want; k++ )
+    {
+        Puff* p = Alloc( false );
+        if( !p ) break;
+        const float r = reach * std::sqrt( ( k + Rnd( 0.f, 1.f ) ) / want );
+        const float a = Rnd( 0.f, 6.2831853f );
+        *p        = Puff{};
+        p->radius0 = p->radius = Rnd( 2.2f, 3.2f );
+        const float h = Rnd( 0.6f, eyeH + 0.4f );
+        p->pos     = WorldToRTv( g_rtViewPos[ 0 ] + std::cos( a ) * r / kUnit, g_rtViewPos[ 1 ] + std::sin( a ) * r / kUnit,
+                                 floorz - h / kUnit );
+        p->density = 0.22f * thick;
+        p->turb    = 0.03f;
+        p->phase   = Rnd( 0.f, 6.2831853f );
+        p->life    = secs + Rnd( 0.f, 4.f );
+        p->attack  = 1.f;
+        p->release = 4.f;
+        p->sustain = std::max( 0.f, p->life - p->attack - p->release );
+        p->albedo  = { 2.f + std::clamp( float( *rt_fog_glow ), 0.f, 4.f ), 0.80f, 0.84f };
+        p->vel     = FVector3{ Rnd( -0.04f, 0.04f ), Rnd( -0.04f, 0.04f ), 0.f };
+        made++;
+    }
+    Printf( "rt_fog_test: %d banks of fog within %.0f m, for %.0f s%s\n", made, reach, secs,
+            *rt_smoke_wake ? "" : " (rt_smoke_wake is off: nothing will part it)" );
+}
