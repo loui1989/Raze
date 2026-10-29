@@ -308,6 +308,8 @@ enum class RtPrim : uint32_t
 struct tspritetype;
 bool RT_SpriteFlush( const tspritetype* spr );
 double RT_WallSpriteDepth( const tspritetype* spr ); // -1 not on a wall, else how far sunk into it (map units)
+struct sectortype;
+double RT_WallSpriteDepthAt( const DVector2& pos, DAngle yaw, const sectortype* sect, int* wallOut ); // (and which wall)
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it
 // is active: bit 0 = no shadow, bit 1 = fullbright.

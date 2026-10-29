@@ -1665,6 +1665,15 @@ FGameTexture* RT_BrokenTexture( FGameTexture* tex )
     return it->second >= 0 ? TexMan.GetGameTexture( FSetTextureID( it->second ) ) : tex;
 }
 
+CVARD( Bool, rt_debug_shots, false, 0, "RT: print what each shot hits for rt_shoot_lights: a lamp or not, broken or not" )
+
+static void ShotLog( const char* what, int index, FTextureID tex, bool lamp, bool gameBreaks, bool already )
+{
+    if( !*rt_debug_shots ) return;
+    Printf( "RT shot: %s %d, tile %d: %s%s%s\n", what, index, legacyTileNum( tex ), lamp ? "a lamp" : "not a lamp (no glow drawn)",
+            gameBreaks ? ", the game breaks it itself" : "", already ? ", shot out already" : lamp && !gameBreaks ? " -- breaks" : "" );
+}
+
 // the glass breaking: where it hit (or the surface's middle)
 static void BreakEffect( const DVector3* hit, const DVector3& fallback, int sectnum )
 {
@@ -1682,9 +1691,11 @@ void RT_ShootLight( int wallnum, int sectnum, int plane, const DVector3* hit )
     ShotReset();
     if( plane == 0 && wallnum >= 0 && size_t( wallnum ) < s_shotWall.size() )
     {
-        const walltype& w = wall[ wallnum ];
-        if( !s_shotWall[ size_t( wallnum ) ] && ( IsGlowTexture( w.walltexture ) || IsGlowTexture( w.overtexture ) ) &&
-            !breakWallMap.CheckKey( w.walltexture.GetIndex() ) && !breakWallMap.CheckKey( w.overtexture.GetIndex() ) )
+        const walltype& w     = wall[ wallnum ];
+        const bool      lamp  = IsGlowTexture( w.walltexture ) || IsGlowTexture( w.overtexture );
+        const bool      games = breakWallMap.CheckKey( w.walltexture.GetIndex() ) || breakWallMap.CheckKey( w.overtexture.GetIndex() );
+        ShotLog( "wall", wallnum, IsGlowTexture( w.overtexture ) ? w.overtexture : w.walltexture, lamp, games, s_shotWall[ size_t( wallnum ) ] );
+        if( !s_shotWall[ size_t( wallnum ) ] && lamp && !games )
         {
             const DVector2 mid = ( w.pos + w.point2Wall()->pos ) * 0.5;
             BreakEffect( hit, DVector3( mid, w.sectorp()->floorz ), sectindex( w.sectorp() ) );
@@ -1696,8 +1707,10 @@ void RT_ShootLight( int wallnum, int sectnum, int plane, const DVector3* hit )
     {
         const sectortype& s   = sector[ sectnum ];
         const FTextureID  tex = plane == 2 ? s.ceilingtexture : s.floortexture;
-        if( !( s_shotPlane[ size_t( sectnum ) ] & plane ) && IsGlowTexture( tex ) &&
-            !( plane == 2 && breakCeilingMap.CheckKey( tex.GetIndex() ) ) )
+        const bool        games = plane == 2 && breakCeilingMap.CheckKey( tex.GetIndex() );
+        ShotLog( plane == 2 ? "ceiling of sector" : "floor of sector", sectnum, tex, IsGlowTexture( tex ), games,
+                 s_shotPlane[ size_t( sectnum ) ] & plane );
+        if( !( s_shotPlane[ size_t( sectnum ) ] & plane ) && IsGlowTexture( tex ) && !games )
         {
             BreakEffect( hit, DVector3( s.walls.Size() ? s.walls[ 0 ].pos : DVector2( 0, 0 ), plane == 2 ? s.ceilingz : s.floorz ), sectnum );
         }
@@ -1731,6 +1744,7 @@ static void ShootSpriteActor( DCoreActor* a, const DVector3* hit )
     {
         s_shotSprite.resize( size_t( idx ) + 256, 0 );
     }
+    ShotLog( "sprite", idx, a->spr.spritetexture(), IsGlowTexture( a->spr.spritetexture() ), false, s_shotSprite[ size_t( idx ) ] );
     if( !s_shotSprite[ size_t( idx ) ] && IsGlowTexture( a->spr.spritetexture() ) )
     {
         BreakEffect( hit, a->spr.pos, a->sector() ? sectindex( a->sector() ) : -1 );

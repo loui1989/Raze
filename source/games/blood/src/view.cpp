@@ -1311,6 +1311,31 @@ CCMD(rt_lookat)
 			a->spr.statnum, int(a->spr.type), (a->spr.pos - view).Length() / 32., RT_TableFlame(tile),
 			glowInfo(a->spr.spritetexture()).GetChars(), vox,
 			vox >= 0 && vox < MAXVOXELS && voxdefined[vox] ? " (a pack's)" : vox >= 0 ? " (the game's)" : "", sectorInfo(a->sector()).GetChars());
+		// a wall sprite: on which wall the ray tracer puts it (moved off it), sunk how far
+		if ((a->spr.cstat & CSTAT_SPRITE_ALIGNMENT_MASK) == CSTAT_SPRITE_ALIGNMENT_WALL)
+		{
+			int w = -1;
+			const double d = RT_WallSpriteDepthAt(a->spr.pos.XY(), a->spr.Angles.Yaw, a->sector(), &w);
+			// (and the nearest wall facing the same way, in any sector: is it on another room's wall)
+			int nw = -1; double nd = 1e9;
+			for (auto& wl : wall)
+			{
+				DVector2 wd = wl.point2Wall()->pos - wl.pos;
+				const double len = wd.Length();
+				if (len < 1e-6) continue;
+				wd /= len;
+				const DVector2 n = a->spr.Angles.Yaw.ToVector();
+				if (fabs(wd.X * n.X + wd.Y * n.Y) > 0.05) continue;
+				const DVector2 ap = a->spr.pos.XY() - wl.pos;
+				const double t = ap.X * wd.X + ap.Y * wd.Y;
+				if (t < -4 || t > len + 4) continue;
+				const double s = fabs(ap.X * wd.Y - ap.Y * wd.X);
+				if (s < nd) { nd = s; nw = wallindex(&wl); }
+			}
+			Printf("    wall sprite, angle %.1f: %s; nearest wall facing its way: %s\n", a->spr.Angles.Yaw.Degrees(),
+				d < 0 ? "on no wall of its sector (drawn where it is)" : FStringf("on wall %d, sunk %.2f units (%.1f cm) -- moved out", w, d, d / 32. * 100.).GetChars(),
+				nw < 0 ? "none" : FStringf("wall %d of sector %d, %.2f units (%.1f cm) away", nw, sectindex(wall[nw].sectorp()), nd, nd / 32. * 100.).GetChars());
+		}
 	}
 	// what the path tracer was given of the sectors here, and why (overlapping rooms,
 	// room-over-room views: Death Wish's walls where none should be)

@@ -274,14 +274,14 @@ void HWWall::RenderTranslucentWall(HWDrawInfo *di, FRenderState &state)
 // behind the wall's face (0: on it or in front). Mappers put a torch's sconce a little
 // into the wall as often as on it: Build's renderer drew it anyway, rays do not -- it
 // is moved out to the wall's face, and a little off it, as one on it is.
-double RT_WallSpriteDepth(const tspritetype* spr)
+double RT_WallSpriteDepthAt(const DVector2& p, DAngle yaw, const sectortype* sect, int* wallOut)
 {
-	if (!spr || !spr->sectp || (spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_WALL) return -1;
+	if (wallOut) *wallOut = -1;
+	if (!sect) return -1;
 	constexpr double kNear = 4.0; // map units either side of the wall (12 cm)
-	const DVector2 nrm = spr->Angles.Yaw.ToVector();
-	const DVector2 p = spr->pos.XY();
+	const DVector2 nrm = yaw.ToVector();
 	double best = -1, bestAbs = 1e9;
-	for (auto& w : spr->sectp->walls)
+	for (auto& w : sect->walls)
 	{
 		const DVector2 a = w.pos, b = w.point2Wall()->pos;
 		DVector2 wd = b - a;
@@ -295,13 +295,20 @@ double RT_WallSpriteDepth(const tspritetype* spr)
 		// which side of the wall is its room
 		DVector2 in(wd.Y, -wd.X);
 		const DVector2 mid = (a + b) * 0.5;
-		if (inside(mid.X + in.X * 0.5, mid.Y + in.Y * 0.5, spr->sectp) != 1) in = -in;
+		if (inside(mid.X + in.X * 0.5, mid.Y + in.Y * 0.5, sect) != 1) in = -in;
 		const double s = ap.X * in.X + ap.Y * in.Y; // > 0: in the room, < 0: in the wall
 		if (fabs(s) > kNear || fabs(s) >= bestAbs) continue;
 		bestAbs = fabs(s);
 		best = s < 0 ? -s : 0;
+		if (wallOut) *wallOut = wallindex(&w);
 	}
 	return best;
+}
+
+double RT_WallSpriteDepth(const tspritetype* spr)
+{
+	if (!spr || !spr->sectp || (spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK) != CSTAT_SPRITE_ALIGNMENT_WALL) return -1;
+	return RT_WallSpriteDepthAt(spr->pos.XY(), spr->Angles.Yaw, spr->sectp, nullptr);
 }
 
 // ray tracing: is a wall or floor sprite flush with a surface -- a switch, a sign, a
