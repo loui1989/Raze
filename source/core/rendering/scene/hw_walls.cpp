@@ -265,6 +265,45 @@ void HWWall::RenderTranslucentWall(HWDrawInfo *di, FRenderState &state)
 // 
 //
 //==========================================================================
+// ray tracing: is a wall or floor sprite flush with a surface -- a switch, a sign, a
+// poster on a wall, a rug or a stain on the floor, a panel on the ceiling -- which it is
+// moved a little off, towards the viewer (rt_decal_offset), so rays do not hit it and the
+// surface at random? Not one standing free: a crate's sides and top (Blood's crates are
+// sprites) moved each towards the viewer opened gaps at the crate's corners.
+bool RT_SpriteFlush(const tspritetype* spr)
+{
+	if (!spr || !spr->sectp) return true;
+	const auto align = spr->cstat & CSTAT_SPRITE_ALIGNMENT_MASK;
+	constexpr double kNear = 0.3; // map units (5 of Build's)
+	if (align == CSTAT_SPRITE_ALIGNMENT_WALL)
+	{
+		// on a wall of its sector: parallel to it and on its line
+		const DVector2 dir = spr->Angles.Yaw.ToVector();
+		const DVector2 p = spr->pos.XY();
+		for (auto& w : spr->sectp->walls)
+		{
+			const DVector2 a = w.pos, b = w.point2Wall()->pos;
+			DVector2 wd = b - a;
+			const double len = wd.Length();
+			if (len < 1e-6) continue;
+			wd /= len;
+			if (fabs(wd.X * dir.Y - wd.Y * dir.X) > 0.05) continue;		// not parallel
+			const DVector2 ap = p - a;
+			if (fabs(ap.X * wd.Y - ap.Y * wd.X) > kNear) continue;		// not on its line
+			const double t = ap.X * wd.X + ap.Y * wd.Y;
+			if (t > -kNear && t < len + kNear) return true;
+		}
+		return false;
+	}
+	if (align == CSTAT_SPRITE_ALIGNMENT_FLOOR || align == CSTAT_SPRITE_ALIGNMENT_SLOPE)
+	{
+		const double fz = getflorzofslopeptr(spr->sectp, spr->pos.X, spr->pos.Y);
+		const double cz = getceilzofslopeptr(spr->sectp, spr->pos.X, spr->pos.Y);
+		return fabs(spr->pos.Z - fz) < kNear || fabs(spr->pos.Z - cz) < kNear;
+	}
+	return true;
+}
+
 void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 {
 	if (RT_IsActive() && RT_SkipSector(Sprite && Sprite->sectp ? sectindex(Sprite->sectp) : frontsector ? sectindex(frontsector) : -1)) return;
@@ -280,6 +319,7 @@ void HWWall::DrawWall(HWDrawInfo *di, FRenderState &state, bool translucent)
 	RT_PUSH_TYPE(rtfb, (Sprite && Sprite->shade <= -numshades) || (rtflags & 2) ? RtPrim::Fullbright : RtPrim::Identity);
 	RT_PUSH_TYPE(rtns, rtflags & 1 ? RtPrim::NoShadow : RtPrim::Identity);
 	RT_PUSH_TYPE(rtdecal, Sprite ? RtPrim::Decal : RtPrim::Identity);
+	RT_PUSH_TYPE(rtfree, Sprite && RT_IsActive() && !RT_SpriteFlush(Sprite) ? RtPrim::Freestanding : RtPrim::Identity);
 	RT_PUSH_TYPE(rtgamelit, Sprite && Sprite->ownerActor && RT_GameLit(Sprite->ownerActor->GetIndex()) ? RtPrim::GameLit : RtPrim::Identity);
 	// (Duke's light switches (SE12) leave a wall of hitag 1 as it is: E1L1's cinema screen
 	// shows the film while the room goes dark -- its glow stays with it)

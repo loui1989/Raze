@@ -961,7 +961,8 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     // A sprite on a wall (a switch, a sign) or a floor is usually exactly flush with it:
     // rays then hit the sprite or the surface at random -- grainy, half see-through.
     // Raster depth offsets it; here it is moved off the surface, towards the viewer.
-    if( !isUI && rtstate.is< RtPrim::Decal >() && *rt_decal_offset > 0.f )
+    // (not one standing free: a crate built of sprites, its sides moved apart, gaped)
+    if( !isUI && rtstate.is< RtPrim::Decal >() && !rtstate.is< RtPrim::Freestanding >() && *rt_decal_offset > 0.f )
     {
         const FVector4& gn = mStreamData.uVertexNormal;
         FVector3        n{ gn.X, gn.Z, gn.Y };

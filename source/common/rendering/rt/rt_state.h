@@ -294,7 +294,11 @@ enum class RtPrim : uint32_t
     GameLit        = 1 << 19, // a sprite whose light the game gives (Blood's torches, lanterns): none from its glow too
     NoSwitch       = 1 << 20, // a wall the game's light switches leave lit (Duke: hitag 1 -- a cinema's screen)
     Shot           = 1 << 21, // a glowing wall shot out (rt_shoot_lights): its glow and its light off
+    Freestanding   = 1 << 22, // a wall or floor sprite NOT flush with a surface (a crate's side): not moved off one
 };
+// a wall or floor aligned sprite lying on a wall, floor or ceiling of its sector (hw_walls.cpp)
+struct tspritetype;
+bool RT_SpriteFlush( const tspritetype* spr );
 
 // Per-actor policy from Duke-RT's LIGHTOVR actor rules, set by the backend when it
 // is active: bit 0 = no shadow, bit 1 = fullbright.
