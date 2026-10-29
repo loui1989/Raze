@@ -1256,3 +1256,145 @@ const std::string& RT_GetOverrideFolder()
 {
     return g_overrideFolder;
 }
+
+// ---------------------------------------------------------------------------------------
+// The other game's ray tracing settings, to compare (rt_settings_copy), and back
+// (rt_settings_restore). Each game keeps its own settings file (Raze-RT-Mac/user/raze.ini
+// for Duke, Blood-RT-Mac/user/raze.ini for Blood): copy reads the other one's rt_
+// settings and sets them here, first keeping this game's own beside its file
+// (rt_settings_backup.ini -- kept until restored, so quitting in between loses nothing,
+// and a second copy does not overwrite it); restore sets those back and removes it.
+// ---------------------------------------------------------------------------------------
+#include "gameconfigfile.h"
+
+namespace
+{
+std::vector< std::pair< std::string, std::string > > ReadRtSettings( const char* path )
+{
+    std::vector< std::pair< std::string, std::string > > out;
+    FILE* f = fopen( path, "r" );
+    if( !f )
+    {
+        return out;
+    }
+    char line[ 4096 ];
+    while( fgets( line, sizeof( line ), f ) )
+    {
+        std::string s = line;
+        while( !s.empty() && ( s.back() == '\n' || s.back() == '\r' || s.back() == ' ' ) ) s.pop_back();
+        if( s.compare( 0, 3, "rt_" ) != 0 ) continue;
+        const size_t eq = s.find( '=' );
+        if( eq == std::string::npos ) continue;
+        std::string key = s.substr( 0, eq ), val = s.substr( eq + 1 );
+        bool        dup = false;
+        for( auto& kv : out )
+        {
+            if( kv.first == key )
+            {
+                kv.second = val; // (the last one, as the game reads it)
+                dup       = true;
+            }
+        }
+        if( !dup ) out.emplace_back( key, val );
+    }
+    fclose( f );
+    return out;
+}
+
+FString OwnIni()
+{
+    return GameConfig ? FString( GameConfig->GetPathName() ) : FString();
+}
+
+FString BackupPath()
+{
+    FString p = OwnIni();
+    const auto slash = p.LastIndexOf( '/' );
+    return slash >= 0 ? p.Left( slash + 1 ) + "rt_settings_backup.ini" : FString( "rt_settings_backup.ini" );
+}
+
+int ApplyRtSettings( const std::vector< std::pair< std::string, std::string > >& kv )
+{
+    int n = 0;
+    for( const auto& [ key, val ] : kv )
+    {
+        if( FBaseCVar* v = FindCVar( key.c_str(), nullptr ) )
+        {
+            UCVarValue u;
+            u.String = val.c_str();
+            v->SetGenericRep( u, CVAR_String );
+            n++;
+        }
+    }
+    return n;
+}
+} // namespace
+
+CCMD( rt_settings_copy )
+{
+    // the other game's file: by default Duke's for Blood, Blood's for Duke
+    FString from;
+    if( argv.argc() > 1 )
+    {
+        from = argv[ 1 ];
+    }
+    else
+    {
+        from = OwnIni();
+        if( from.IndexOf( "/Raze-RT-Mac/" ) >= 0 ) from.Substitute( "/Raze-RT-Mac/", "/Blood-RT-Mac/" );
+        else if( from.IndexOf( "/Blood-RT-Mac/" ) >= 0 ) from.Substitute( "/Blood-RT-Mac/", "/Raze-RT-Mac/" );
+        else
+        {
+            Printf( "rt_settings_copy: which file? rt_settings_copy <path to the other game's raze.ini>\n" );
+            return;
+        }
+    }
+    const auto theirs = ReadRtSettings( from.GetChars() );
+    if( theirs.empty() )
+    {
+        Printf( "rt_settings_copy: no rt_ settings in %s\n", from.GetChars() );
+        return;
+    }
+    // this game's own, first -- unless kept already (a copy made before, not restored)
+    const FString backup = BackupPath();
+    if( FILE* existing = fopen( backup.GetChars(), "r" ) )
+    {
+        fclose( existing );
+        Printf( "rt_settings_copy: this game's own settings were kept before (%s): kept as they are\n", backup.GetChars() );
+    }
+    else if( FILE* f = fopen( backup.GetChars(), "w" ) )
+    {
+        int n = 0;
+        for( const auto& [ key, val ] : theirs )
+        {
+            if( FBaseCVar* v = FindCVar( key.c_str(), nullptr ) )
+            {
+                fprintf( f, "%s=%s\n", key.c_str(), v->GetGenericRep( CVAR_String ).String );
+                n++;
+            }
+        }
+        fclose( f );
+        Printf( "rt_settings_copy: this game's own %d settings kept in %s\n", n, backup.GetChars() );
+    }
+    else
+    {
+        Printf( "rt_settings_copy: could not keep this game's settings (%s): nothing changed\n", backup.GetChars() );
+        return;
+    }
+    const int n = ApplyRtSettings( theirs );
+    Printf( "rt_settings_copy: %d settings set from %s (rt_settings_restore puts this game's back)\n", n, from.GetChars() );
+}
+
+CCMD( rt_settings_restore )
+{
+    const FString backup = BackupPath();
+    const auto    mine   = ReadRtSettings( backup.GetChars() );
+    if( mine.empty() )
+    {
+        Printf( "rt_settings_restore: nothing to restore (%s not there)\n", backup.GetChars() );
+        return;
+    }
+    const int n = ApplyRtSettings( mine );
+    remove( backup.GetChars() );
+    Printf( "rt_settings_restore: this game's own %d settings back\n", n );
+}
