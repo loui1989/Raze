@@ -126,6 +126,16 @@ static RtPrim RT_LiquidOf(FGameTexture* tex, int pal = 0)
 	return RtPrim::Identity;
 }
 
+// ray tracing: is a sector's floor (plane 1) or ceiling (2) a liquid -- water, slime, lava:
+// not a lamp, a shot does not put it out (rt_shoot_lights; Duke's lava lit its room)
+bool RT_PlaneIsLiquid(int sectnum, int plane)
+{
+	if (sectnum < 0 || unsigned(sectnum) >= sector.Size()) return false;
+	auto& s = sector[sectnum];
+	auto tex = TexMan.GetGameTexture(plane == 2 ? s.ceilingtexture : s.floortexture, true);
+	return RT_LiquidOf(tex, plane == 2 ? s.ceilingpal : s.floorpal) != RtPrim::Identity;
+}
+
 #ifdef _DEBUG
 CVAR(Int, gl_breaksec, -1, 0)
 #endif

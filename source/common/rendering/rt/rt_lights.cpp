@@ -1580,6 +1580,16 @@ void RT_SerializeShotLights( FSerializer& arc )
     }
 }
 
+// every light shot out in this level lit again (a lamp put out by mistake)
+CCMD( rt_unshoot_lights )
+{
+    ShotReset();
+    std::fill( s_shotWall.begin(), s_shotWall.end(), 0 );
+    std::fill( s_shotPlane.begin(), s_shotPlane.end(), 0 );
+    std::fill( s_shotSprite.begin(), s_shotSprite.end(), 0 );
+    Printf( "rt_unshoot_lights: the lights shot out are lit again\n" );
+}
+
 void RT_ShootLight( int wallnum, int sectnum, int plane )
 {
     if( !*rt_shoot_lights )
@@ -1591,7 +1601,8 @@ void RT_ShootLight( int wallnum, int sectnum, int plane )
     {
         s_shotWall[ size_t( wallnum ) ] = 1;
     }
-    else if( ( plane == 1 || plane == 2 ) && sectnum >= 0 && size_t( sectnum ) < s_shotPlane.size() )
+    else if( ( plane == 1 || plane == 2 ) && sectnum >= 0 && size_t( sectnum ) < s_shotPlane.size() &&
+             !RT_PlaneIsLiquid( sectnum, plane ) )
     {
         s_shotPlane[ size_t( sectnum ) ] |= uint8_t( plane );
     }
@@ -1608,7 +1619,9 @@ bool RT_LightShot( int wallnum, int sectnum, int plane )
     {
         return wallnum >= 0 && size_t( wallnum ) < s_shotWall.size() && s_shotWall[ size_t( wallnum ) ];
     }
-    return sectnum >= 0 && size_t( sectnum ) < s_shotPlane.size() && ( s_shotPlane[ size_t( sectnum ) ] & plane );
+    // (a liquid never: a savegame from before this kept a lava floor shot out)
+    return sectnum >= 0 && size_t( sectnum ) < s_shotPlane.size() && ( s_shotPlane[ size_t( sectnum ) ] & plane ) &&
+           !RT_PlaneIsLiquid( sectnum, plane );
 }
 
 void RT_ShootSprite( int actorIndex )

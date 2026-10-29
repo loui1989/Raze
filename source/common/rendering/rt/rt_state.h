@@ -152,6 +152,7 @@ bool RT_LightShot( int wallnum, int sectnum, int plane );
 void RT_ShootSprite( int actorIndex );
 bool RT_SpriteShot( int actorIndex );
 void RT_ShootSpritesAt( const DVector3& hit, int sectnum );
+bool RT_PlaneIsLiquid( int sectnum, int plane ); // water, slime, lava: never shot out (hw_flats.cpp)
 void RT_AddShotTrail( const DVector3& from, const DVector3& to ); // a bullet's track through smoke and fog (rt_smoke.cpp)
 class FSerializer;
 void RT_SerializeShotLights( FSerializer& arc ); // in a savegame (core/savegamehelp.cpp)
