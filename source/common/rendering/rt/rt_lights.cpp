@@ -2025,3 +2025,54 @@ CCMD( rt_lights_info )
                 d.lumens, d.lumens > 0.01f ? "" : " -- not lit" );
     }
 }
+
+// THE NEAR FALLOFF (rt_light_soft). A light is a small ball (or disk): its light falls
+// off with the square of the distance from it, but no faster than its size allows --
+// right next to it, a surface sees it as a ball of its size and is lit by how bright
+// its surface is. A strong light given a small ball (the lava's, a big glowing floor's,
+// a blast's) is a tiny, hugely bright one, and the wall beside it burns out to a white
+// patch. So a light's ball is made at least so big that it is no brighter, right next
+// to it, than a set amount -- its radius at least 0.005 m x sqrt(its intensity) x
+// rt_light_soft: a torch (600) 0.12 m, a lava pool's light (20 000) 0.7 m. Further off
+// a light is exactly as bright as before; its shadows are a little softer.
+CVARD( Float, rt_light_soft, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how much a strong light's glare right next to it is softened (a wall by lava, a lamp's ceiling) -- 0 = not at all; further off a light is as bright as ever" )
+
+namespace rtx
+{
+const RgLightInfo* RT_SoftenLight( const RgLightInfo* info )
+{
+    const float soft = std::clamp( float( *rt_light_soft ), 0.f, 4.f );
+    if( !info || soft <= 0.f || !info->pNext )
+    {
+        return info;
+    }
+    static thread_local RgLightInfo        s_info;
+    static thread_local RgLightSphericalEXT s_sphere;
+    static thread_local RgLightSpotEXT      s_spot;
+    const auto* hdr = static_cast< const RgLightSphericalEXT* >( info->pNext ); // (sType first in each)
+    auto minRadius  = [ & ]( float intensity ) { return std::min( 3.f, 0.005f * soft * std::sqrt( std::max( intensity, 0.f ) ) ); };
+    if( hdr->sType == RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT )
+    {
+        const auto* l = static_cast< const RgLightSphericalEXT* >( info->pNext );
+        const float r = minRadius( l->intensity );
+        if( l->radius >= r ) return info;
+        s_sphere        = *l;
+        s_sphere.radius = r;
+        s_info          = *info;
+        s_info.pNext    = &s_sphere;
+        return &s_info;
+    }
+    if( hdr->sType == RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT )
+    {
+        const auto* l = static_cast< const RgLightSpotEXT* >( info->pNext );
+        const float r = minRadius( l->intensity );
+        if( l->radius >= r ) return info;
+        s_spot        = *l;
+        s_spot.radius = r;
+        s_info        = *info;
+        s_info.pNext  = &s_spot;
+        return &s_info;
+    }
+    return info;
+}
+} // namespace rtx

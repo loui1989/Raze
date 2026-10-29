@@ -2273,6 +2273,7 @@ OptionMenu "RTOptions" protected
 	Slider "Placed spot lights (projectors)",	"rt_lightovr_spot_scale", 0, 4, 0.1, 1
 	Slider "Light switch boost",		"rt_switch_light_boost", 0, 5, 0.25, 2
 	Slider "Game lights (explosions, fire)",	"rt_game_light_scale", 0, 3, 0.1, 1
+	Slider "Soften glare next to strong lights",	"rt_light_soft", 0, 3, 0.1, 1
 	Option "Muzzle flash light",		"rt_muzzleflash", "OnOff"
 	Option "Flashlight",				"rt_flashlight", "OnOff"
 	StaticText " "

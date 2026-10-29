@@ -102,10 +102,14 @@ inline void MatMul44( const float* a, const float* b, float* result )
 // lights uploaded this frame, for rt_debug_stats
 extern uint32_t g_rtLightsThisFrame;
 extern uint32_t g_rtLightsFailed;
+// rt_lights.cpp: a strong light's near falloff softened (rt_light_soft): its radius at
+// least so big that what is right next to it is not burned out; the copy to upload, or
+// the light as it is
+const RgLightInfo* RT_SoftenLight( const RgLightInfo* info );
 inline RgResult RT_UploadLight( const RgLightInfo* info )
 {
     g_rtLightsThisFrame++;
-    const RgResult r = rt.rgUploadLight( info );
+    const RgResult r = rt.rgUploadLight( RT_SoftenLight( info ) );
     if( r != RG_RESULT_SUCCESS )
     {
         g_rtLightsFailed++;
