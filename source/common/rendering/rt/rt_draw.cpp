@@ -401,6 +401,7 @@ bool RTHardwareTexture::Upload( FGameTexture&       src,
         m_flame    = mi.flame;
         m_lantern  = mi.lantern;
         m_fire     = mi.fire;
+        m_steady   = mi.steady;
         m_voxGlow.clear();
         if( mi.voxel && texbuffer.mWidth == 16 && texbuffer.mHeight == 16 )
         {
@@ -1278,12 +1279,12 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
             // through its room's light switch (Duke's hitag 1: E1L1's cinema screen)
             // (a lamp a shot can put out: its texture noted, so a shot that does breaks it --
             // the glass's sound, its broken picture: rt_lights.cpp)
-            if( !hwtex->IsFlame() && !hwtex->IsFire() && !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::NoSwitch >() &&
+            if( !hwtex->IsFlame() && !hwtex->IsFire() && !hwtex->IsSteady() && !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::NoSwitch >() &&
                 mMaterial.mMaterial && mMaterial.mMaterial->Source() )
             {
                 RT_MarkGlowTexture( mMaterial.mMaterial->Source()->GetID() );
             }
-            if( !hwtex->IsFlame() && !hwtex->IsFire() && !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::NoSwitch >() &&
+            if( !hwtex->IsFlame() && !hwtex->IsFire() && !hwtex->IsSteady() && !rtstate.is< RtPrim::Sprite >() && !rtstate.is< RtPrim::NoSwitch >() &&
                 ( rtstate.is< RtPrim::Shot >() ||
                   ( rtstate.is< RtPrim::CeilingPlane >() && RT_LightShot( -1, rtstate.get_sector(), 2 ) ) ||
                   ( rtstate.is< RtPrim::FloorPlane >() && RT_LightShot( -1, rtstate.get_sector(), 1 ) ) ) )

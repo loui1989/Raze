@@ -265,6 +265,7 @@ public:
     bool IsFlame() const { return m_flame; }
     bool IsLantern() const { return m_lantern; }
     bool IsFire() const { return m_fire; }
+    bool IsSteady() const { return m_steady; }
     // a voxel palette's fullbright texels, their colour (linear; zero where not); null if none
     const float* VoxelGlow() const { return m_voxGlow.empty() ? nullptr : m_voxGlow.data(); }
 
@@ -286,6 +287,7 @@ private:
     bool        m_flame{ false };
     bool        m_lantern{ false };
     bool        m_fire{ false };
+    bool        m_steady{ false };
     std::vector< float > m_voxGlow{};
     std::string m_name{};
     std::string m_nameClamped{};
@@ -304,6 +306,7 @@ struct RtMaterialInfo
     bool  flame       = false; // ...only where its flame is (a candle): the game places its light
     bool  lantern     = false; // ...a lantern's glass: only as a standing picture (not one laid flat)
     bool  fire        = false; // ...real fire (a fire or flame class): not put out by a shot
+    bool  steady      = false; // ...a steady glow (a class named steady...): no lamp, never put out by a shot
     bool  voxel       = false; // a voxel model's palette texture...
     uint8_t voxGlow[ 256 ]{};  // ...and which of its colours (texels) are fullbright
 };
