@@ -240,6 +240,7 @@ inline float RT_SectorSwitch( int sectnum )
 // the material table's flame class (<rt>/materials.txt: a candle, a torch whose flame is
 // in its picture): how brightly the tile's flame glows, 0 if not one; and its colours
 float RT_TableFlame( int tile );
+float RT_TableSteadyGlow( int tile ); // a tile of a "steady..." class: its glow (0 = none)
 bool  RT_TableGlass( int tile ); // the material table calls the tile glass (a window)
 // the table's "light" lines: a decoration with a light of its own (a lantern), how strong,
 // its colour (negative: the sprite's brightest colour)
@@ -428,6 +429,20 @@ struct FRtState
     }
     float get_decalsunk() const { return m_decalSunk; }
 
+    // a model (a voxel) drawn for a tile the material table gives a steady glow: how
+    // bright (the class's glow; 0 = none) -- the tile's own glow does not reach its model
+    [[nodiscard]] auto push_modelglow( float glow )
+    {
+        const float prev = m_modelGlow;
+        m_modelGlow      = glow;
+        return rtdetail::AutoPop{
+            prev,
+            []( FRtState& fthis, float p ) { fthis.m_modelGlow = p; },
+            *this,
+        };
+    }
+    float get_modelglow() const { return m_modelGlow; }
+
     // the copy (see g_rtCopySector) the primitive belongs to, 0 = none (keeps the
     // copy around it: a portal's view), and the offset that moves it into place.
     // 'add': on top of the copy around it (a portal seen through a portal)
@@ -478,6 +493,7 @@ private:
     uint64_t m_curUniqueID{ 0 }; // to identify an object between frames
     int      m_sector{ -1 };
     float    m_decalSunk{ 0.f };
+    float    m_modelGlow{ 0.f };
     CopyState m_copy{ 0, { 0, 0, 0 } };
 
     std::unordered_map< uint64_t, uint32_t > m_nextPrimIndex{};

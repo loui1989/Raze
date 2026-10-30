@@ -1318,6 +1318,13 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
                 emissive   = std::max( emissive, hwtex->Glow() );
                 emissiveGi = emissive * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f );
             }
+            // a voxel model of a tile the material table gives a steady glow (Duke's alien
+            // switch): its colours glow, as the tile's picture would -- softer than fire's
+            if( isModel && rtstate.get_modelglow() > 0.f )
+            {
+                emissive   = std::max( emissive, rtstate.get_modelglow() / 3.f );
+                emissiveGi = std::max( emissiveGi, emissive * float( *rt_emis_mult ) * ( *rt_emis_lights ? float( *rt_emis_gi ) : 1.f ) );
+            }
             // a floor under the path traced light, like Duke-RT's sector ambient: the
             // surface glows faintly with its sector's classic light level, so a room
             // the lights miss is dark rather than black (and it lights its

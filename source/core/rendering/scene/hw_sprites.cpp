@@ -74,6 +74,8 @@ void HWSprite::DrawSprite(HWDrawInfo* di, FRenderState& state, bool translucent)
 	RT_PUSH_TYPE(rtns, rtflags & 1 ? RtPrim::NoShadow : RtPrim::Identity);
 	RT_PUSH_TYPE(rtcopy, Sprite && Sprite->rtcopy ? RtPrim::CopyId : RtPrim::Identity);
 	RT_PUSH_TYPE(rtgamelit, Sprite && Sprite->ownerActor && RT_GameLit(Sprite->ownerActor->GetIndex()) ? RtPrim::GameLit : RtPrim::Identity);
+	// (a voxel of a tile with a steady glow in the material table: it glows as the tile would)
+	auto rtmglow = rtstate.push_modelglow(RT_IsActive() && modelframe != 0 && Sprite ? RT_TableSteadyGlow(legacyTileNum(Sprite->spritetexture())) : 0.f);
 	auto rtcg = rtstate.push_copygroup(Sprite ? Sprite->rtcopy : 0);
 
 	bool additivefog = false;

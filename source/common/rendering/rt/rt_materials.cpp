@@ -721,6 +721,14 @@ float RT_TableFlame( int tile )
     return g && g->flame && !g->lantern ? g->glow : 0.f;
 }
 
+float RT_TableSteadyGlow( int tile )
+{
+    char nm[ 16 ];
+    snprintf( nm, sizeof( nm ), "#%05d", tile );
+    const MatClass* g = TableClass( nm );
+    return g && g->steady ? g->glow : 0.f;
+}
+
 bool RT_FlameColor( uint8_t r, uint8_t g, uint8_t b )
 {
     const uint8_t bgra[ 4 ] = { b, g, r, 255 };
