@@ -884,7 +884,19 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     const bool clampUI  = isUI && mMaterial.mClampMode != CLAMP_NONE;
     const RTHardwareTexture* hwtex = nullptr;
     const char* texname     = ( isSkyVis || isMirror ) ? nullptr : ResolveTexture( clampUI, &hwtex );
-    const bool  emissionMap = hwtex && hwtex->HasEmission() && !isUI && !isSky;
+    // a voxel model with a steady glow (rtstate.get_modelglow, the material table): its skin
+    // is the palette, whose emission map (its fullbright colours) would be all that glows --
+    // drawn with the palette's copy that has no material maps, its own colours glow
+    const bool steadyModel = isModel && !isUI && hwtex && rtstate.get_modelglow() > 0.f;
+    if( steadyModel )
+    {
+        const RTHardwareTexture* plain = nullptr;
+        if( const char* cn = ResolveTexture( true, &plain ); cn && *cn )
+        {
+            texname = cn;
+        }
+    }
+    const bool  emissionMap = hwtex && hwtex->HasEmission() && !isUI && !isSky && !steadyModel;
     // a glowing texture with no emission map (one that changes: the fire)
     const bool  glowTex     = !emissionMap && hwtex && hwtex->Glow() > 0.f && !isUI && !isSky && !isSkyVis;
 
