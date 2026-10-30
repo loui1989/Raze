@@ -812,7 +812,12 @@ bool rtx::RT_PrepareMaterialOverrides( FGameTexture& src, const std::string& nam
     }
 
     // a glowing class (fire): the texture itself is the glow, as it is
-    if( const MatClass* g = TableClass( name ); g && g->glow > 0.f )
+    // (a steady glow only where the picture has no glow map made for it: a switch whose
+    // lights Duke-RT's glow maps light keeps them -- not the whole picture lit. The
+    // palette's fullbright texels -- a few LEDs -- do not count: the glow is the picture's
+    // own colours, those brightest)
+    const bool ownGlow = layers && layers->Glowmap.get();
+    if( const MatClass* g = TableClass( name ); g && g->glow > 0.f && !( g->steady && ownGlow ) )
     {
         char sfx[ 32 ];
         snprintf( sfx, sizeof( sfx ), "_e.t%08x", g->hash ^ uint32_t( g->glow * 1000.f ) ^ ( g->lantern ? 0x53u : g->flame ? 0x52u : 0x51u ) );
