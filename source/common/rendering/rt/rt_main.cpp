@@ -19,6 +19,7 @@
 #include "hw_cvars.h"
 #include "v_draw.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <string>
@@ -35,9 +36,9 @@ CVARD( Int, rt_upscale, 3, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: MetalFX upscal
 CVARD( Float, rt_renderscale, 0.5f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: render resolution scale, when rt_upscale is 0 or 5" )
 // dynamic resolution: the render size follows the GPU's frame time, toward rt_dynres_fps,
 // from the upscaling setting's size (the largest) down to rt_dynres_min of the screen's
-CVARD( Bool, rt_dynres, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: dynamic resolution: the render size follows the frame rate, up to the upscaling setting's" )
+CVARD( Bool, rt_dynres, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: dynamic resolution: the render size follows the frame rate, up to the upscaling setting's" )
 CVARD( Int, rt_dynres_fps, 60, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: dynamic resolution's target frame rate" )
-CVARD( Float, rt_dynres_min, 0.4f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: dynamic resolution's smallest render size, a fraction of the screen's" )
+CVARD( Float, rt_dynres_min, 0.25f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: dynamic resolution's smallest render size, a fraction of the screen's" )
 CVARD( Bool, rt_metalfx_denoiser, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: MetalFX denoising upscaler instead of RTGL1's denoiser (needs rt_upscale 1..5)" )
 CVARD( Int, rt_sharpen, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0 auto, 1 naive, 2 AMD CAS, 3 none" )
 CVARD( Bool, rt_vsync, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: vertical sync" )
@@ -81,7 +82,7 @@ CVARD( Int, rt_restir_spatial, 8, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: neighbo
 CVARD( Float, rt_min_roughness, 0.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, no surface is glossier than this (lower = sharper highlights, more noise)" )
 CVARD( Float, rt_denoise_sens_spec, 0.3f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, the same for reflections" )
 CVARD( Bool, rt_world_motion, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: track walls and floors as moving geometry (off: only the camera moves them)" )
-CVARD( Bool, rt_water_style, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: stylized (Doom 64 RT) water and slime instead of physical refraction" )
+CVARD( Bool, rt_water_style, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: stylized (Doom 64 RT) water and slime instead of physical refraction" )
 CVARD( Float, rt_lava_gi, 8.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: how strongly lava lights its surroundings through the bounce light" )
 CVARD( Bool, rt_muzzleflash, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: shooting lights the room" )
 CVARD( Float, rt_muzzleflash_intensity, 250.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: muzzle flash brightness" )
@@ -91,6 +92,7 @@ CVARD( Float, rt_emis_screen, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: on-scr
 CVARD( Int, rt_texture_filter, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0 nearest (pixelated), 1 linear" )
 CVARD( Float, rt_ev100_min, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adaptation, darkest exposure (lower = dark scenes brighter)" )
 CVARD( Float, rt_ev100_max, 7.7f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: eye adaptation, brightest exposure" )
+CVARD( Float, rt_brightness, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: brightness, in exposure stops on top of this game's tuning (+1 = twice as bright)" )
 CVARD( Float, rt_white_point, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping white point" )
 CVARD( Float, rt_contrast, 0.1f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: tonemapping contrast" )
 CVARD( Float, rt_hot_color, 1.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: 0..1, how much an over-bright colour keeps its colour (lava goes yellow, not white) instead of burning out to white (0 = all go white, as before)" )
@@ -315,6 +317,9 @@ void RT_FillResolution( RgStartFrameRenderResolutionParams& dst, RgExtent2D wins
 // Instance
 //
 
+void RT_PresetsInit();     // (below: presets and the locked tuning)
+void RT_AfterDefaults();
+
 void RT_CreateRendererInstance( void* pMetalLayer )
 {
     rt = RgInterface{};
@@ -460,6 +465,10 @@ void RT_CreateRendererInstance( void* pMetalLayer )
         rt_smoke_illum->ResetToDefault();
         rt_config_version = 8;
     }
+
+    // the quality presets take effect from here on (not while the settings file
+    // was read); this game's tuning is locked on its first start with them
+    RT_PresetsInit();
 }
 
 void RT_DestroyRendererInstance()
@@ -967,8 +976,8 @@ void RTFrameBuffer::RT_DrawFrame()
         .sType                = RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS,
         .pNext                = &textures,
         .disableEyeAdaptation = false,
-        .ev100Min             = *rt_ev100_min,
-        .ev100Max             = std::max( float( *rt_ev100_min ) + 0.1f, float( *rt_ev100_max ) ),
+        .ev100Min             = *rt_ev100_min - *rt_brightness,
+        .ev100Max             = std::max( float( *rt_ev100_min ) + 0.1f, float( *rt_ev100_max ) ) - *rt_brightness,
         .luminanceWhitePoint  = std::max( 0.1f, float( *rt_white_point ) ),
         .saturation           = { 0, 0, 0 },
         // the tonemapper's (AMD LPM's) crosstalk: how an over-bright colour burns out.
@@ -1215,7 +1224,8 @@ CCMD( rt_resolution )
     }
 }
 
-// every archived ray tracing setting back to its default
+// every archived ray tracing setting back to its default -- this game's locked
+// tuning (rt_tuning.ini) back to that instead
 CCMD( rt_defaults )
 {
     decltype( cvarMap )::Iterator it( cvarMap );
@@ -1233,6 +1243,9 @@ CCMD( rt_defaults )
         n++;
     }
     Printf( "RT: %d settings back to their defaults\n", n );
+    // ...but this game's locked tuning (exposure, lights, sky...) as it was locked,
+    // and the quality settings as the preset (High) has them
+    RT_AfterDefaults();
 }
 
 CCMD( rt_info )
@@ -1397,4 +1410,292 @@ CCMD( rt_settings_restore )
     const int n = ApplyRtSettings( mine );
     remove( backup.GetChars() );
     Printf( "rt_settings_restore: this game's own %d settings back\n", n );
+}
+
+
+// ---------------------------------------------------------------------------------------
+// Quality presets (rt_preset: Low, Medium, High) over a few quality settings (rt_q_...),
+// each of which sets a handful of the fine settings the Developer options show. What
+// the presets never touch is this game's tuning -- exposure, ambient light, the lights'
+// strengths, sky, fog, glow and the rest, tuned for Duke and for Blood apart: it is
+// locked in rt_tuning.ini beside the game's settings file (written on the first start
+// with presets, from the values then; rt_tuning_save locks the current ones instead).
+// Resetting to defaults (rt_defaults) puts the locked tuning back, not the engine's
+// defaults. High is the settings as they were tuned (the look the tuning was made in).
+// ---------------------------------------------------------------------------------------
+namespace
+{
+bool g_presetsReady   = false;   // the settings file has been read (RT started)
+bool g_applyingPreset = false;
+
+struct QualitySetting
+{
+    const char* cvar;
+    const char* values[ 4 ];     // by level
+};
+
+struct QualityGroup
+{
+    const char*                   cvar;            // rt_q_...
+    int                           levels;
+    int                           presetLevel[ 3 ];   // its level in Low, Medium, High
+    std::vector< QualitySetting > settings;
+};
+
+const std::vector< QualityGroup >& QualityGroups()
+{
+    static const std::vector< QualityGroup > groups = {
+        // how many lights each pixel weighs, bounce light, how far lights and rooms
+        // off screen are taken in
+        { "rt_q_lighting", 3, { 0, 1, 2 }, {
+            { "rt_restir_initial",  { "6", "8", "12" } },
+            { "rt_restir_spatial",  { "4", "6", "8" } },
+            { "rt_bounces",         { "1", "2", "2" } },
+            { "rt_gi_halfrate",     { "true", "true", "true" } },
+            { "rt_light_reach",     { "30", "35", "40" } },
+            { "rt_offscreen_reach", { "40", "50", "60" } },
+        } },
+        // haze and smoke (off: none, nor heat haze -- they are drawn in the haze)
+        { "rt_q_atmosphere", 4, { 1, 2, 3 }, {
+            { "rt_volumetrics",       { "false", "true", "true", "true" } },
+            { "rt_volume_all_lights", { "false", "false", "false", "true" } },
+            { "rt_smoke_samples",     { "8", "2", "4", "8" } },
+        } },
+        // mirror-like polished floors, refracting glass, light coloured by glass
+        { "rt_q_reflections", 3, { 0, 1, 2 }, {
+            { "rt_polish",        { "false", "true", "true" } },
+            { "rt_glass",         { "false", "true", "true" } },
+            { "rt_glass_shadows", { "false", "false", "true" } },
+        } },
+        // voxel models: how many, and how far
+        { "rt_q_voxels", 3, { 0, 1, 2 }, {
+            { "rt_voxel_budget",   { "400", "800", "1200" } },
+            { "rt_voxel_distance", { "6", "9", "12" } },
+            { "rt_voxel_insight",  { "false", "true", "true" } },
+            { "rt_voxel_lod",      { "true", "true", "true" } },
+        } },
+        // surfaces' depth (parallax)
+        { "rt_q_surface", 3, { 0, 1, 2 }, {
+            { "rt_parallax", { "0", "0.02", "0.03" } },
+        } },
+    };
+    return groups;
+}
+
+// the player's own choices in the menu: neither tuning nor quality
+const char* const kPreferences[] = {
+    "rt_upscale", "rt_renderscale", "rt_dynres", "rt_dynres_fps", "rt_dynres_min", "rt_vsync",
+    "rt_sharpen", "rt_bloom", "rt_brightness", "rt_flicker_amount", "rt_heat_haze", "rt_smoke_wake",
+    "rt_shoot_lights", "rt_muzzleflash", "rt_flashlight", "rt_water_style",
+};
+
+void SetCVarString( const char* name, const char* value )
+{
+    if( !value ) return;
+    if( FBaseCVar* v = FindCVar( name, nullptr ) )
+    {
+        UCVarValue u;
+        u.String = value;
+        v->SetGenericRep( u, CVAR_String );
+    }
+}
+
+int GetCVarInt( const char* name )
+{
+    FBaseCVar* v = FindCVar( name, nullptr );
+    return v ? v->GetGenericRep( CVAR_Int ).Int : -1;
+}
+
+void ApplyGroup( const QualityGroup& g, int level )
+{
+    level = std::clamp( level, 0, g.levels - 1 );
+    for( const auto& s : g.settings )
+    {
+        SetCVarString( s.cvar, s.values[ level ] );
+    }
+}
+
+// the preset the quality settings make up, or Custom
+void UpdatePreset()
+{
+    if( g_applyingPreset ) return;
+    int preset = 3;
+    for( int p = 0; p < 3 && preset == 3; p++ )
+    {
+        bool all = true;
+        for( const auto& g : QualityGroups() )
+        {
+            all = all && GetCVarInt( g.cvar ) == g.presetLevel[ p ];
+        }
+        if( all ) preset = p;
+    }
+    if( GetCVarInt( "rt_preset" ) != preset )
+    {
+        g_applyingPreset = true;
+        UCVarValue u;
+        u.Int = preset;
+        if( FBaseCVar* v = FindCVar( "rt_preset", nullptr ) ) v->SetGenericRep( u, CVAR_Int );
+        g_applyingPreset = false;
+    }
+}
+
+void QualityChanged( const char* name, int level )
+{
+    if( !g_presetsReady ) return;
+    for( const auto& g : QualityGroups() )
+    {
+        if( !stricmp( g.cvar, name ) )
+        {
+            ApplyGroup( g, level );
+        }
+    }
+    UpdatePreset();
+}
+
+bool IsTuning( FBaseCVar* var )
+{
+    const char* name = var->GetName();
+    if( strnicmp( name, "rt_", 3 ) != 0 || !( var->GetFlags() & CVAR_ARCHIVE ) ) return false;
+    if( !stricmp( name, "rt_config_version" ) || !stricmp( name, "rt_preset" ) ||
+        !strnicmp( name, "rt_q_", 5 ) || !strnicmp( name, "rt_debug", 8 ) )
+    {
+        return false;
+    }
+    for( const char* p : kPreferences )
+    {
+        if( !stricmp( name, p ) ) return false;
+    }
+    for( const auto& g : QualityGroups() )
+    {
+        for( const auto& s : g.settings )
+        {
+            if( !stricmp( name, s.cvar ) ) return false;
+        }
+    }
+    return true;
+}
+
+FString TuningPath()
+{
+    FString p = OwnIni();
+    const auto slash = p.LastIndexOf( '/' );
+    return slash >= 0 ? p.Left( slash + 1 ) + "rt_tuning.ini" : FString( "rt_tuning.ini" );
+}
+
+int SaveTuning()
+{
+    std::vector< std::pair< std::string, std::string > > kv;
+    decltype( cvarMap )::Iterator it( cvarMap );
+    decltype( cvarMap )::Pair*    pair;
+    while( it.NextPair( pair ) )
+    {
+        FBaseCVar* var = pair->Value;
+        if( var && IsTuning( var ) )
+        {
+            kv.emplace_back( var->GetName(), var->GetGenericRep( CVAR_String ).String );
+        }
+    }
+    std::sort( kv.begin(), kv.end() );
+    const FString path = TuningPath();
+    FILE*         f    = fopen( path.GetChars(), "w" );
+    if( !f ) return -1;
+    fprintf( f, "# This game's ray tracing tuning, locked: the quality presets leave it alone, and\n"
+                "# resetting the settings to defaults (rt_defaults) puts these back. rt_tuning_save\n"
+                "# locks the current values instead (Ray Tracing > Developer options).\n" );
+    for( const auto& [ key, val ] : kv )
+    {
+        fprintf( f, "%s=%s\n", key.c_str(), val.c_str() );
+    }
+    fclose( f );
+    return int( kv.size() );
+}
+
+int RestoreTuning()
+{
+    const auto kv = ReadRtSettings( TuningPath().GetChars() );
+    return kv.empty() ? -1 : ApplyRtSettings( kv );
+}
+} // namespace
+
+CUSTOM_CVARD( Int, rt_preset, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG,
+              "RT: quality preset: 0 low, 1 medium, 2 high, 3 custom (the quality settings as set)" )
+{
+    if( !g_presetsReady || g_applyingPreset || self < 0 || self > 2 ) return;
+    g_applyingPreset = true;
+    for( const auto& g : QualityGroups() )
+    {
+        if( FBaseCVar* v = FindCVar( g.cvar, nullptr ) )
+        {
+            UCVarValue u;
+            u.Int = g.presetLevel[ int( self ) ];
+            v->SetGenericRep( u, CVAR_Int );
+        }
+        ApplyGroup( g, g.presetLevel[ int( self ) ] );
+    }
+    g_applyingPreset = false;
+}
+
+CUSTOM_CVARD( Int, rt_q_lighting, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: lighting quality: 0 low, 1 medium, 2 high" )
+{
+    QualityChanged( "rt_q_lighting", self );
+}
+CUSTOM_CVARD( Int, rt_q_atmosphere, 3, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: volumetric light and smoke: 0 off, 1 low, 2 medium, 3 high" )
+{
+    QualityChanged( "rt_q_atmosphere", self );
+}
+CUSTOM_CVARD( Int, rt_q_reflections, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: reflections and glass: 0 low, 1 medium, 2 high" )
+{
+    QualityChanged( "rt_q_reflections", self );
+}
+CUSTOM_CVARD( Int, rt_q_voxels, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: voxel model detail: 0 low, 1 medium, 2 high" )
+{
+    QualityChanged( "rt_q_voxels", self );
+}
+CUSTOM_CVARD( Int, rt_q_surface, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG, "RT: surface depth (parallax): 0 low (none), 1 medium, 2 high" )
+{
+    QualityChanged( "rt_q_surface", self );
+}
+
+void RT_PresetsInit()
+{
+    if( g_presetsReady ) return;
+    const FString path = TuningPath();
+    if( FILE* f = fopen( path.GetChars(), "r" ) )
+    {
+        fclose( f );
+    }
+    else
+    {
+        const int n = SaveTuning();
+        if( n >= 0 ) Printf( "RT: this game's tuning (%d settings) locked in %s\n", n, path.GetChars() );
+    }
+    g_presetsReady = true;
+    UpdatePreset();
+}
+
+void RT_AfterDefaults()
+{
+    const int n = RestoreTuning();
+    if( n >= 0 ) Printf( "RT: this game's locked tuning back (%d settings)\n", n );
+    g_applyingPreset = true;
+    for( const auto& g : QualityGroups() )
+    {
+        ApplyGroup( g, GetCVarInt( g.cvar ) );
+    }
+    g_applyingPreset = false;
+    UpdatePreset();
+}
+
+CCMD( rt_tuning_save )
+{
+    const int n = SaveTuning();
+    if( n < 0 ) Printf( "rt_tuning_save: could not write %s\n", TuningPath().GetChars() );
+    else Printf( "rt_tuning_save: %d settings locked as this game's tuning (%s)\n", n, TuningPath().GetChars() );
+}
+
+CCMD( rt_tuning_restore )
+{
+    const int n = RestoreTuning();
+    if( n < 0 ) Printf( "rt_tuning_restore: no locked tuning (%s)\n", TuningPath().GetChars() );
+    else Printf( "rt_tuning_restore: this game's locked tuning back (%d settings)\n", n );
 }

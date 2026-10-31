@@ -2220,9 +2220,85 @@ OptionValue "RtSharpen"
 	3, "Off"
 }
 
+OptionValue "RtPreset"
+{
+	0, "Low"
+	1, "Medium"
+	2, "High"
+	3, "Custom"
+}
+
+OptionValue "RtQuality"
+{
+	0, "Low"
+	1, "Medium"
+	2, "High"
+}
+
+OptionValue "RtQualityOff"
+{
+	0, "Off"
+	1, "Low"
+	2, "Medium"
+	3, "High"
+}
+
+// The settings a player changes. Everything else -- this game's tuning (exposure,
+// ambient light, the lights, sky, fog, glow), locked per game in rt_tuning.ini, and
+// the fine settings the quality options set -- is under Developer options.
 OptionMenu "RTOptions" protected
 {
 	Title "Ray Tracing"
+
+	StaticText "Display", 1
+	Option "Output resolution (fullscreen)",	"vid_rt_fullscreen_height", "RtOutputHeight"
+	Option "MetalFX upscaling",			"rt_upscale", "RtUpscale"
+	Option "Dynamic resolution",			"rt_dynres", "OnOff"
+	Slider "Target frame rate",			"rt_dynres_fps", 30, 144, 1, 0
+	Option "Vertical sync",				"rt_vsync", "OnOff"
+	StaticText " "
+
+	StaticText "Quality", 1
+	Option "Preset",					"rt_preset", "RtPreset"
+	Option "Lighting",					"rt_q_lighting", "RtQuality"
+	Option "Volumetric light & smoke",	"rt_q_atmosphere", "RtQualityOff"
+	Option "Reflections & glass",		"rt_q_reflections", "RtQuality"
+	Option "Voxel model detail",		"rt_q_voxels", "RtQuality"
+	Option "Surface depth",				"rt_q_surface", "RtQuality"
+	StaticText "With dynamic resolution on, a lower preset", 0
+	StaticText "buys a sharper picture at the same frame rate", 0
+	StaticText " "
+
+	StaticText "Look", 1
+	Slider "Brightness",				"rt_brightness", -2, 2, 0.25, 2
+	Slider "Bloom",						"rt_bloom", 0, 2, 0.1, 1
+	Slider "Fire & light flicker",		"rt_flicker_amount", 0, 1, 0.05, 2
+	Slider "Heat haze over fires",		"rt_heat_haze", 0, 2, 0.1, 1
+	Option "Stylized water",			"rt_water_style", "OnOff"
+	StaticText " "
+
+	StaticText "Effects", 1
+	Option "Lights go out when shot",	"rt_shoot_lights", "OnOff"
+	Option "Smoke & fog part as things move",	"rt_smoke_wake", "OnOff"
+	Option "Muzzle flash light",		"rt_muzzleflash", "OnOff"
+	Option "Flashlight",				"rt_flashlight", "OnOff"
+	StaticText " "
+
+	Submenu "Developer options",		"RTDevOptions"
+	SafeCommand "Reset to defaults (keeps this game's tuning)",	"rt_defaults"
+}
+
+// Every setting, for tuning. The quality options above set some of these; the rest
+// are this game's tuning, locked in rt_tuning.ini beside its settings file.
+OptionMenu "RTDevOptions" protected
+{
+	Title "Developer Options"
+
+	StaticText "This game's tuning is locked: the presets leave it", 0
+	StaticText "alone, and a reset to defaults puts the locked values back", 0
+	SafeCommand "Lock these values as this game's tuning",	"rt_tuning_save"
+	SafeCommand "Back to this game's locked tuning",	"rt_tuning_restore"
+	StaticText " "
 
 	StaticText "Resolution", 1
 	Option "Output resolution (fullscreen)",	"vid_rt_fullscreen_height", "RtOutputHeight"
@@ -2343,5 +2419,5 @@ OptionMenu "RTOptions" protected
 	Slider "Bright colours keep their colour",	"rt_hot_color", 0, 1, 0.1, 1
 	StaticText " "
 
-	SafeCommand "Reset ray tracing settings to defaults",	"rt_defaults"
+	SafeCommand "Reset to defaults (keeps this game's tuning)",	"rt_defaults"
 }
