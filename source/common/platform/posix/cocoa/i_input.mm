@@ -69,6 +69,64 @@ size_t s_skipMouseMoves;
 
 // ---------------------------------------------------------------------------
 
+// The keys the game was told are down (by macOS key code: the DIK code each was
+// posted with, 0 = not down). A key's release that never reaches the game -- the
+// window lost focus while it was held, or the release was lost on the way -- left
+// it down for good: the player walked on by himself and the keys seemed not to
+// answer. Every tic, a key held here that macOS says is up is released here.
+uint8_t s_heldKeys[128];
+
+// CGEventSourceKeyState answered "down" for a key just pressed at least once (if
+// it never does -- not allowed, say -- the keys are not checked: that would
+// release every key at once)
+bool s_keyStateWorks;
+
+bool KeyIsDown(unsigned keyCode)
+{
+	return CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, CGKeyCode(keyCode));
+}
+
+void NoteKey(unsigned keyCode, int dik, bool down)
+{
+	if (keyCode >= 128 || dik <= 0 || dik > 255)
+		return;
+	s_heldKeys[keyCode] = down ? uint8_t(dik) : 0;
+	if (down && !s_keyStateWorks && KeyIsDown(keyCode))
+		s_keyStateWorks = true;
+}
+
+void PostKeyRelease(int dik)
+{
+	event_t event = {};
+	event.type  = EV_KeyUp;
+	event.data1 = dik;
+	D_PostEvent(&event);
+}
+
+void ReleaseStuckKeys()
+{
+	if (!s_keyStateWorks)
+		return;
+	for (unsigned k = 0; k < 128; ++k)
+	{
+		if (s_heldKeys[k] && !KeyIsDown(k))
+		{
+			fprintf(stderr, "Input: key %u (DIK %u) held by the game but up: released\n", k, unsigned(s_heldKeys[k]));
+			PostKeyRelease(s_heldKeys[k]);
+			s_heldKeys[k] = 0;
+		}
+	}
+}
+
+void ForgetHeldKeys()
+{
+	for (auto& key : s_heldKeys)
+		key = 0;
+}
+
+
+// ---------------------------------------------------------------------------
+
 
 void CheckGUICapture()
 {
@@ -80,6 +138,7 @@ void CheckGUICapture()
 		if (wantCapt)
 		{
 			buttonMap.ResetButtonStates();
+			ForgetHeldKeys();
 		}
 	}
 
@@ -169,6 +228,26 @@ void CheckNativeMouse()
 } // unnamed namespace
 
 
+// The game window lost focus (another app came to the front): what is held now
+// is let go -- its releases go to the other app, never to the game
+void I_ReleaseHeldKeys()
+{
+	int released = 0;
+	for (unsigned k = 0; k < 128; ++k)
+	{
+		if (s_heldKeys[k])
+		{
+			PostKeyRelease(s_heldKeys[k]);
+			++released;
+		}
+	}
+	ForgetHeldKeys();
+	buttonMap.ResetButtonStates();
+	if (released)
+		fprintf(stderr, "Input: the window lost focus: %d held keys released\n", released);
+}
+
+
 void I_GetEvent()
 {
 	[[NSRunLoop currentRunLoop] limitDateForMode:NSDefaultRunLoopMode];
@@ -181,6 +260,7 @@ void I_StartTic()
 
 	I_ProcessJoysticks();
 	I_GetEvent();
+	ReleaseStuckKeys();
 }
 
 void I_StartFrame()
@@ -527,6 +607,7 @@ void ProcessKeyboardEvent(NSEvent* theEvent)
 		{
 			event.data2 = KEYCODE_TO_ASCII[ keyCode ];
 
+			NoteKey(keyCode, event.data1, EV_KeyDown == event.type);
 			D_PostEvent(&event);
 		}
 	}
@@ -563,6 +644,10 @@ void ProcessKeyboardFlagsEvent(NSEvent* theEvent)
 		// Caps Lock is a modifier key which generates one event per state change
 		// but not per actual key press or release. So treat any event as key down
 		event.type = EV_KeyDown;
+	}
+	else
+	{
+		NoteKey([theEvent keyCode], event.data1, EV_KeyDown == event.type);
 	}
 
 	D_PostEvent(&event);

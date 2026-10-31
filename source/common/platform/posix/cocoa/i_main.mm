@@ -296,6 +296,10 @@ extern bool AppActive;
 {
 	ZD_UNUSED(aNotification);
 
+	// keys held as the game lost focus: their releases go to another app
+	extern void I_ReleaseHeldKeys();
+	I_ReleaseHeldKeys();
+
 	if (GSnd)
 		S_SetSoundPaused(0);
 
