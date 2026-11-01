@@ -443,6 +443,16 @@ void HWDrawInfo::DispatchSprites()
 			if (t == 624 || t == 625) continue;
 		}
 
+		// ray tracing: a one-sided wall sprite seen from behind is not there (hw_walls.cpp),
+		// nor is its voxel model -- the rasterizer lets voxel models through. E4L1's hidden
+		// switch by the hand dryer faces into the wall: its switch model stood out of the
+		// wall back to front, over the dryer
+		if (RT_IsActive() && (tspr->cstat & (CSTAT_SPRITE_ONE_SIDE | CSTAT_SPRITE_ALIGNMENT_MASK)) == (CSTAT_SPRITE_ONE_SIDE | CSTAT_SPRITE_ALIGNMENT_WALL))
+		{
+			const DVector2 v = tspr->pos.XY() - DVector2(g_rtViewPos[0], g_rtViewPos[1]);
+			if (tspr->Angles.Yaw.Cos() * v.X + tspr->Angles.Yaw.Sin() * v.Y >= 0) continue;
+		}
+
 		if (i < rtHiddenSpriteStart) actor->spr.cstat2 |= CSTAT2_SPRITE_MAPPED;	// not for what only the path tracer sees
 
 		if (!(tspr->cstat2 & CSTAT2_SPRITE_NOANIMATE))
