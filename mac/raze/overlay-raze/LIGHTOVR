@@ -1,0 +1,10 @@
+LIGHTOVR
+{
+    // Raze RT's own additions to Duke-RT's LIGHTOVR (overlay/LIGHTOVR is replaced by
+    // setup.sh; this file is not). Positions in Raze's map units (Build x/16, y/16, z/256).
+    // Spot lights: type "spot", target x y z (or direction), cone outer [inner] in degrees,
+    // signal sector N with sectorresponse on / off / inverse.
+    //
+    // (E1L1's projector light is gone: the cinema's screen now keeps its own glow while
+    // the lights are off, as the game keeps the screen lit)
+}

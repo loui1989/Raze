@@ -1,0 +1,561 @@
+# Blood: its wall, floor and ceiling textures by material (Raze RT).
+# class <name> <roughness> <metallic> <bump> <polish: mirror strength, 0 = none>
+# <tile>[-<tile>] <class>   -- edit freely; the maps are made again when a class changes
+
+class stone        0.85 0.00 1.00 0.00
+class brick        0.85 0.00 1.20 0.00
+class concrete     0.90 0.00 0.60 0.00
+class plaster      0.85 0.00 0.50 0.00
+class wood         0.75 0.00 0.70 0.00
+class woodvarnish  0.60 0.00 0.50 0.25
+class marble       0.50 0.00 0.05 1.60
+class tile         0.55 0.00 0.20 1.00
+class metal        0.60 0.70 0.60 0.15
+class metalrust    0.80 0.35 0.90 0.00
+class metalshiny   0.40 0.90 0.20 0.90
+class glass        0.30 0.00 0.00 1.00
+class dirt         0.95 0.00 1.20 0.00
+class grass        0.95 0.00 1.00 0.00
+class foliage      0.85 0.00 1.00 0.00
+class flesh        0.60 0.00 1.00 0.35
+class fabric       0.95 0.00 0.50 0.00
+class paper        0.90 0.00 0.15 0.00
+class mud          0.70 0.00 0.80 0.20
+class snow         0.75 0.00 0.60 0.00
+class ice          0.30 0.00 0.50 1.40
+class fire         0.90 0.00 0.00 0.00 3.0   # glows: the texture itself (6th column)
+class lamp         0.60 0.00 0.00 0.00 2.5   # glows and lights as bright as it looks: its own shade (off: dark)
+class tube         0.90 0.00 0.00 0.00 3.0   # a light tube: glows as fire does (the texture itself); shot out like any lamp
+
+# stone
+0 stone
+1 stone
+2 stone
+3 stone
+4 stone
+5 stone
+6 stone
+8 stone
+37 stone
+50 stone
+80 stone
+81 stone
+82 stone
+83 stone
+93 stone
+103 stone
+110 stone
+111 stone
+114 stone
+115 stone
+127 stone
+128 stone
+129 stone
+137 stone
+138 stone
+142 stone
+168 stone
+187 stone
+255 stone
+267 stone
+274 stone
+275 stone
+276 stone
+277 stone
+279 stone
+280 stone
+281 stone
+282 stone
+283 stone
+285 stone
+287 stone
+302 stone
+303 stone
+310 stone
+320 stone
+321 stone
+340 stone
+341 stone
+342 stone
+343 stone
+344 stone
+346 stone
+352 stone
+354 stone
+355 stone
+363 stone
+365 stone
+411 stone
+413 stone
+415 stone
+422 stone
+427 stone
+433 stone
+441 stone
+443 stone
+445 stone
+458 stone
+459 stone
+486 stone
+487 stone
+512 stone
+529 stone
+538 stone
+556 stone
+567 stone
+568 stone
+638 stone
+643 stone
+702 stone
+1129 stone
+2039 stone
+2473 stone
+2492 stone
+2496 stone
+2500 stone
+# brick
+47 brick
+67 brick
+90 brick
+91 brick
+92 brick
+94 brick
+180 brick
+181 brick
+286 brick
+383 brick
+384 brick
+385 brick
+418 brick
+419 brick
+421 brick
+424 brick
+430 brick
+432 brick
+2293 brick
+2294 brick
+2450 brick
+2455 brick
+# concrete
+40 concrete
+55 concrete
+60 concrete
+272 concrete
+273 concrete
+345 concrete
+358 concrete
+369 concrete
+374 concrete
+379 concrete
+380 concrete
+381 concrete
+386 concrete
+400 concrete
+401 concrete
+405 concrete
+416 concrete
+429 concrete
+1011 concrete
+1012 concrete
+1057 concrete
+# plaster
+108 plaster
+109 plaster
+121 plaster
+123 plaster
+124 plaster
+125 plaster
+126 plaster
+130 plaster
+131 plaster
+132 plaster
+134 plaster
+140 plaster
+141 plaster
+150 plaster
+152 plaster
+153 plaster
+154 plaster
+160 plaster
+251 plaster
+406 plaster
+407 plaster
+408 plaster
+409 plaster
+414 plaster
+417 plaster
+450 plaster
+2050 plaster
+# wood
+15 wood
+20 wood
+21 wood
+22 wood
+23 wood
+24 wood
+25 wood
+26 wood
+27 wood
+28 wood
+29 wood
+31 wood
+32 wood
+33 wood
+34 wood
+35 wood
+36 wood
+38 wood
+46 wood
+49 wood
+56 wood
+57 wood
+63 wood
+64 wood
+68 wood
+69 wood
+84 wood
+88 wood
+95 wood
+96 wood
+105 wood
+107 wood
+117 wood
+120 wood
+135 wood
+139 wood
+148 wood
+149 wood
+159 wood
+169 wood
+170 wood
+171 wood
+172 wood
+173 wood
+174 wood
+175 wood
+176 wood
+178 wood
+184 wood
+185 wood
+186 wood
+244 wood
+245 wood
+246 wood
+247 wood
+248 wood
+250 wood
+261 wood
+327 wood
+336 wood
+390 wood
+391 wood
+392 wood
+393 wood
+394 wood
+395 wood
+396 wood
+397 wood
+398 wood
+399 wood
+449 wood
+452 wood
+457 wood
+462 wood
+504 wood
+510 wood
+514 wood
+562 wood
+620 wood
+645 wood
+646 wood
+709 wood
+720 wood
+1004 wood
+1556 wood
+1557 wood
+2026 wood
+2027 wood
+2451 wood
+2452 wood
+2474 wood
+2539 wood
+# woodvarnish
+30 woodvarnish
+157 woodvarnish
+158 woodvarnish
+179 woodvarnish
+254 woodvarnish
+# marble
+43 marble
+44 marble
+45 marble
+70 marble
+89 marble
+100 marble
+101 marble
+102 marble
+253 marble
+289 marble
+290 marble
+291 marble
+292 marble
+293 marble
+294 marble
+295 marble
+322 marble
+324 marble
+326 marble
+1717 marble
+1718 marble
+# tile
+297 tile
+298 tile
+304 tile
+305 tile
+306 tile
+309 tile
+471 tile
+473 tile
+474 tile
+# metal
+7 metal
+9 metal
+10 metal
+48 metal
+58 metal
+104 metal
+151 metal
+156 metal
+177 metal
+200 metal
+205 metal
+206 metal
+207 metal
+208 metal
+210 metal
+211 metal
+212 metal
+213 metal
+215 metal
+216 metal
+217 metal
+238 metal
+239 metal
+262 metal
+315 metal
+330 metal
+331 metal
+347 metal
+360 metal
+364 metal
+371 metal
+376 metal
+403 metal
+425 metal
+428 metal
+436 metal
+437 metal
+438 metal
+439 metal
+448 metal
+456 metal
+463 metal
+465 metal
+470 metal
+472 metal
+475 metal
+476 metal
+479 metal
+501 metal
+502 metal
+503 metal
+615 metal
+858 metal
+1097 metal
+1352 metal
+1665 metal
+1666 metal
+2289 metal
+2291 metal
+2453 metal
+2457 metal
+2460 metal
+2462 metal
+2463 metal
+2476 metal
+2477 metal
+2532 metal
+2534 metal
+2536 metal
+2537 metal
+# metalrust
+12 metalrust
+86 metalrust
+87 metalrust
+97 metalrust
+98 metalrust
+99 metalrust
+106 metalrust
+190 metalrust
+193 metalrust
+194 metalrust
+195 metalrust
+196 metalrust
+197 metalrust
+198 metalrust
+199 metalrust
+202 metalrust
+203 metalrust
+204 metalrust
+209 metalrust
+296 metalrust
+366 metalrust
+372 metalrust
+375 metalrust
+434 metalrust
+435 metalrust
+488 metalrust
+489 metalrust
+490 metalrust
+491 metalrust
+492 metalrust
+493 metalrust
+494 metalrust
+495 metalrust
+496 metalrust
+497 metalrust
+498 metalrust
+499 metalrust
+500 metalrust
+1116 metalrust
+# metalshiny
+311 metalshiny
+312 metalshiny
+# glass
+263 glass   # amber leaded window (mortuary)
+569 glass   # coloured glass panels
+264 glass
+265 glass
+266 glass
+454 glass
+# dirt
+16 dirt
+41 dirt
+42 dirt
+270 dirt
+361 dirt
+373 dirt
+1100 dirt
+# grass
+271 grass
+278 grass
+362 grass
+# foliage
+329 foliage
+455 foliage
+466 foliage
+480 foliage
+2491 foliage
+2499 foliage
+# flesh
+220 flesh
+223 flesh
+230 flesh
+231 flesh
+232 flesh
+233 flesh
+234 flesh
+235 flesh
+236 flesh
+237 flesh
+240 flesh
+241 flesh
+242 flesh
+243 flesh
+1095 flesh
+1096 flesh
+2458 flesh
+2461 flesh
+2466 flesh
+2467 flesh
+2468 flesh
+2469 flesh
+2471 flesh
+# fabric
+118 fabric
+119 fabric
+146 fabric
+163 fabric
+299 fabric
+300 fabric
+301 fabric
+307 fabric
+308 fabric
+716 fabric
+1007 fabric
+1008 fabric
+2635 fabric
+# paper
+356 paper
+440 paper
+931 paper
+# mud
+1029 mud
+1030 mud
+# snow
+2448 ice   # the frozen ground of episode 2 (was snow)
+# ice
+2490 ice
+2915 ice
+
+# fire (glows)
+2342 fire   # the animated fire (ovens, fireplaces)
+class orb          0.90 0.00 0.00 0.00 0.3   # a soft glow: the halo is translucent (3.0, then 1.0, blew them out); its light is the game's
+624-625 orb    # glow orbs: a white ball the map tints with a palette (the add-ons' coloured lights)
+796 tube   # the light tube (its palette's colour): glows as the fire class does, but a lamp -- a shot puts it out
+
+# ceiling lamps (lit; 2289 and 2291 are the same switched off)
+795 lamp   # the round ceiling lamp: on as it looks (a dark red alarm lamp: hardly a light)
+# the halogen ceiling panels: their light softer than the round lamp's (2.5 was too bright
+# once RTGL1's spot lights lit as asked)
+class lamppanel    0.60 0.00 0.00 0.00 1.6
+2288 lamppanel
+2290 lamppanel
+2292 lamppanel
+
+# candles, candelabras, chandeliers, hanging lamps and the wall torch with its flame in
+# its picture: only their flame glows (found by its colour), and they cast a light at it
+class flame        0.80 0.00 0.00 0.00 3.0
+506-509 flame
+580-583 flame
+584-587 flame
+596-597 flame
+628-630 flame
+938-941 flame
+1701-1707 flame
+2101-2114 flame   # fire on the ground, and on burning bodies
+908 flame         # the big fire (flame traps)
+3566-3579 fire    # the big ground fire (its animation): all of it glows -- as a flame only its bright tips did
+
+# windows: the texture keeps its class above; its glass panes (rt/windows/<tile>.pgm,
+# white = glass) are flat and smooth and mirror the scene, this strongly (1 = 15% head on)
+window 152 0.8
+window 154 0.8
+window 380 0.8
+window 384 0.8
+window 393 0.8
+window 397 0.8
+window 400 0.8
+
+# lamps that are decorations: a light of their own, this strong (1 = a candle's flame by its
+# size), coloured by the sprite's brightest colour unless r g b follow: light <tile>[-<tile>] [strength] [r g b]
+light 693 1.0     # the hanging lantern (Cryptic Passage's docks)
+light 640 0.65    # the lamp post (its lantern on top) (1.0 was too bright)
+light 641 0.65    # the lantern on a long chain (Death Wish, Marrow)
+
+# lanterns (the lamp post's, the one on a long chain, Cryptic Passage's hanging one): their
+# glass panes glow, warm, as a candle behind them (not their frame); their light is a
+# table light at the glass
+class lantern      0.60 0.00 0.00 0.00 1.5
+640-641 lantern
+693 lantern

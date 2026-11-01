@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raze RT: Read Me</title>
+<style>
+  :root { --bg: #faf7f4; --fg: #231c1a; --muted: #6d625d; --accent: #b4441f; --card: #ffffff; --line: #e8dfd9; --code: #f1ebe6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #171211; --fg: #efe7e2; --muted: #a99d97; --accent: #ff9a6b; --card: #211a18; --line: #352b28; --code: #2b2220; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px 64px; }
+  h1 { font-size: 34px; margin: 0 0 4px; letter-spacing: -0.5px; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  h2 { font-size: 21px; margin: 36px 0 10px; display: flex; gap: 10px; align-items: baseline; }
+  h2 .n { color: var(--accent); font-variant-numeric: tabular-nums; }
+  h3 { font-size: 16px; margin: 20px 0 6px; }
+  p, li { margin: 6px 0; }
+  ul { padding-left: 22px; }
+  a { color: var(--accent); }
+  code { background: var(--code); padding: 1px 6px; border-radius: 5px; font: 14px ui-monospace, Menlo, monospace; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font: 13.5px ui-monospace, Menlo, monospace; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin: 12px 0; }
+  .note { border-left: 3px solid var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .4px; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>Raze RT</h1>
+<p class="sub">Duke Nukem 3D and Blood with path-traced lighting, reflections, glass and volumetric smoke, running natively on Apple silicon Macs. Built on <a href="https://github.com/ZDoom/Raze">Raze</a> and the <a href="https://github.com/sultim-t/RayTracedGL1">RTGL1</a> path tracer.</p>
+
+<div class="card note">
+  <strong>You need:</strong> a Mac with Apple silicon (M1 or later; M3 or later recommended, because of their hardware ray tracing), macOS 14 or newer, and your own copy of the games. The games are not included.
+</div>
+
+<h2><span class="n">1</span> Get the games' files</h2>
+<p>Raze RT plays the original games' data. Put each game's folder anywhere on your Mac, for example a <code>Games</code> folder in your home folder. The installer looks there, in Applications, in Steam's folder and in Downloads, and you can also point it at a folder yourself.</p>
+<table>
+  <tr><th>Game</th><th>Best version</th><th>The installer looks for</th></tr>
+  <tr><td>Duke Nukem 3D</td><td>20th Anniversary World Tour (its normal maps are used), or Atomic Edition</td><td><code>DUKE3D.GRP</code></td></tr>
+  <tr><td>Blood</td><td>Fresh Supply (includes Cryptic Passage), or One Unit Whole Blood</td><td><code>BLOOD.RFF</code></td></tr>
+</table>
+<p class="muted">These releases are made for Windows. To get their files onto a Mac, you can copy the game's folder from a Windows PC where it is installed, or unpack the GOG installer with <a href="https://constexpr.org/innoextract/">innoextract</a> (<code>brew install innoextract</code>, then <code>innoextract setup_….exe</code>).</p>
+
+<h2><span class="n">2</span> Optional: download the extras</h2>
+<p>These make the games look even better. They are made by other people, so download them yourself from their pages and leave them in your <strong>Downloads</strong> folder. The installer finds them there.</p>
+<table>
+  <tr><th>Extra</th><th>What it adds</th><th>Leave in Downloads as</th></tr>
+  <tr><td><a href="https://www.moddb.com/mods/voxel-duke-nukem-3d">Voxel Duke Nukem 3D</a> (Cheello)</td><td>3D models for Duke's monsters and objects</td><td>the .zip, or its folder</td></tr>
+  <tr><td><a href="https://www.moddb.com/mods/blood-coagulated">Blood: Coagulated</a> (Cheello, Adam Matthews), the Fresh Supply version</td><td>3D models for Blood's monsters and props</td><td>the .7z, or its folder</td></tr>
+  <tr><td><a href="https://www.moddb.com/addons/blood-upscale-pack-v21">Blood Upscale Pack 2.1</a> (Phredreeke and others)</td><td>HD textures and sprites</td><td>the .zip, or its folder</td></tr>
+  <tr><td><a href="https://www.moddb.com/mods/death-wish-for-blood">Death Wish</a></td><td>A new Blood campaign</td><td>its unzipped folder</td></tr>
+  <tr><td><a href="https://www.moddb.com/mods/marrow">Marrow</a></td><td>A new Blood episode</td><td>its unzipped folder</td></tr>
+</table>
+<p class="muted">You can add extras later: download them, then run the installer again. Your saves and settings are kept.</p>
+
+<h2><span class="n">3</span> Install</h2>
+<ol>
+  <li>Open the disk image and double-click <strong>Install Raze RT</strong>.</li>
+  <li>The first time, macOS says it can't check the app, because it isn't from the App Store or a registered developer. Click <strong>Done</strong>, then open <strong>System Settings → Privacy &amp; Security</strong>, scroll down and click <strong>Open Anyway</strong> next to "Install Raze RT". Confirm with your password.
+    <br><span class="muted">Or, in Terminal: <code>xattr -dr com.apple.quarantine "/Volumes/Raze RT/Install Raze RT.app"</code>, then open it.</span></li>
+  <li>The installer shows the games it found. Choose which to install, then which extras to take. If macOS asks whether it may read your Downloads folder, allow it.</li>
+  <li>When it's done, you'll find <strong>Duke Nukem 3D RT</strong> and <strong>Blood RT</strong> in Applications.</li>
+</ol>
+
+<h2><span class="n">4</span> Play</h2>
+<ul>
+  <li>Open a game from Applications. Blood asks first whether to play Blood or an add-on (Cryptic Passage, Death Wish, Marrow).</li>
+  <li>The first time you play each level, its surface materials are made and kept, so the level can look plain for a few seconds.</li>
+  <li><strong>Options → Ray Tracing</strong> has a quality preset (Low, Medium, High), the resolution and upscaling, dynamic resolution (it keeps the frame rate by lowering the render size), vertical sync, brightness and the effects. With dynamic resolution on, a lower preset gives a sharper picture at the same frame rate.</li>
+  <li>For the smoothest play, close or minimise busy windows such as a browser playing video: they share the graphics chip with the game.</li>
+  <li>The console opens with the key left of 1 (<code>§</code> or <code>`</code>).</li>
+</ul>
+
+<h2><span class="n">5</span> Where things are</h2>
+<table>
+  <tr><td>Launchers</td><td><code>/Applications</code> (or <code>~/Applications</code>)</td></tr>
+  <tr><td>Saves, settings</td><td><code>~/Library/Application Support/Raze RT/Duke/user</code>, <code>…/Blood/user</code></td></tr>
+  <tr><td>Logs (if something goes wrong)</td><td><code>…/Duke/logs</code>, <code>…/Blood/logs</code></td></tr>
+</table>
+<p><strong>Updating:</strong> run the new version's installer. Saves, settings and extras are kept.<br>
+<strong>Uninstalling:</strong> delete the launchers and the folder <code>~/Library/Application Support/Raze RT</code>. Your game files are never changed.</p>
+
+<h2><span class="n">6</span> Credits</h2>
+<p>Raze (the ZDoom team, after EDuke32, NBlood and Build by Ken Silverman) · RTGL1 path tracer (Sultim Tsyrendashiev) · Duke-RT's lights and material maps (postmemetic) · Voxel Duke Nukem 3D and Blood: Coagulated (Cheello and others) · Blood Upscale Pack (Phredreeke and others) · Death Wish and Marrow (their authors) · Duke Nukem 3D (3D Realms, Gearbox) · Blood (Monolith; Fresh Supply by Nightdive Studios).</p>
+<p class="muted">Raze RT is free software under the GNU GPL. The licences and the source changes are in the "Licences and Source" folder on the disk image.</p>
+</main>
+</body>
+</html>

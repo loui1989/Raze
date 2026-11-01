@@ -1,0 +1,36 @@
+Raze RT -- credits and licences
+===============================
+
+What this disk image contains, who made it, and under what terms.
+
+Raze (the game engine)
+  The ZDoom team and contributors, after EDuke32, NBlood, Build (Ken Silverman) and
+  GZDoom. GNU General Public License, version 2 or later.
+  https://github.com/ZDoom/Raze
+  Raze RT is Raze with the patches in Source/patches/raze. Source/setup.sh says which
+  version of Raze they apply to and how it is built. Raze's Build code is also under the
+  Build licence (buildlic.txt).
+
+RTGL1 (the path tracer)
+  Sultim Tsyrendashiev and contributors. MIT License.
+  https://github.com/sultim-t/RayTracedGL1
+  Raze RT's version is RTGL1 with the patches in Source/patches/rtgl1 (shaders) and
+  Source/patches/rtgl1-lib (its Metal backend).
+
+Libraries inside the engine (raze.app/Contents/Frameworks)
+  OpenAL Soft (GNU LGPL 2), ZMusic (ZDoom team; GPL/LGPL/BSD parts), libsndfile (GNU
+  LGPL 2.1), FLAC, Ogg, Vorbis, Opus (BSD licences). Their source is at their projects.
+
+Duke-RT's lights and material maps (LIGHTOVR, material maps for Duke's textures)
+  postmemetic and Duke-RT's contributors. https://github.com/postmemetic/Duke-RT
+
+Raze RT's own files
+  The material tables, Blood's window masks, the voxel definitions for Blood: Coagulated
+  and the tuned settings were made for Raze RT. Same terms as Raze.
+
+Not included (the installer takes them from the player's own copies)
+  Duke Nukem 3D (3D Realms, Gearbox) and Blood (Monolith; Fresh Supply: Nightdive
+  Studios): the games' data.
+  Voxel Duke Nukem 3D and Blood: Coagulated (Cheello, Adam Matthews and others), the
+  Blood Upscale Pack (Phredreeke and others), Death Wish and Marrow (their authors):
+  download them from their pages (the Read Me has the links).

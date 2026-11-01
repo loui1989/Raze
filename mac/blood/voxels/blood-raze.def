@@ -1,0 +1,3 @@
+// Raze reads the blood-raze.def files instead of blood.def as soon as one exists (the HD
+// texture pack in ../hd brings one): this one keeps the voxel models (blood.def) loading.
+include blood.def

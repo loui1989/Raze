@@ -1,0 +1,29 @@
+# bumps and heights (parallax) from a texture's own light and dark texels, for the
+# textures World Tour made no normal map for (0 = none)
+autobump 0.6
+
+class glass        0.30 0.00 0.00 1.00
+
+# see-through windows: refracting glass (rt_glass)
+503 glass
+510 glass
+
+# a glow of its own, so it is found in the dark -- not a lamp: a shot does not put it out
+# (class names beginning "steady"; 6th column: how bright -- 3 = its colours at full
+# brightness). Not where Duke-RT made a glow map for the picture (its lit buttons).
+class steadyswitch 0.70 0.00 0.00 0.00 1.5
+class steadyglow   0.70 0.00 0.00 0.00 3.0
+
+# the switches, off and on (and their frames): access, slot (key card), light, space door
+# and light, Frankenstein, nuke button, multi, dip, tech, light 2, power, lock, hand,
+# pull, hand print, button
+130-149   steadyswitch
+162-171   steadyswitch
+712-713   steadyswitch
+860-865   steadyswitch
+1111-1112 steadyswitch
+1122-1123 steadyswitch
+1155-1156 steadyswitch
+3164      steadyswitch
+# the alien switch (E2's hives: Incubator) -- dark brown: brighter
+1142-1143 steadyglow
