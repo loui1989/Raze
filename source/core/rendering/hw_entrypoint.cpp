@@ -466,7 +466,7 @@ static void RT_BuildCopies(const DVector3& cpos, sectortype* camsect)
 			if (!c.water) return false;
 			const int side = RT_WaterSide(si, ss->lotag);
 			if (side == 3 - c.water) return true;
-			return c.water == 2 && !g_rtWaterSide.empty() && side != 2;
+			return c.water == 2 && side != 2;	// (Duke: by the sectors' lotags)
 		};
 
 		// the linked side within reach of the camera's place there, through openings

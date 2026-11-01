@@ -228,10 +228,17 @@ static int getdrugmode(DDukePlayer *p, int oyrepeat)
 //
 //---------------------------------------------------------------------------
 
+static void RT_SetupWaterCopyAbove(sectortype* sect, const DVector3& cpos);
+
 static void RT_SetupWaterCopy(sectortype* sect, const DVector3& cpos)
 {
 	updatesector(cpos.XY(), &sect);
-	if (!sect || sect->lotag != ST_2_UNDERWATER) return;
+	if (!sect) return;
+	if (sect->lotag != ST_2_UNDERWATER)
+	{
+		RT_SetupWaterCopyAbove(sect, cpos);
+		return;
+	}
 
 	constexpr double reach = 1600; // 50 m
 	struct WaterCopy
@@ -308,6 +315,98 @@ static void RT_SetupWaterCopy(sectortype* sect, const DVector3& cpos)
 		l.delta = copies[k].delta;
 		l.start = sectindex(copies[k].above);
 		l.water = 1;
+		for (unsigned i = 0; i < n; i++)
+			if (owner[i] == int(k)) l.holes.push_back(int(i));
+		g_rtCopyLinks.push_back(std::move(l));
+	}
+}
+
+//---------------------------------------------------------------------------
+//
+// Above the water: the room under each surface (somewhere else on the map, joined by
+// its transporters) copied below the surface. Without it the rays that go into the
+// water found nothing under it and went on to the sky: indoor pools showed the sky
+// (E2L2's, E2L9's) -- not the ceiling's reflection nor the pool. As for Blood's.
+//
+//---------------------------------------------------------------------------
+
+static void RT_SetupWaterCopyAbove(sectortype* sect, const DVector3& cpos)
+{
+	constexpr double reach = 1600; // 50 m
+	struct WaterCopy
+	{
+		DVector3 delta;          // above + delta = below
+		sectortype* below;
+		double dist;
+		TArray<int> seeds;       // the sectors of its transporters (above)
+	};
+	TArray<WaterCopy> copies;
+
+	DukeStatIterator it(STAT_TRANSPORT);
+	while (auto act = it.Next())
+	{
+		auto own = act->GetOwner();
+		if (!own || own == act || !act->insector() || !own->insector()) continue;
+		if (act->sector()->lotag != ST_1_ABOVE_WATER || own->sector()->lotag != ST_2_UNDERWATER) continue;
+		const double d = act->sector() == sect ? 0. : (act->spr.pos.XY() - cpos.XY()).Length();
+		if (d > reach) continue;
+		const DVector3 delta(own->spr.pos.X - act->spr.pos.X, own->spr.pos.Y - act->spr.pos.Y,
+			own->sector()->ceilingz - act->sector()->floorz);
+
+		WaterCopy* c = nullptr;
+		for (auto& cc : copies)
+			if (fabs(cc.delta.X - delta.X) < 4 && fabs(cc.delta.Y - delta.Y) < 4 && fabs(cc.delta.Z - delta.Z) < 4) { c = &cc; break; }
+		if (!c)
+		{
+			copies.Push({ delta, own->sector(), d, {} });
+			c = &copies.Last();
+		}
+		else if (d < c->dist)
+		{
+			c->dist = d;
+			c->below = own->sector();
+		}
+		c->seeds.Push(act->sectno());
+	}
+	if (copies.Size() == 0) return;
+
+	// each copy's surfaces: the above-water sectors with a water floor around its
+	// transporters, each going to the nearest transporter's copy
+	const unsigned n = sector.Size();
+	auto waterFloor = [](sectortype* s)
+	{
+		if (s->lotag != ST_1_ABOVE_WATER || (s->floorstat & CSTAT_SECTOR_SKY)) return false;
+		const int t = legacyTileNum(s->floortexture);
+		return (t >= 336 && t <= 338) || (t >= 200 && t <= 202);
+	};
+	std::vector<int> owner(n, -1);
+	TArray<int> front, next;
+	for (unsigned k = 0; k < copies.Size(); k++)
+		for (int si : copies[k].seeds)
+			if (owner[si] < 0) { owner[si] = k; front.Push(si); }
+	while (front.Size())
+	{
+		next.Clear();
+		for (int si : front)
+			for (auto& w : sector[si].walls)
+			{
+				if (!w.twoSided()) continue;
+				auto ns = w.nextSector();
+				const int ni = sectindex(ns);
+				if (owner[ni] >= 0 || !waterFloor(ns)) continue;
+				owner[ni] = owner[si];
+				next.Push(ni);
+			}
+		std::swap(front, next);
+	}
+
+	// the renderer makes the copies: the under-water side only (water 2)
+	for (unsigned k = 0; k < copies.Size(); k++)
+	{
+		RtCopyLink l;
+		l.delta = copies[k].delta;
+		l.start = sectindex(copies[k].below);
+		l.water = 2;
 		for (unsigned i = 0; i < n; i++)
 			if (owner[i] == int(k)) l.holes.push_back(int(i));
 		g_rtCopyLinks.push_back(std::move(l));
