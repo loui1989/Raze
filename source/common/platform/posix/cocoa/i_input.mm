@@ -76,6 +76,10 @@ size_t s_skipMouseMoves;
 // answer. Every tic, a key held here that macOS says is up is released here.
 uint8_t s_heldKeys[128];
 
+// tics a held key has been seen up (macOS has a key up a moment before its release
+// event comes: it is released here only if the event has not come a tic later)
+uint8_t s_upTics[128];
+
 // CGEventSourceKeyState answered "down" for a key just pressed at least once (if
 // it never does -- not allowed, say -- the keys are not checked: that would
 // release every key at once)
@@ -91,6 +95,7 @@ void NoteKey(unsigned keyCode, int dik, bool down)
 	if (keyCode >= 128 || dik <= 0 || dik > 255)
 		return;
 	s_heldKeys[keyCode] = down ? uint8_t(dik) : 0;
+	s_upTics[keyCode] = 0;
 	if (down && !s_keyStateWorks && KeyIsDown(keyCode))
 		s_keyStateWorks = true;
 }
@@ -109,8 +114,13 @@ void ReleaseStuckKeys()
 		return;
 	for (unsigned k = 0; k < 128; ++k)
 	{
-		if (s_heldKeys[k] && !KeyIsDown(k))
+		if (!s_heldKeys[k] || KeyIsDown(k))
 		{
+			s_upTics[k] = 0;
+		}
+		else if (++s_upTics[k] >= 3)
+		{
+			s_upTics[k] = 0;
 			fprintf(stderr, "Input: key %u (DIK %u) held by the game but up: released\n", k, unsigned(s_heldKeys[k]));
 			PostKeyRelease(s_heldKeys[k]);
 			s_heldKeys[k] = 0;

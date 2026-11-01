@@ -544,6 +544,12 @@ class DukeLevelSummaryScreen : SummaryScreenBase
 				Duke.PlaySound("PIPEBOMB_EXPLODE", CHAN_AUTO, CHANF_UI);
 				displaystate = printStatsAll;
 			}
+			else if (displaystate & (dukeAnim | dukeWait))
+			{
+				// a press while Duke speaks: on to the next level (it started his
+				// animation and a new speech again, and the level waited on that one)
+				jobstate = finished;
+			}
 			else if (!(displaystate & dukeAnim))
 			{
 				displaystate |= dukeAnim;
