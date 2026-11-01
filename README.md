@@ -1,5 +1,9 @@
 > **This is Raze RT for macOS:** Duke Nukem 3D and Blood with a path tracer on Apple silicon. See [MACOS-RT.md](MACOS-RT.md), and [Releases](https://github.com/loui1989/Raze/releases) for the download.
 
+| Duke Nukem 3D | Blood |
+|---|---|
+| [![Duke Nukem 3D RT on YouTube](https://img.youtube.com/vi/txWHj8inaOs/maxresdefault.jpg)](https://www.youtube.com/watch?v=txWHj8inaOs) | [![Blood RT on YouTube](https://img.youtube.com/vi/g5cavapkRdo/maxresdefault.jpg)](https://www.youtube.com/watch?v=g5cavapkRdo) |
+
 # Welcome to Raze!
 
 [![Continuous Integration](https://github.com/ZDoom/Raze/actions/workflows/continuous_integration.yml/badge.svg)](https://github.com/ZDoom/Raze/actions/workflows/continuous_integration.yml)

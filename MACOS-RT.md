@@ -2,6 +2,10 @@
 
 Duke Nukem 3D and Blood with a real-time path tracer, running natively on Apple silicon Macs: Raze with the [RTGL1](https://github.com/sultim-t/RayTracedGL1) path tracer on Metal.
 
+| Duke Nukem 3D | Blood |
+|---|---|
+| [![Duke Nukem 3D RT on YouTube](https://img.youtube.com/vi/txWHj8inaOs/maxresdefault.jpg)](https://www.youtube.com/watch?v=txWHj8inaOs) | [![Blood RT on YouTube](https://img.youtube.com/vi/g5cavapkRdo/maxresdefault.jpg)](https://www.youtube.com/watch?v=g5cavapkRdo) |
+
 **Download:** the disk image is under [Releases](https://github.com/loui1989/Raze/releases). It holds an installer that finds your copies of the games, lets you pick which to install and makes a launcher for each. The Read Me on the disk image covers getting the game files, the optional extras and getting past Gatekeeper.
 
 ## What it does
