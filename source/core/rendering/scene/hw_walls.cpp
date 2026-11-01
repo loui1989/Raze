@@ -1266,7 +1266,9 @@ void HWWall::ProcessWallSprite(HWDrawInfo* di, tspritetype* spr, sectortype* sec
 	glseg.x2 = pos[1].X;
 	glseg.y2 = -pos[1].Y;
 
-	if ((spr->cstat & CSTAT_SPRITE_ONE_SIDE) && !RT_IsActive())
+	// (ray tracing too: a one-sided sprite seen from behind is not there -- E1L1's arcade
+	// machine hides a switch that way, facing into the machine, a little in front of it)
+	if (spr->cstat & CSTAT_SPRITE_ONE_SIDE)
 	{
 		if (PointOnLineSide(di->Viewpoint.Pos.X, di->Viewpoint.Pos.Y, glseg.x1, glseg.y1, glseg.x2 - glseg.x1, glseg.y2 - glseg.y1) <= 0)
 		{

@@ -497,6 +497,7 @@ private:
     // the voxel models drawn this frame: one drawn again at the same place is skipped
     std::vector< uint64_t > m_modelsSeen{};
     std::vector< RgPrimitiveVertex > m_clipverts{};
+    std::vector< RgPrimitiveVertex > m_uiverts{};   // 2D, moved by the 2D drawer's transform
 
 public:
     RTFrameBuffer* m_fb{ nullptr };

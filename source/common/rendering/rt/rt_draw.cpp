@@ -900,6 +900,23 @@ void RTRenderState::InternalDraw( std::span< const RgPrimitiveVertex > verts,
     // a glowing texture with no emission map (one that changes: the fire)
     const bool  glowTex     = !emissionMap && hwtex && hwtex->Glow() > 0.f && !isUI && !isSky && !isSkyVis;
 
+    // the 2D drawer's transform: a picture drawn turned or scaled (DrawTexture's), and the
+    // menus moved as one opens another -- the old one slides out, the new one in
+    // (twod->SetOffset). The UI is given to RTGL1 without a transform: applied here, in the
+    // drawer's pixel space (without it both menus stood on top of each other meanwhile)
+    if( isUI && mModelMatrixEnabled )
+    {
+        const float* m = mModelMatrix.get();
+        m_uiverts.assign( verts.begin(), verts.end() );
+        for( auto& v : m_uiverts )
+        {
+            const float x = v.position[ 0 ], y = v.position[ 1 ];
+            v.position[ 0 ] = m[ 0 ] * x + m[ 4 ] * y + m[ 12 ];
+            v.position[ 1 ] = m[ 1 ] * x + m[ 5 ] * y + m[ 13 ];
+        }
+        verts = m_uiverts;
+    }
+
     if( isUI && !islines && m_scissor[ 2 ] >= 0 && m_scissor[ 3 ] >= 0 )
     {
         verts   = ClipToScissor( verts, indices );

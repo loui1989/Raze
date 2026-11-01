@@ -566,7 +566,7 @@ void HWFlat::ProcessFlatSprite(HWDrawInfo* di, tspritetype* sprite, sectortype* 
 	visibility = sectorVisibility(sector) *(4.f / 5.f); // The factor comes directly from Polymost. What is it with Build and these magic factors?
 
 	// Weird Build logic that really makes no sense.
-	if ((sprite->cstat & CSTAT_SPRITE_ONE_SIDE) != 0 && !RT_IsActive())
+	if ((sprite->cstat & CSTAT_SPRITE_ONE_SIDE) != 0)
 	{
 		DVector2 pos = { di->Viewpoint.Pos.X, -di->Viewpoint.Pos.Y };
 
